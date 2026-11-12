@@ -15,24 +15,36 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   """
 
   alias LlmCall.{
+    Capabilities,
     Config,
     Content,
     EncodedRequest,
     Error,
     Message,
     Reasoning,
+    ReasoningCapabilities,
     Request,
+    Response,
+    StreamEvent,
+    StreamState,
     ToolCall,
     ToolResult,
-    ToolSpec
+    ToolSpec,
+    Usage
   }
+
+  alias LlmCall.StreamDelta
+
+  @behaviour LlmCall.Codec
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
   @reserved_keys ~w(model messages system contents tools stream)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
+  @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
 
+  @impl true
   @spec info() :: LlmCall.Codec.Info.t()
   def info do
     %LlmCall.Codec.Info{
@@ -43,6 +55,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     }
   end
 
+  @impl true
   @spec encode_request(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
   def encode_request(%Request{} = request, %Config{} = config) do
@@ -58,6 +71,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     end
   end
 
+  @impl true
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
@@ -444,4 +458,334 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp error(message),
     do: {:error, %Error{kind: :validation, message: "gemini_generate_content: " <> message}}
+
+  @impl true
+  def decode_response(term, %Config{} = config) when is_map(term) do
+    case term["candidates"] do
+      [candidate | extra] when is_map(candidate) ->
+        with {:ok, parts} <- fetch_parts(candidate) do
+          content =
+            Enum.map(parts, &decode_part/1) ++
+              Enum.map(extra, &%Content.Raw{type: "candidate", data: &1})
+
+          {:ok,
+           %Response{
+             id: term["responseId"],
+             model: term["modelVersion"],
+             content: content,
+             stop_reason: response_stop_reason(candidate["finishReason"], content),
+             usage: decode_usage(term["usageMetadata"]),
+             raw: capture_response(config, term)
+           }}
+        end
+
+      _absent_or_empty ->
+        if blocked?(term) do
+          {:ok,
+           %Response{
+             id: term["responseId"],
+             model: term["modelVersion"],
+             content: [],
+             stop_reason: :content_filter,
+             usage: decode_usage(term["usageMetadata"]),
+             raw: capture_response(config, term)
+           }}
+        else
+          {:error, invalid_response("response has no candidates")}
+        end
+    end
+  end
+
+  def decode_response(_term, _config) do
+    {:error, invalid_response("payload is not a JSON object")}
+  end
+
+  @impl true
+  def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
+    status = error["status"]
+
+    %Error{
+      kind: :provider,
+      message: message,
+      code: status,
+      status: error["code"],
+      retryable?: status in @retryable_statuses,
+      raw: payload
+    }
+  end
+
+  def decode_error(_term, _config) do
+    %Error{
+      kind: :invalid_response,
+      message: "gemini_generate_content: unrecognized error payload",
+      raw: nil
+    }
+  end
+
+  @impl true
+  def capabilities(%Request{}, _config) do
+    %Capabilities{
+      tools: true,
+      parallel_tool_calls: true,
+      tool_choice: true,
+      structured_output: :json_schema,
+      image_input: true,
+      file_input: true,
+      reasoning: %ReasoningCapabilities{
+        supported: true,
+        efforts: [:none, :low, :high],
+        default_effort: nil,
+        budget_tokens: true,
+        adaptive: false,
+        summary: []
+      },
+      streaming_tool_calls: true,
+      prompt_cache: true,
+      stateful: false,
+      streaming: true
+    }
+  end
+
+  @impl true
+  def init_stream(%Request{} = request, %Config{} = config) do
+    with :ok <- validate_request(request, config) do
+      {:ok,
+       StreamState.new(__MODULE__, %{
+         id: nil,
+         model: nil,
+         next_tool_index: 0,
+         usage: nil,
+         stop_reason: nil,
+         finished?: false
+       })}
+    end
+  end
+
+  @impl true
+  def decode_stream_event(%{"error" => error}, %Config{} = config, %StreamState{}) do
+    {:error, decode_error(%{"error" => error}, config)}
+  end
+
+  def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
+    data = StreamState.data(state)
+
+    data = %{
+      data
+      | id: term["responseId"] || data.id,
+        model: term["modelVersion"] || data.model,
+        usage: accumulate_usage(data.usage, term["usageMetadata"])
+    }
+
+    {events, data} = chunk_events(term, config, data)
+    {:ok, events, StreamState.new(__MODULE__, data)}
+  end
+
+  def decode_stream_event(_term, _config, %StreamState{} = state), do: {:ok, [], state}
+
+  @impl true
+  def finish_stream(%StreamState{} = state, %Config{} = config) do
+    data = StreamState.data(state)
+
+    if data.finished? do
+      {:ok, [], state}
+    else
+      usage_events =
+        if usage?(data.usage) do
+          delta = %StreamDelta.MessageDelta{stop_reason: nil, usage: data.usage}
+          [event(:message_delta, nil, delta, nil, config)]
+        else
+          []
+        end
+
+      closed = %{data | finished?: true}
+
+      {:ok, usage_events ++ [event(:message_stop, nil, nil, nil, config)],
+       StreamState.new(__MODULE__, closed)}
+    end
+  end
+
+  defp fetch_parts(%{"content" => %{"parts" => parts}}) when is_list(parts), do: {:ok, parts}
+  defp fetch_parts(_candidate), do: {:error, invalid_response("candidate has no content parts")}
+
+  defp blocked?(term) do
+    case term["promptFeedback"] do
+      %{"blockReason" => reason} when is_binary(reason) -> true
+      _other -> false
+    end
+  end
+
+  defp invalid_response(message) do
+    %Error{kind: :invalid_response, message: "gemini_generate_content: " <> message}
+  end
+
+  defp decode_part(%{"text" => text, "thought" => true} = part) do
+    %Content.Thinking{text: text, signature: part["thoughtSignature"]}
+  end
+
+  defp decode_part(%{"text" => text}) when is_binary(text), do: %Content.Text{text: text}
+
+  defp decode_part(%{"functionCall" => call}) when is_map(call) do
+    %ToolCall{
+      id: nil,
+      name: call["name"],
+      arguments: call["args"] || %{},
+      raw_arguments: nil,
+      arguments_error: nil
+    }
+  end
+
+  defp decode_part(%{"inlineData" => %{} = data}) do
+    %Content.Image{source: {:base64, data["data"]}, media_type: data["mimeType"]}
+  end
+
+  defp decode_part(%{"fileData" => %{} = data}) do
+    %Content.File{
+      source: {:url, data["fileUri"]},
+      media_type: data["mimeType"],
+      filename: nil
+    }
+  end
+
+  defp decode_part(%{"functionResponse" => %{"name" => name} = response}) do
+    body = response["response"] || %{}
+
+    %ToolResult{
+      name: name,
+      content: body["result"] || body["error"] || "",
+      is_error: Map.has_key?(body, "error")
+    }
+  end
+
+  defp decode_part(part) when is_map(part) do
+    [key] = Map.keys(part)
+    %Content.Raw{type: key, data: part}
+  end
+
+  defp response_stop_reason(nil, _content), do: :unknown
+
+  defp response_stop_reason("STOP", content) do
+    if Enum.any?(content, &is_struct(&1, ToolCall)), do: :tool_calls, else: :end_turn
+  end
+
+  defp response_stop_reason("MAX_TOKENS", _content), do: :max_tokens
+
+  defp response_stop_reason(reason, _content)
+       when reason in ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"] do
+    :content_filter
+  end
+
+  defp response_stop_reason(_reason, _content), do: :unknown
+
+  defp decode_usage(nil), do: nil
+  defp decode_usage(%{} = usage), do: accumulate_usage(nil, usage)
+  defp decode_usage(_usage), do: nil
+
+  defp accumulate_usage(nil, nil), do: nil
+  defp accumulate_usage(current, nil), do: current
+
+  defp accumulate_usage(current, %{} = wire) do
+    base = current || %Usage{}
+
+    %Usage{
+      input_tokens: wire["promptTokenCount"] || base.input_tokens,
+      output_tokens: wire["candidatesTokenCount"] || base.output_tokens,
+      total_tokens: wire["totalTokenCount"] || base.total_tokens,
+      cache_read_tokens: wire["cachedContentTokenCount"] || base.cache_read_tokens,
+      cache_write_tokens: base.cache_write_tokens,
+      reasoning_tokens: wire["thoughtsTokenCount"] || base.reasoning_tokens
+    }
+  end
+
+  defp usage?(nil), do: false
+
+  defp usage?(%Usage{} = usage) do
+    usage.input_tokens || usage.output_tokens || usage.total_tokens || usage.cache_read_tokens ||
+      usage.reasoning_tokens
+  end
+
+  defp chunk_events(term, config, data) do
+    case term["candidates"] do
+      [candidate | _] when is_map(candidate) ->
+        parts = get_in(candidate, ["content", "parts"]) || []
+        {part_events, data} = parts_events(parts, term, config, data)
+
+        {finish_events, data} =
+          finish_events(candidate["finishReason"], parts, term, config, data)
+
+        {part_events ++ finish_events, data}
+
+      _absent_or_empty ->
+        cond do
+          blocked?(term) ->
+            delta = %StreamDelta.MessageDelta{stop_reason: :content_filter, usage: nil}
+
+            {[event(:message_delta, nil, delta, term, config)],
+             %{data | stop_reason: :content_filter}}
+
+          true ->
+            {[event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], data}
+        end
+    end
+  end
+
+  defp parts_events(parts, term, config, data) do
+    Enum.reduce(parts, {[], data}, fn part, {events, data} ->
+      {new_events, data} = part_events(part, term, config, data)
+      {events ++ new_events, data}
+    end)
+  end
+
+  defp part_events(%{"functionCall" => call}, term, config, data) when is_map(call) do
+    index = data.next_tool_index
+
+    delta = %StreamDelta.ToolCall{
+      id: nil,
+      name: call["name"],
+      arguments: LlmCall.JSON.encode(call["args"] || %{}),
+      index: index
+    }
+
+    events = [
+      event(:tool_call_start, index, delta, term, config),
+      event(:tool_call_delta, index, delta, term, config),
+      event(:tool_call_stop, index, %StreamDelta.ToolCall{index: index}, term, config)
+    ]
+
+    {events, %{data | next_tool_index: index + 1}}
+  end
+
+  defp part_events(%{"text" => text} = part, term, config, data)
+       when is_binary(text) and text != "" do
+    if part["thought"] == true do
+      thinking = %StreamDelta.Thinking{text: text, signature: part["thoughtSignature"]}
+      {[event(:thinking_delta, nil, thinking, term, config)], data}
+    else
+      {[event(:text_delta, nil, %StreamDelta.Text{text: text}, term, config)], data}
+    end
+  end
+
+  defp part_events(_part, _term, _config, data), do: {[], data}
+
+  defp finish_events(nil, _parts, _term, _config, data), do: {[], data}
+
+  defp finish_events(reason, parts, term, config, data) do
+    stop =
+      if reason == "STOP" and Enum.any?(parts, &is_map_key(&1, "functionCall")),
+        do: :tool_calls,
+        else: response_stop_reason(reason, [])
+
+    delta = %StreamDelta.MessageDelta{stop_reason: stop, usage: nil}
+
+    {[event(:message_delta, nil, delta, term, config)], %{data | stop_reason: stop}}
+  end
+
+  defp event(type, index, delta, term, config) do
+    %StreamEvent{type: type, index: index, delta: delta, raw: capture_event(config, term)}
+  end
+
+  defp capture_event(%Config{capture_raw: :all}, term) when is_map(term), do: term
+  defp capture_event(_config, _term), do: nil
+
+  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
+  defp capture_response(_config, _term), do: nil
 end

@@ -15,6 +15,8 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
     ToolSpec
   }
 
+  alias LlmCall.Fixtures.GeminiGenerateContent, as: Fx
+
   defp encode(request, config \\ %Config{}) do
     assert {:ok, encoded} = GenerateContent.encode_request(request, config)
     encoded
@@ -302,6 +304,229 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
 
       assert {:error, %Error{kind: :validation}} =
                GenerateContent.encode_request(request, %Config{})
+    end
+  end
+
+  defp stream_state(config \\ %Config{}) do
+    assert {:ok, state} = GenerateContent.init_stream(text_request(stream: true), config)
+    state
+  end
+
+  defp run_stream(chunks, config \\ %Config{}) do
+    Enum.reduce(chunks, {stream_state(config), []}, fn chunk, {state, acc} ->
+      {:ok, events, state} = GenerateContent.decode_stream_event(chunk, config, state)
+      {state, acc ++ events}
+    end)
+  end
+
+  describe "decode" do
+    test "decodes text parts, usage and stop reason" do
+      assert {:ok, response} = GenerateContent.decode_response(Fx.text_response(), %Config{})
+      assert response.id == "resp-1"
+      assert response.model == "gemini-2.5-pro"
+      assert response.stop_reason == :end_turn
+      assert LlmCall.Response.text(response) == "Hello"
+
+      assert response.usage == %LlmCall.Usage{
+               input_tokens: 12,
+               output_tokens: 5,
+               total_tokens: 17,
+               cache_read_tokens: 3,
+               cache_write_tokens: nil,
+               reasoning_tokens: 2
+             }
+    end
+
+    test "functionCall parts become ToolCall values with a decoded args map" do
+      {:ok, response} = GenerateContent.decode_response(Fx.tool_response(), %Config{})
+      assert response.stop_reason == :tool_calls
+
+      assert [
+               %ToolCall{
+                 id: nil,
+                 name: "get_weather",
+                 arguments: %{"city" => "Oslo"},
+                 raw_arguments: nil
+               }
+             ] = LlmCall.Response.tool_calls(response)
+    end
+
+    test "thought parts, inlineData and unknown parts are preserved" do
+      {:ok, response} = GenerateContent.decode_response(Fx.mixed_response(), %Config{})
+
+      assert [
+               %Content.Thinking{text: "hmm", signature: "ts"},
+               %Content.Text{text: "Hi"},
+               %Content.Image{source: {:base64, "AAA"}, media_type: "image/png"},
+               %Content.Raw{type: "executableCode"}
+             ] = response.content
+    end
+
+    test "finish reasons map to canonical stop reasons" do
+      for {wire, canonical} <- [
+            {"STOP", :end_turn},
+            {"MAX_TOKENS", :max_tokens},
+            {"SAFETY", :content_filter},
+            {"RECITATION", :content_filter},
+            {"OTHER", :unknown},
+            {"MALFORMED_FUNCTION_CALL", :unknown}
+          ] do
+        assert {:ok, %{stop_reason: ^canonical}} =
+                 GenerateContent.decode_response(Fx.response_with_finish(wire), %Config{})
+      end
+
+      assert {:ok, %{stop_reason: :content_filter}} =
+               GenerateContent.decode_response(Fx.blocked_response(), %Config{})
+    end
+
+    test "extra candidates are preserved as Raw content" do
+      {:ok, response} = GenerateContent.decode_response(Fx.two_candidates_response(), %Config{})
+      assert [%Content.Text{text: "first"}, %Content.Raw{type: "candidate"}] = response.content
+    end
+
+    test "capture_raw and invalid payloads behave as specified" do
+      payload = Fx.text_response()
+
+      assert {:ok, %{raw: ^payload}} =
+               GenerateContent.decode_response(payload, %Config{capture_raw: :response})
+
+      assert {:ok, %{raw: nil}} = GenerateContent.decode_response(payload, %Config{})
+
+      assert {:error, %Error{kind: :invalid_response}} =
+               GenerateContent.decode_response(%{"nope" => 1}, %Config{})
+
+      assert {:error, %Error{kind: :invalid_response}} =
+               GenerateContent.decode_response(%{"candidates" => [%{}]}, %Config{})
+    end
+
+    test "decode_error/2 normalizes the Google error envelope" do
+      payload = Fx.error_payload()
+
+      assert %Error{
+               kind: :provider,
+               message: "Quota exceeded",
+               code: "RESOURCE_EXHAUSTED",
+               status: 429,
+               retryable?: true,
+               raw: ^payload
+             } = GenerateContent.decode_error(payload, %Config{})
+
+      assert %Error{kind: :invalid_response, raw: nil} =
+               GenerateContent.decode_error(%{"weird" => 1}, %Config{})
+    end
+
+    test "capabilities/2 declares the Gemini surface" do
+      caps = GenerateContent.capabilities(text_request(), %Config{})
+
+      assert %LlmCall.Capabilities{
+               tools: true,
+               parallel_tool_calls: true,
+               tool_choice: true,
+               structured_output: :json_schema,
+               image_input: true,
+               file_input: true,
+               streaming_tool_calls: true,
+               prompt_cache: true,
+               stateful: false,
+               streaming: true
+             } = caps
+
+      assert %LlmCall.ReasoningCapabilities{
+               efforts: [:none, :low, :high],
+               budget_tokens: true,
+               adaptive: false,
+               summary: []
+             } = caps.reasoning
+    end
+  end
+
+  describe "stream" do
+    test "text chunks emit deltas and finish_stream flushes usage and stop" do
+      {state, events} = run_stream(Fx.text_chunks())
+      assert Enum.map(events, & &1.type) == [:text_delta, :text_delta, :message_delta]
+
+      assert Enum.map(Enum.filter(events, &(&1.type == :text_delta)), & &1.delta.text) == [
+               "Hel",
+               "lo"
+             ]
+
+      assert %LlmCall.StreamDelta.MessageDelta{stop_reason: :end_turn} = List.last(events).delta
+
+      assert {:ok,
+              [
+                %LlmCall.StreamEvent{
+                  type: :message_delta,
+                  delta: %LlmCall.StreamDelta.MessageDelta{
+                    usage: %LlmCall.Usage{total_tokens: 17}
+                  }
+                },
+                %LlmCall.StreamEvent{type: :message_stop}
+              ], state} = GenerateContent.finish_stream(state, %Config{})
+
+      assert state |> LlmCall.StreamState.data() |> Map.fetch!(:finished?) == true
+      assert {:ok, [], _state} = GenerateContent.finish_stream(state, %Config{})
+    end
+
+    test "functionCall parts emit a complete start/delta/stop triple and assemble" do
+      {_state, events} = run_stream(Fx.tool_chunks())
+      assert Enum.map(events, & &1.type) == [:tool_call_start, :tool_call_delta, :tool_call_stop]
+
+      assembler = LlmCall.StreamAssembler.new(json_decoder: &LlmCall.TestJSON.decode/1)
+
+      {_assembler, calls} =
+        Enum.reduce(events, {assembler, []}, fn event, {assembler, acc} ->
+          {:ok, assembler, new} = LlmCall.StreamAssembler.feed(assembler, event)
+          {assembler, acc ++ new}
+        end)
+
+      assert [
+               %ToolCall{
+                 id: nil,
+                 name: "get_weather",
+                 arguments: %{"city" => "Oslo"},
+                 index: 0
+               }
+             ] = calls
+    end
+
+    test "two function calls get distinct indexes" do
+      {_state, events} = run_stream(Fx.two_tool_chunks())
+
+      assert Enum.map(Enum.filter(events, &(&1.type == :tool_call_start)), & &1.index) == [0, 1]
+    end
+
+    test "thought text emits thinking deltas and capture_raw :all keeps the chunk" do
+      chunk = Fx.thought_chunk()
+
+      assert {:ok,
+              [
+                %LlmCall.StreamEvent{
+                  type: :thinking_delta,
+                  delta: %LlmCall.StreamDelta.Thinking{text: "hmm"},
+                  raw: ^chunk
+                }
+              ], _} =
+               GenerateContent.decode_stream_event(
+                 chunk,
+                 %Config{capture_raw: :all},
+                 stream_state(%Config{capture_raw: :all})
+               )
+
+      assert {:ok, [%LlmCall.StreamEvent{raw: nil}], _} =
+               GenerateContent.decode_stream_event(chunk, %Config{}, stream_state())
+    end
+
+    test "error chunks become typed errors and unknown chunks are Raw message deltas" do
+      assert {:error, %Error{kind: :provider}} =
+               GenerateContent.decode_stream_event(
+                 %{"error" => Fx.error_payload()["error"]},
+                 %Config{},
+                 stream_state()
+               )
+
+      assert {:ok,
+              [%LlmCall.StreamEvent{type: :message_delta, delta: %LlmCall.StreamDelta.Raw{}}], _} =
+               GenerateContent.decode_stream_event(%{"foo" => "bar"}, %Config{}, stream_state())
     end
   end
 end
