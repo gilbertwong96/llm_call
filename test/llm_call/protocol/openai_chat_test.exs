@@ -15,6 +15,8 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
     ToolSpec
   }
 
+  alias LlmCall.Fixtures.OpenAIChat, as: Fx
+
   defp encode(request, config \\ %Config{}) do
     assert {:ok, encoded} = Chat.encode_request(request, config)
     encoded
@@ -320,5 +322,247 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
       assert is_binary(message)
       assert {:error, %Error{kind: :validation}} = Chat.encode_request(request, %Config{})
     end
+  end
+
+  describe "decode" do
+    test "decodes a text response with usage and stop reason" do
+      assert {:ok, response} = Chat.decode_response(Fx.text_response(), %Config{})
+      assert response.id == "chatcmpl-1"
+      assert response.model == "gpt-4o"
+      assert response.stop_reason == :end_turn
+      assert LlmCall.Response.text(response) == "Hello there"
+
+      assert response.usage == %LlmCall.Usage{
+               input_tokens: 12,
+               output_tokens: 5,
+               total_tokens: 17,
+               cache_read_tokens: 3,
+               cache_write_tokens: nil,
+               reasoning_tokens: 0
+             }
+
+      assert response.raw == nil
+    end
+
+    test "capture_raw :response keeps the full payload" do
+      payload = Fx.text_response()
+
+      assert {:ok, %{raw: ^payload}} =
+               Chat.decode_response(payload, %Config{capture_raw: :response})
+
+      assert {:ok, %{raw: ^payload}} = Chat.decode_response(payload, %Config{capture_raw: :all})
+    end
+
+    test "decodes tool calls with decoded and raw arguments" do
+      assert {:ok, response} = Chat.decode_response(Fx.tool_call_response(), %Config{})
+      assert response.stop_reason == :tool_calls
+      assert [call] = LlmCall.Response.tool_calls(response)
+
+      assert call == %ToolCall{
+               id: "call_1",
+               name: "get_weather",
+               arguments: %{"city" => "Oslo"},
+               raw_arguments: ~s({"city":"Oslo"}),
+               arguments_error: nil,
+               index: nil
+             }
+    end
+
+    test "malformed tool arguments keep raw_arguments and never become an empty map" do
+      {:ok, response} = Chat.decode_response(Fx.malformed_tool_call_response(), %Config{})
+      assert [call] = LlmCall.Response.tool_calls(response)
+      assert call.arguments == nil
+      assert call.raw_arguments == ~s({"city":)
+      assert call.arguments_error == {:invalid_json, ~s({"city":)}
+    end
+
+    test "non-object tool arguments are an arguments_error" do
+      {:ok, response} = Chat.decode_response(Fx.array_tool_call_response(), %Config{})
+      assert [call] = LlmCall.Response.tool_calls(response)
+      assert call.arguments == nil
+      assert call.arguments_error == {:invalid_json, "[1,2]"}
+    end
+
+    test "reasoning_content becomes a thinking block and refusal becomes Raw" do
+      {:ok, response} = Chat.decode_response(Fx.reasoning_and_refusal_response(), %Config{})
+
+      assert [
+               %Content.Thinking{text: "step 1"},
+               %Content.Text{text: "Answer"},
+               %Content.Raw{type: "refusal"}
+             ] = response.content
+    end
+
+    test "extra choices are preserved as Raw content instead of being dropped" do
+      {:ok, response} = Chat.decode_response(Fx.two_choices_response(), %Config{})
+      assert [%Content.Text{text: "first"}, %Content.Raw{type: "choice"}] = response.content
+    end
+
+    test "unknown finish reasons decode to :unknown and missing usage stays nil" do
+      {:ok, response} = Chat.decode_response(Fx.unknown_finish_response(), %Config{})
+      assert response.stop_reason == :unknown
+      assert response.usage == nil
+    end
+
+    test "invalid payloads are invalid_response errors" do
+      assert {:error, %Error{kind: :invalid_response}} =
+               Chat.decode_response(%{"nope" => 1}, %Config{})
+
+      assert {:error, %Error{kind: :invalid_response}} =
+               Chat.decode_response(%{"choices" => []}, %Config{})
+    end
+
+    test "decode_error/2 normalizes the provider envelope" do
+      payload = Fx.error_payload()
+
+      assert %Error{
+               kind: :provider,
+               message: "Rate limit reached",
+               code: "rate_limit_exceeded",
+               status: nil,
+               retryable?: true,
+               raw: ^payload
+             } = Chat.decode_error(payload, %Config{})
+
+      assert %Error{kind: :invalid_response, raw: nil} = Chat.decode_error("boom", %Config{})
+    end
+
+    test "capabilities/2 declares the OpenAI Chat surface" do
+      caps = Chat.capabilities(text_request(), %Config{})
+
+      assert %LlmCall.Capabilities{
+               tools: true,
+               parallel_tool_calls: true,
+               tool_choice: true,
+               structured_output: :json_schema,
+               image_input: true,
+               file_input: false,
+               streaming_tool_calls: true,
+               prompt_cache: true,
+               stateful: false,
+               streaming: true
+             } = caps
+
+      assert %LlmCall.ReasoningCapabilities{
+               supported: true,
+               budget_tokens: false,
+               adaptive: false,
+               summary: []
+             } = caps.reasoning
+
+      assert :high in caps.reasoning.efforts
+    end
+  end
+
+  describe "stream" do
+    test "text deltas, stop reason and usage" do
+      {_state, events} = run_stream(Fx.text_chunks())
+
+      assert Enum.map(events, & &1.type) == [
+               :text_delta,
+               :text_delta,
+               :message_delta,
+               :message_delta,
+               :message_stop
+             ]
+
+      assert Enum.map(Enum.filter(events, &(&1.type == :text_delta)), & &1.delta.text) == [
+               "Hel",
+               "lo"
+             ]
+
+      assert %LlmCall.StreamDelta.MessageDelta{stop_reason: :end_turn, usage: nil} =
+               Enum.at(events, 2).delta
+
+      assert %LlmCall.StreamDelta.MessageDelta{
+               stop_reason: nil,
+               usage: %LlmCall.Usage{total_tokens: 17}
+             } = Enum.at(events, 3).delta
+
+      assert List.last(events).type == :message_stop
+    end
+
+    test "tool call fragments start, delta and stop" do
+      {_state, events} = run_stream(Fx.tool_call_chunks())
+      types = Enum.map(events, & &1.type)
+      assert :tool_call_start in types
+      assert :tool_call_delta in types
+      assert :tool_call_stop in types
+
+      assembler = LlmCall.StreamAssembler.new(json_decoder: &LlmCall.TestJSON.decode/1)
+
+      {_assembler, calls} =
+        Enum.reduce(events, {assembler, []}, fn event, {assembler, acc} ->
+          {:ok, assembler, new} = LlmCall.StreamAssembler.feed(assembler, event)
+          {assembler, acc ++ new}
+        end)
+
+      assert [%ToolCall{id: "call_1", name: "get_weather", arguments: %{"city" => "Oslo"}}] =
+               calls
+    end
+
+    test "usage merges instead of overwriting previously seen fields" do
+      {_state, events} = run_stream(Fx.usage_split_chunks())
+
+      usages =
+        for %{
+              type: :message_delta,
+              delta: %LlmCall.StreamDelta.MessageDelta{usage: %LlmCall.Usage{} = usage}
+            } <-
+              events,
+            do: usage
+
+      assert [
+               %LlmCall.Usage{input_tokens: 20, total_tokens: 20},
+               %LlmCall.Usage{input_tokens: 20, output_tokens: 4, total_tokens: 20}
+             ] = usages
+    end
+
+    test "[DONE] terminates the stream" do
+      assert {:done, %LlmCall.StreamState{}} =
+               Chat.decode_stream_event("[DONE]", %Config{}, stream_state())
+    end
+
+    test "capture_raw :all keeps the raw chunk on each event" do
+      chunk = Fx.text_chunk("Hi")
+
+      assert {:ok, [%LlmCall.StreamEvent{raw: ^chunk}], _state} =
+               Chat.decode_stream_event(
+                 chunk,
+                 %Config{capture_raw: :all},
+                 stream_state(%Config{capture_raw: :all})
+               )
+
+      assert {:ok, [%LlmCall.StreamEvent{raw: nil}], _state} =
+               Chat.decode_stream_event(chunk, %Config{}, stream_state())
+    end
+
+    test "unknown chunk shapes become Raw message deltas and finish_stream closes the stream once" do
+      state = stream_state()
+
+      assert {:ok,
+              [%LlmCall.StreamEvent{type: :message_delta, delta: %LlmCall.StreamDelta.Raw{}}],
+              state} =
+               Chat.decode_stream_event(%{"foo" => "bar"}, %Config{}, state)
+
+      assert {:ok, [%LlmCall.StreamEvent{type: :message_stop}], state} =
+               Chat.finish_stream(state, %Config{})
+
+      assert {:ok, [], ^state} = Chat.finish_stream(state, %Config{})
+    end
+  end
+
+  defp stream_state(config \\ %Config{}) do
+    assert {:ok, state} = Chat.init_stream(text_request(stream: true), config)
+    state
+  end
+
+  defp run_stream(chunks, config \\ %Config{}) do
+    Enum.reduce(chunks, {stream_state(config), []}, fn chunk, {state, acc} ->
+      case Chat.decode_stream_event(chunk, config, state) do
+        {:ok, events, state} -> {state, acc ++ events}
+        {:done, state} -> {state, acc ++ [:done]}
+      end
+    end)
   end
 end

@@ -19,17 +19,30 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     Message,
     Reasoning,
     Request,
+    Capabilities,
+    ReasoningCapabilities,
+    Response,
+    StreamEvent,
+    StreamState,
     ToolCall,
     ToolResult,
-    ToolSpec
+    ToolSpec,
+    Usage
   }
+
+  alias LlmCall.StreamDelta
+
+  @behaviour LlmCall.Codec
 
   @path "/v1/chat/completions"
   @headers [{"content-type", "application/json"}]
   @reserved_keys ~w(model messages system contents tools stream)
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
   @efforts [:none, :minimal, :low, :medium, :high]
+  @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
+  @known_message_keys ["role", "content", "tool_calls", "reasoning_content", "refusal"]
 
+  @impl true
   @spec info() :: LlmCall.Codec.Info.t()
   def info do
     %LlmCall.Codec.Info{
@@ -40,6 +53,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     }
   end
 
+  @impl true
   @spec encode_request(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
   def encode_request(%Request{} = request, %Config{} = config) do
@@ -55,6 +69,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     end
   end
 
+  @impl true
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
@@ -390,4 +405,375 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp error(message),
     do: {:error, %Error{kind: :validation, message: "openai_chat: " <> message}}
+
+  @impl true
+  def decode_response(term, %Config{} = config) when is_map(term) do
+    with {:ok, choice} <- first_choice(term),
+         {:ok, message} <- fetch_message(choice) do
+      {:ok,
+       %Response{
+         id: term["id"],
+         model: term["model"],
+         content: message_content(message) ++ extra_choices(term),
+         stop_reason: stop_reason(choice["finish_reason"]),
+         usage: decode_usage(term["usage"]),
+         raw: capture_response(config, term)
+       }}
+    end
+  end
+
+  def decode_response(_term, _config) do
+    {:error,
+     %Error{kind: :invalid_response, message: "openai_chat: payload is not a JSON object"}}
+  end
+
+  @impl true
+  def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
+    code = error["code"] || error["type"]
+
+    %Error{
+      kind: :provider,
+      message: message,
+      code: code,
+      status: nil,
+      retryable?: code in @retryable_codes,
+      raw: payload
+    }
+  end
+
+  def decode_error(_term, _config) do
+    %Error{kind: :invalid_response, message: "openai_chat: unrecognized error payload", raw: nil}
+  end
+
+  @impl true
+  def capabilities(%Request{}, _config) do
+    %Capabilities{
+      tools: true,
+      parallel_tool_calls: true,
+      tool_choice: true,
+      structured_output: :json_schema,
+      image_input: true,
+      file_input: false,
+      reasoning: %ReasoningCapabilities{
+        supported: true,
+        efforts: @efforts,
+        default_effort: nil,
+        budget_tokens: false,
+        adaptive: false,
+        summary: []
+      },
+      streaming_tool_calls: true,
+      prompt_cache: true,
+      stateful: false,
+      streaming: true
+    }
+  end
+
+  @impl true
+  def init_stream(%Request{} = request, %Config{} = config) do
+    with :ok <- validate_request(request, config) do
+      {:ok,
+       StreamState.new(__MODULE__, %{
+         id: nil,
+         model: nil,
+         usage: nil,
+         tool_indexes: [],
+         finished?: false
+       })}
+    end
+  end
+
+  @impl true
+  def decode_stream_event("[DONE]", _config, %StreamState{} = state), do: {:done, state}
+
+  def decode_stream_event(%{"error" => _} = term, %Config{} = config, %StreamState{}) do
+    {:error, decode_error(term, config)}
+  end
+
+  def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
+    data = StreamState.data(state)
+    data = %{data | id: term["id"] || data.id, model: term["model"] || data.model}
+    {events, data} = chunk_events(term, config, data)
+    {:ok, events, StreamState.new(__MODULE__, data)}
+  end
+
+  def decode_stream_event(_term, _config, %StreamState{} = state), do: {:done, state}
+
+  @impl true
+  def finish_stream(%StreamState{} = state, %Config{} = config) do
+    data = StreamState.data(state)
+
+    if data.finished? do
+      {:ok, [], state}
+    else
+      closed = %{data | finished?: true}
+      {:ok, [event(:message_stop, nil, nil, nil, config)], StreamState.new(__MODULE__, closed)}
+    end
+  end
+
+  defp first_choice(%{"choices" => [choice | _]}) when is_map(choice), do: {:ok, choice}
+  defp first_choice(%{"choices" => []}), do: {:error, invalid_response("response has no choices")}
+  defp first_choice(_term), do: {:error, invalid_response("response has no choices")}
+
+  defp fetch_message(%{"message" => message}) when is_map(message), do: {:ok, message}
+  defp fetch_message(_choice), do: {:error, invalid_response("choice has no message")}
+
+  defp invalid_response(message) do
+    %Error{kind: :invalid_response, message: "openai_chat: " <> message}
+  end
+
+  defp message_content(message) do
+    thinking =
+      case message["reasoning_content"] do
+        text when is_binary(text) and text != "" ->
+          [%Content.Thinking{text: text, signature: nil}]
+
+        _other ->
+          []
+      end
+
+    text =
+      case message["content"] do
+        text when is_binary(text) and text != "" -> [%Content.Text{text: text}]
+        _other -> []
+      end
+
+    calls = Enum.map(message["tool_calls"] || [], &decode_tool_call/1)
+
+    refusal =
+      case message["refusal"] do
+        text when is_binary(text) -> [%Content.Raw{type: "refusal", data: %{"refusal" => text}}]
+        _other -> []
+      end
+
+    unknown =
+      for {key, value} <- message,
+          key not in @known_message_keys,
+          not is_nil(value),
+          do: %Content.Raw{type: key, data: %{key => value}}
+
+    thinking ++ text ++ calls ++ refusal ++ unknown
+  end
+
+  defp decode_tool_call(entry) do
+    function = entry["function"] || %{}
+    raw = function["arguments"]
+    {arguments, arguments_error} = decode_arguments(raw)
+
+    %ToolCall{
+      id: entry["id"],
+      name: function["name"],
+      arguments: arguments,
+      raw_arguments: raw,
+      arguments_error: arguments_error
+    }
+  end
+
+  defp decode_arguments(nil), do: {nil, nil}
+
+  defp decode_arguments(raw) when is_binary(raw) do
+    case :json.decode(raw) do
+      decoded when is_map(decoded) -> {decoded, nil}
+      _not_a_map -> {nil, {:invalid_json, raw}}
+    end
+  rescue
+    _decode_error -> {nil, {:invalid_json, raw}}
+  end
+
+  defp extra_choices(term) do
+    term
+    |> Map.get("choices", [])
+    |> Enum.drop(1)
+    |> Enum.map(&%Content.Raw{type: "choice", data: &1})
+  end
+
+  defp stop_reason("stop"), do: :end_turn
+  defp stop_reason("length"), do: :max_tokens
+  defp stop_reason("tool_calls"), do: :tool_calls
+  defp stop_reason("function_call"), do: :tool_calls
+  defp stop_reason("content_filter"), do: :content_filter
+  defp stop_reason(_other), do: :unknown
+
+  defp decode_usage(nil), do: nil
+
+  defp decode_usage(%{} = usage) do
+    %Usage{
+      input_tokens: usage["prompt_tokens"],
+      output_tokens: usage["completion_tokens"],
+      total_tokens: usage["total_tokens"],
+      cache_read_tokens: get_in(usage, ["prompt_tokens_details", "cached_tokens"]),
+      cache_write_tokens: nil,
+      reasoning_tokens: get_in(usage, ["completion_tokens_details", "reasoning_tokens"])
+    }
+  end
+
+  defp decode_usage(_usage), do: nil
+
+  defp chunk_events(term, %Config{} = config, data) do
+    case term["choices"] do
+      [choice | _] when is_map(choice) ->
+        choice_events(choice, term, config, data)
+
+      empty when empty in [nil, []] ->
+        if is_map(term["usage"]) do
+          usage_tail(term, config, data)
+        else
+          {[raw_delta(term, config)], data}
+        end
+
+      _other ->
+        {[raw_delta(term, config)], data}
+    end
+  end
+
+  defp choice_events(choice, term, config, data) do
+    delta = choice["delta"] || %{}
+    index = choice["index"]
+
+    {tool_events, data} = tool_events(delta, index, term, config, data)
+    {stop_events, data} = finish_events(choice["finish_reason"], term, config, data)
+    {usage_events, data} = usage_events(term["usage"], term, config, data)
+
+    events =
+      text_events(delta, index, term, config) ++
+        thinking_events(delta, index, term, config) ++
+        tool_events ++ stop_events ++ usage_events
+
+    {events, data}
+  end
+
+  defp text_events(%{"content" => text}, index, term, config)
+       when is_binary(text) and text != "" do
+    [event(:text_delta, index, %StreamDelta.Text{text: text}, term, config)]
+  end
+
+  defp text_events(_delta, _index, _term, _config), do: []
+
+  defp thinking_events(%{"reasoning_content" => text}, index, term, config)
+       when is_binary(text) and text != "" do
+    [
+      event(
+        :thinking_delta,
+        index,
+        %StreamDelta.Thinking{text: text, signature: nil},
+        term,
+        config
+      )
+    ]
+  end
+
+  defp thinking_events(_delta, _index, _term, _config), do: []
+
+  defp tool_events(%{"tool_calls" => calls}, index, term, config, data) when is_list(calls) do
+    Enum.reduce(calls, {[], data}, fn call, {events, data} ->
+      tool_index = call["index"] || index || 0
+      function = call["function"] || %{}
+      seen? = tool_index in data.tool_indexes
+      data = %{data | tool_indexes: Enum.uniq([tool_index | data.tool_indexes])}
+
+      {events ++ tool_call_events(call, function, tool_index, seen?, term, config), data}
+    end)
+  end
+
+  defp tool_events(_delta, _index, _term, _config, data), do: {[], data}
+
+  defp tool_call_events(call, function, tool_index, seen?, term, config) do
+    delta = %StreamDelta.ToolCall{
+      id: call["id"],
+      name: function["name"],
+      arguments: function["arguments"],
+      index: tool_index
+    }
+
+    cond do
+      not seen? ->
+        [
+          event(:tool_call_start, tool_index, delta, term, config)
+          | fragment_events(function["arguments"], tool_index, term, config)
+        ]
+
+      is_binary(function["arguments"]) and function["arguments"] != "" ->
+        [event(:tool_call_delta, tool_index, delta, term, config)]
+
+      is_binary(call["id"]) or is_binary(function["name"]) ->
+        [event(:tool_call_start, tool_index, delta, term, config)]
+
+      true ->
+        []
+    end
+  end
+
+  defp fragment_events(fragment, index, term, config)
+       when is_binary(fragment) and fragment != "" do
+    [
+      event(
+        :tool_call_delta,
+        index,
+        %StreamDelta.ToolCall{arguments: fragment, index: index},
+        term,
+        config
+      )
+    ]
+  end
+
+  defp fragment_events(_fragment, _index, _term, _config), do: []
+
+  defp finish_events(nil, _term, _config, data), do: {[], data}
+
+  defp finish_events(finish_reason, term, config, data) do
+    stops =
+      data.tool_indexes
+      |> Enum.sort()
+      |> Enum.map(&event(:tool_call_stop, &1, %StreamDelta.ToolCall{index: &1}, term, config))
+
+    delta = %StreamDelta.MessageDelta{stop_reason: stop_reason(finish_reason), usage: nil}
+
+    {stops ++ [event(:message_delta, nil, delta, term, config)], %{data | tool_indexes: []}}
+  end
+
+  defp usage_events(nil, _term, _config, data), do: {[], data}
+
+  defp usage_events(usage, term, config, data) when is_map(usage) do
+    merged = merge_usage(data.usage, usage)
+    delta = %StreamDelta.MessageDelta{stop_reason: nil, usage: merged}
+    {[event(:message_delta, nil, delta, term, config)], %{data | usage: merged}}
+  end
+
+  defp usage_events(_usage, _term, _config, data), do: {[], data}
+
+  defp usage_tail(term, config, data) do
+    {usage_events, data} = usage_events(term["usage"], term, config, data)
+    closed = %{data | finished?: true}
+    {usage_events ++ [event(:message_stop, nil, nil, term, config)], closed}
+  end
+
+  defp merge_usage(nil, wire), do: merge_usage(%Usage{}, wire)
+
+  defp merge_usage(%Usage{} = current, wire) do
+    %Usage{
+      input_tokens: wire["prompt_tokens"] || current.input_tokens,
+      output_tokens: wire["completion_tokens"] || current.output_tokens,
+      total_tokens: wire["total_tokens"] || current.total_tokens,
+      cache_read_tokens:
+        get_in(wire, ["prompt_tokens_details", "cached_tokens"]) || current.cache_read_tokens,
+      cache_write_tokens: current.cache_write_tokens,
+      reasoning_tokens:
+        get_in(wire, ["completion_tokens_details", "reasoning_tokens"]) ||
+          current.reasoning_tokens
+    }
+  end
+
+  defp raw_delta(term, config) do
+    event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)
+  end
+
+  defp event(type, index, delta, term, config) do
+    %StreamEvent{type: type, index: index, delta: delta, raw: capture_event(config, term)}
+  end
+
+  defp capture_event(%Config{capture_raw: :all}, term) when is_map(term), do: term
+  defp capture_event(_config, _term), do: nil
+
+  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
+  defp capture_response(_config, _term), do: nil
 end
