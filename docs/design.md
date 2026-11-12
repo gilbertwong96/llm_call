@@ -1,0 +1,1628 @@
+# LlmCall Design
+
+Status: draft for implementation
+Date: 2026-11-12
+Project: `llm_call`
+Module namespace: `LlmCall`
+
+## 1. Summary
+
+`LlmCall` is a **wire-protocol codec** for LLM APIs.
+
+It turns a provider-neutral request into the request body, path, and protocol
+headers a provider expects, and turns provider response terms into a
+provider-neutral response. It deliberately does **not** own HTTP, authentication,
+model discovery, tool execution, approvals, retries, or an agent loop.
+
+The core idea:
+
+```text
+canonical request
+      |
+      v
+LlmCall.Codec.encode_request/2
+      |
+      v
+transport-neutral encoded request
+      |
+      v
+caller's HTTP transport (Req, Finch, Tesla, ...)
+      |
+      v
+provider response term
+      |
+      v
+LlmCall.Codec.decode_response/2
+      |
+      v
+canonical response
+```
+
+This is intentionally a smaller layer than a complete LLM client. It can be
+used by a higher-level client, an agent framework, or a custom application.
+
+## 2. Position
+
+### 2.1 What problem this solves
+
+Providers do not agree on:
+
+- request envelopes (`messages` versus `input`, `contents`, etc.)
+- system prompt placement
+- tool definitions and tool choice
+- tool call and tool result representation
+- content blocks and multi-modal inputs
+- response envelopes (`choices`, output items, content blocks)
+- streaming event shapes
+- stop reasons, usage accounting, and errors
+- state and continuation semantics
+
+`LlmCall` provides one stable Elixir data model for these wire-level concepts.
+
+### 2.2 What this is not
+
+`LlmCall` is not:
+
+- an HTTP client
+- an SSE/WebSocket parser
+- a model registry or pricing database
+- a tokenizer or context-window planner
+- a retry/rate-limit/circuit-breaker layer
+- an authentication manager
+- a tool executor
+- an approval, timeout, or audit system
+- an agent loop, memory, prompt-template, or chain framework
+- a replacement for `ReqLLM` or LangChain
+
+### 2.3 Relationship to `tool_call`
+
+`LlmCall` does not depend on the `tool_call` project.
+
+The tool concepts in `LlmCall` are wire data only:
+
+- `LlmCall.ToolSpec`: what the model may call
+- `LlmCall.ToolCall`: what the model asked to call
+- `LlmCall.ToolResult`: the result of a call, ready to send back to the model
+
+A `tool_call` adapter can be a separate package:
+
+```text
+tool_call  ---->  llm_call_tool_call  ---->  llm_call
+```
+
+or an optional module in the application:
+
+```elixir
+specs = LlmCall.ToolCall.from_describe(ToolCall.describe(MyApp.Tools))
+```
+
+The adapter converts `ToolCall` IR/schemas into `LlmCall.ToolSpec` values, and
+converts returned `LlmCall.ToolCall` values into calls that `ToolCall.run/3`
+can execute.
+
+Neither project should depend on the other in its core.
+
+### 2.4 Relationship to LangChain and ReqLLM
+
+| Project          | Focus                                                                    |
+|------------------|--------------------------------------------------------------------------|
+| LangChain Elixir | Chains, conversation flow, tool execution, callbacks                     |
+| ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools |
+| `LlmCall`        | Protocol codec and canonical wire IR                                     |
+
+`LlmCall` can be used underneath those systems. It should not grow into another
+full client: HTTP, auth, model metadata, and tool execution belong elsewhere.
+
+## 3. Goals
+
+- Provide a small, explicit canonical wire IR.
+- Support multiple native protocol families with independent codecs.
+- Preserve provider-specific data through raw/escape-hatch fields.
+- Keep the core dependency-free (Elixir standard library only).
+- Keep transport, auth, model registry, and tool execution out of the core.
+- Let applications plug in any tool-call framework.
+- Make protocol adapters testable with fixtures, without network access.
+- Make capability differences explicit instead of silently dropping fields.
+- Keep OpenAI Chat Completions and OpenAI Responses as distinct protocols.
+
+## 4. Non-goals
+
+The core must not contain:
+
+- HTTP request execution
+- SSE or WebSocket parsing
+- API key storage or OAuth/AWS signing
+- model registry or capability database
+- retry/backoff/rate-limit policy
+- tool execution or callbacks
+- approval, audit, or timeout policies
+- conversation persistence or server-side state management
+- prompt templates, chains, memory, or agent loops
+- a JSON encoder dependency
+
+The core may define the **data** needed by those layers, but not implement the
+behavior.
+
+## 5. Design principles
+
+1. **Protocol, not provider.** A protocol codec describes a wire format.
+   A provider is an endpoint plus authentication plus model availability.
+2. **Canonical does not mean lossless.** Canonicalize common concepts; keep
+   unknown/provider-specific data in `raw` or `provider_options`.
+3. **No silent drops.** If a canonical field cannot be represented by a
+   protocol, fail with a protocol/capability error or require an explicit
+   provider option.
+4. **Terms, not JSON strings.** Codecs return JSON-compatible Elixir terms.
+   The transport owns JSON encoding.
+5. **No hidden state.** Streaming and continuation state are explicit.
+6. **Tool execution is outside.** Tool calls are data; running them is the
+   application's job.
+7. **Small core, optional adapters.** HTTP and tool integrations live in
+   separate packages.
+8. **No `term()` in canonical public fields.** Canonical fields use explicit
+   unions/structs. `term()` is reserved for genuinely opaque adapter state (for
+   example, a protocol stream state) and transport-decoded input at the
+   behaviour boundary.
+
+## 6. Approaches considered
+
+### A. Full LLM client
+
+Include HTTP, auth, model registry, streaming transport, tool callbacks, and
+high-level `generate_text`.
+
+Advantages:
+
+- easy first call
+- broad functionality in one package
+
+Rejected because it duplicates ReqLLM and expands the maintenance surface
+without a clear differentiation.
+
+### B. Pure codec plus optional transport
+
+Core contains canonical IR and protocol codecs. A transport package can use
+Req/Finch, or applications can use their own client.
+
+Advantages:
+
+- small dependency surface
+- usable from any HTTP stack
+- easy fixture testing
+- independent of tool frameworks
+- allows provider/protocol separation
+
+Chosen approach.
+
+### C. Framework-specific adapters only
+
+Implement only adapters for one agent framework.
+
+Rejected because it duplicates protocol work across frameworks and does not
+create a reusable foundation.
+
+## 7. Architecture
+
+```text
+                    +----------------------+
+                    |   application / agent|
+                    +----------+-----------+
+                               |
+             canonical request / response
+                               |
+                    +----------v-----------+
+                    |       LlmCall        |
+                    |  canonical wire IR   |
+                    +----------+-----------+
+                               |
+                    +----------v-----------+
+                    |  LlmCall.Protocol.*  |
+                    |  encode/decode       |
+                    +----------+-----------+
+                               |
+                  encoded request / events
+                               |
+                    +----------v-----------+
+                    |   caller transport  |
+                    | Req / Finch / custom|
+                    +----------+-----------+
+                               |
+                         HTTP / JSON
+                               |
+                    +----------v-----------+
+                    |     LLM provider     |
+                    +----------------------+
+```
+
+### Core layers
+
+1. **Canonical IR** — request, messages, content, tool data, response,
+   streaming events, usage, errors.
+2. **Protocol codec** — encoding request terms and decoding response/event
+   terms.
+3. **Capabilities** — explicit protocol/model capability description.
+4. **Optional adapters** — transport and tool-framework packages.
+
+## 8. Canonical IR
+
+The names below use the existing project namespace, `LlmCall`.
+
+### 8.0 Single source of truth and raw capture
+
+Normalized fields are the authoritative contract. `raw` is an optional,
+immutable provider snapshot, never a second source that callers or codecs may
+use to update canonical fields after decoding.
+
+Rules:
+
+- `raw` is `nil` by default.
+- Raw capture is controlled by `LlmCall.Config.capture_raw`:
+  - `:none` — no raw payloads (default)
+  - `:response` — retain the full response payload on `Response.raw`
+  - `:all` — also retain provider events on `StreamEvent.raw`
+- A codec decodes normalized fields in one pass. It must not later overwrite
+  them from `raw`.
+- Do not store the same full payload in `Usage.raw`, `provider_metadata`, and
+  `Response.raw`. Those duplicate slots are intentionally absent from this
+  design.
+- `ToolCall.raw_arguments` is an optional lossless wire projection. If present,
+  `arguments` is the decoded form of `raw_arguments` (or `nil` when decoding
+  fails); the two fields must not be updated independently.
+- `Content.Raw` is only for an unknown content block. It is not a copy of the
+  full provider response.
+- `LlmCall` does not provide a JSON encoder; if raw payloads are persisted, the
+  application decides whether to serialize them.
+- The canonical response/content/usage should be sufficient for normal use;
+  raw is for diagnostics, provider extensions, and future capabilities.
+
+### 8.1 Request
+
+```elixir
+%LlmCall.Request{
+  model: "claude-sonnet-4-5",
+  system: [%LlmCall.Content.Text{text: "You are helpful."}],
+  messages: [%LlmCall.Message{}],
+  tools: [%LlmCall.ToolSpec{}],
+  tool_choice: :auto,
+  output: :text,
+  reasoning: %LlmCall.Reasoning{effort: :high},
+  params: %{
+    temperature: 0.2,
+    top_p: nil,
+    top_k: nil,
+    max_tokens: 1024,
+    stop: nil,
+    seed: nil
+  },
+  provider_options: %{},
+  stream: false
+}
+```
+
+Fields:
+
+- `model` — provider/model identifier as understood by the selected protocol
+  and endpoint.
+- `system` — `nil`, a string, or a list of content parts. The codec decides
+  where it belongs in the provider request.
+- `messages` — user/assistant turns. Tool results are content parts, not a
+  mandatory `:tool` role.
+- `tools` — optional neutral tool specifications.
+- `tool_choice` — `:auto | :none | :required | {:tool, name} | {:allowed, [name]}`.
+- `output` — `:text | :json_object | {:json_schema, name, schema, strict?}`.
+- `reasoning` — optional `%LlmCall.Reasoning{}`; controls thinking/reasoning
+  effort or budget where the protocol supports it. Provider-specific controls
+  remain in `reasoning.provider_options`.
+- `params` — common sampling/length controls.
+- `provider_options` — explicit escape hatch for provider-specific options.
+- `stream` — whether the caller wants streaming events.
+
+`provider_options` is intentionally not a catch-all for values that the
+canonical layer can represent. It is for features that are genuinely
+provider-specific.
+
+### 8.2 Message
+
+```elixir
+%LlmCall.Message{
+  role: :user | :assistant,
+  content: [LlmCall.content_part()]
+}
+```
+
+System instructions stay in `Request.system`, because provider placement
+differs:
+
+- OpenAI Chat: system/developer message
+- OpenAI Responses: `instructions`
+- Anthropic: top-level `system`
+- Gemini: `systemInstruction`
+- Bedrock Converse: top-level `system`
+
+Tool results are represented as content parts inside a user message:
+
+```elixir
+%LlmCall.Message{
+  role: :user,
+  content: [
+    %LlmCall.ToolResult{
+      call_id: "call_1",
+      name: "get_weather",
+      content: [%LlmCall.Content.Text{text: "Sunny"}],
+      is_error: false
+    }
+  ]
+}
+```
+
+Adapters translate this into provider-specific forms:
+
+- OpenAI Chat: `role: "tool"` message
+- OpenAI Responses: `function_call_output` input item
+- Anthropic: `tool_result` content block
+- Gemini: `functionResponse` part
+- Bedrock Converse: `toolResult` block
+- Cohere: `tool` message
+
+### 8.3 Content parts
+
+Initial canonical content types:
+
+- `%LlmCall.Content.Text{text: String.t()}`
+- `%LlmCall.Content.Image{source: source(), media_type: String.t() | nil}`
+- `%LlmCall.Content.File{source: source(), media_type: String.t() | nil, filename: String.t() | nil}`
+- `%LlmCall.ToolCall{}`
+- `%LlmCall.ToolResult{}`
+- `%LlmCall.Content.Thinking{text: String.t(), signature: String.t() | nil}`
+- `%LlmCall.Content.Raw{type: String.t() | nil, data: map()}`
+
+`ToolCall` and `ToolResult` are the shared canonical structs defined below; there
+are no duplicate `Content.ToolCall` or `Content.ToolResult` wrappers.
+
+`Raw` is an escape hatch for provider-specific blocks that the codec does not
+understand. It must be preserved in canonical responses and rendered back when
+possible.
+
+### 8.3.1 Reasoning
+
+Reasoning config is separate from `params` because providers expose different
+axes:
+
+```elixir
+%LlmCall.Reasoning{
+  effort: :none | :minimal | :low | :medium | :high | :xhigh | :max | nil,
+  budget_tokens: pos_integer() | nil,
+  summary: :none | :auto | :concise | :detailed | nil,
+  provider_options: %{}
+}
+```
+
+- `effort` is a canonical hint, not a guarantee that every provider accepts
+  every value. `nil` means the provider/model default.
+- `budget_tokens` is for providers that expose an explicit thinking budget.
+- `summary` is for providers that expose a separate reasoning-summary control.
+- A provider adapter maps `effort`/`budget_tokens`/`summary` to its native
+  fields; if it cannot express a non-nil canonical field, it must return a
+  validation/capability error rather than silently dropping it.
+- `provider_options` is for native controls with no canonical equivalent.
+
+Examples:
+
+- OpenAI: `reasoning.effort` on Responses; `reasoning_effort` on Chat.
+- Anthropic: adaptive thinking / budget thinking and effort controls; exact
+  shape depends on the API version.
+- Gemini: `thinkingConfig` level or budget, depending on model.
+- Bedrock/other: native provider fields through the adapter or
+  `provider_options`.
+
+### 8.4 ToolSpec
+
+```elixir
+%LlmCall.ToolSpec{
+  kind: :function | :builtin,
+  name: "get_weather" | nil,
+  description: "Get current weather" | nil,
+  parameters: %{...} | nil,
+  strict: nil,
+  provider_options: %{}
+}
+```
+
+- `parameters` is a JSON Schema object (`map()`), not a JSON string or a
+  provider-specific schema struct. `nil` is valid for a built-in tool that has
+  no function schema.
+- `kind: :function` is the normal function-tool case. `kind: :builtin` is for
+  provider-defined tools such as web search, file search, code interpreter, or
+  computer use; provider-specific details belong in `provider_options` and are
+  only supported by adapters that explicitly implement them.
+- No callback, function, approval policy, or execution metadata belongs here.
+- `strict` is optional; protocol adapters reject it when unsupported or map it
+  to their equivalent.
+
+### 8.5 ToolCall
+
+```elixir
+%LlmCall.ToolCall{
+  id: "call_1" | nil,
+  name: "get_weather",
+  arguments: %{"city" => "Oslo"} | nil,
+  raw_arguments: ~s({"city":"Oslo"}) | nil,
+  arguments_error: nil | {:invalid_json, String.t()},
+  index: 0 | nil
+}
+```
+
+The `arguments` map is the decoded form where decoding is safe. Keep the raw
+JSON string because:
+
+- OpenAI Chat and Cohere carry arguments as a JSON string.
+- Anthropic, Gemini, and Bedrock commonly carry a decoded object.
+- Applications may need to preserve invalid or partial fragments.
+- Some frameworks expect the raw string.
+
+`id: nil` is valid because Gemini `functionCall` does not have a call id.
+
+When `raw_arguments` is present, `arguments` is its decoded value. If decoding
+fails, `arguments` is `nil` and `arguments_error` explains the failure; the
+codec must not silently turn malformed arguments into `%{}`.
+
+### 8.6 ToolResult
+
+```elixir
+%LlmCall.ToolResult{
+  call_id: "call_1" | nil,
+  name: "get_weather",
+  content: [LlmCall.ContentPart.t()] | String.t(),
+  is_error: false
+}
+```
+
+Adapters validate required identifiers:
+
+- OpenAI Chat requires `call_id`.
+- OpenAI Responses requires `call_id`.
+- Anthropic uses `tool_use_id`.
+- Gemini uses `name` and no id.
+- Bedrock uses `toolUseId`.
+- Cohere uses `tool_call_id`.
+
+### 8.7 Response
+
+```elixir
+%LlmCall.Response{
+  id: "msg_123",
+  model: "claude-sonnet-4-5",
+  content: [LlmCall.ContentPart.t()],
+  stop_reason: :end_turn
+               | :tool_calls
+               | :max_tokens
+               | :stop_sequence
+               | :content_filter
+               | :error
+               | :unknown,
+  usage: %LlmCall.Usage{},
+  raw: nil
+}
+```
+
+`content` is a list of content parts, not provider-specific `choices` or output
+items. `raw` is a `map() | nil` provider snapshot, populated only when
+`Config.capture_raw` is `:response` or `:all`.
+
+`Response.raw` must not be treated as a second response model. Use
+`content`/`usage`/`stop_reason`; use raw only when provider-specific information
+was not represented canonically.
+
+Convenience helpers can be added without changing the IR:
+
+```elixir
+LlmCall.Response.text(response)
+LlmCall.Response.tool_calls(response)
+```
+
+### 8.8 Usage
+
+```elixir
+%LlmCall.Usage{
+  input_tokens: 123,
+  output_tokens: 45,
+  total_tokens: 168,
+  cache_read_tokens: 0,
+  cache_write_tokens: 0,
+  reasoning_tokens: nil
+}
+```
+
+Pricing and cost calculation are outside the core.
+
+Cost is not a wire field. It depends on provider, model, region, cache
+read/write pricing, batch/tier discounts, and reasoning-token pricing. The
+canonical `Usage` records the token dimensions needed by an upper layer, but
+`LlmCall` does not store price tables or computed cost. If an application needs
+cost tracking, use an optional `llm_call_cost` package or its own model-pricing
+layer. Provider-specific billing fields, if returned, belong in `raw` or a
+provider-specific extension.
+
+### 8.9 Error
+
+```elixir
+%LlmCall.Error{
+  kind: :protocol | :validation | :invalid_response | :provider,
+  message: "...",
+  code: "invalid_request_error" | nil,
+  status: 400 | nil,
+  retryable?: false,
+  raw: map() | nil
+}
+```
+
+HTTP-level transport failures are transport errors. Provider error envelopes
+decoded by a protocol codec become `LlmCall.Error`.
+
+### 8.10 Capabilities
+
+Capabilities are explicit and per protocol/config:
+
+```elixir
+%LlmCall.Capabilities{
+  tools: true,
+  parallel_tool_calls: false,
+  tool_choice: true,
+  structured_output: :json_schema,
+  image_input: true,
+  file_input: false,
+  reasoning: %LlmCall.ReasoningCapabilities{
+    supported: true,
+    efforts: [:low, :medium, :high],
+    default_effort: :medium,
+    budget_tokens: false,
+    adaptive: true,
+    summary: [:auto, :concise, :detailed]
+  },
+  streaming_tool_calls: true,
+  prompt_cache: true,
+  stateful: false,
+  streaming: true
+}
+```
+
+`LlmCall.Codec.validate_request/2` can reject unsupported combinations
+before a transport sends anything. No silent field dropping.
+
+### 8.11 Canonical type specifications
+
+The public structs should expose the following types. These are the types an
+implementation should write into the canonical modules; they are not optional
+documentation.
+
+```elixir
+defmodule LlmCall do
+  @type model :: String.t()
+  @type capture_raw :: :none | :response | :all
+  @type wire_value ::
+          nil
+          | boolean()
+          | number()
+          | String.t()
+          | [wire_value()]
+          | %{optional(String.t()) => wire_value()}
+
+  @type stop_reason ::
+          :end_turn
+          | :tool_calls
+          | :max_tokens
+          | :stop_sequence
+          | :content_filter
+          | :error
+          | :unknown
+end
+
+defmodule LlmCall.StreamState do
+  @opaque t :: %__MODULE__{codec: module(), data: term()}
+  defstruct [:codec, :data]
+
+  @spec new(module(), term()) :: t()
+  def new(codec, data), do: %__MODULE__{codec: codec, data: data}
+
+  @spec codec(t()) :: module()
+  def codec(%__MODULE__{codec: codec}), do: codec
+
+  @spec data(t()) :: term()
+  def data(%__MODULE__{data: data}), do: data
+end
+
+defmodule LlmCall.Content do
+  @type source ::
+          String.t()
+          | {:url, String.t()}
+          | {:base64, String.t()}
+          | {:file_id, String.t()}
+
+  @type part ::
+          %LlmCall.Content.Text{text: String.t()}
+          | %LlmCall.Content.Image{source: source(), media_type: String.t() | nil}
+          | %LlmCall.Content.File{
+              source: source(),
+              media_type: String.t() | nil,
+              filename: String.t() | nil
+            }
+          | %LlmCall.ToolCall{}
+          | %LlmCall.ToolResult{}
+          | %LlmCall.Content.Thinking{text: String.t(), signature: String.t() | nil}
+          | %LlmCall.Content.Raw{type: String.t() | nil, data: map()}
+end
+
+defmodule LlmCall.Content.Text do
+  @type t :: %__MODULE__{text: String.t()}
+  defstruct [:text]
+end
+
+defmodule LlmCall.Content.Image do
+  @type t :: %__MODULE__{
+          source: LlmCall.Content.source(),
+          media_type: String.t() | nil
+        }
+  defstruct [:source, :media_type]
+end
+
+defmodule LlmCall.Content.File do
+  @type t :: %__MODULE__{
+          source: LlmCall.Content.source(),
+          media_type: String.t() | nil,
+          filename: String.t() | nil
+        }
+  defstruct [:source, :media_type, :filename]
+end
+
+defmodule LlmCall.Content.Thinking do
+  @type t :: %__MODULE__{text: String.t(), signature: String.t() | nil}
+  defstruct [:text, :signature]
+end
+
+defmodule LlmCall.Content.Raw do
+  @type t :: %__MODULE__{type: String.t() | nil, data: map()}
+  defstruct [:type, :data]
+end
+
+defmodule LlmCall.Request do
+  @type system :: nil | String.t() | [LlmCall.Content.part()]
+  @type tool_choice ::
+          :auto
+          | :none
+          | :required
+          | {:tool, String.t()}
+          | {:allowed, [String.t()]}
+  @type output ::
+          :text
+          | :json_object
+          | {:json_schema, String.t(), map(), boolean() | nil}
+  @type params :: %{optional(atom()) => nil | boolean() | number() | String.t() | [String.t()]}
+
+  @type t :: %__MODULE__{
+          model: String.t(),
+          system: system(),
+          messages: [LlmCall.Message.t()],
+          tools: [LlmCall.ToolSpec.t()],
+          tool_choice: tool_choice(),
+          output: output(),
+          reasoning: LlmCall.Reasoning.t() | nil,
+          params: params(),
+          provider_options: map(),
+          stream: boolean()
+        }
+end
+
+defmodule LlmCall.Message do
+  @type role :: :user | :assistant
+  @type t :: %__MODULE__{role: role(), content: [LlmCall.Content.part()]}
+end
+
+defmodule LlmCall.Reasoning do
+  @type level ::
+          :none | :minimal | :low | :medium | :high | :xhigh | :max
+  @type effort :: level() | nil
+  @type summary :: :none | :auto | :concise | :detailed | nil
+  @type t :: %__MODULE__{
+          effort: effort(),
+          budget_tokens: pos_integer() | nil,
+          summary: summary(),
+          provider_options: map()
+        }
+end
+
+defmodule LlmCall.ReasoningCapabilities do
+  @type t :: %__MODULE__{
+          supported: boolean(),
+          efforts: [LlmCall.Reasoning.level()],
+          default_effort: LlmCall.Reasoning.level() | nil,
+          budget_tokens: boolean(),
+          adaptive: boolean(),
+          summary: [:none | :auto | :concise | :detailed]
+        }
+end
+
+defmodule LlmCall.ToolSpec do
+  @type kind :: :function | :builtin
+  @type t :: %__MODULE__{
+          kind: kind(),
+          name: String.t() | nil,
+          description: String.t() | nil,
+          parameters: map() | nil,
+          strict: boolean() | nil,
+          provider_options: map()
+        }
+end
+
+defmodule LlmCall.ToolCall do
+  @type arguments :: map() | nil
+  @type arguments_error :: nil | {:invalid_json, String.t()}
+  @type t :: %__MODULE__{
+          id: String.t() | nil,
+          name: String.t(),
+          arguments: arguments(),
+          raw_arguments: String.t() | nil,
+          arguments_error: arguments_error(),
+          index: non_neg_integer() | nil
+        }
+end
+
+defmodule LlmCall.ToolResult do
+  @type content :: [LlmCall.Content.part()] | String.t()
+  @type t :: %__MODULE__{
+          call_id: String.t() | nil,
+          name: String.t() | nil,
+          content: content(),
+          is_error: boolean()
+        }
+end
+
+defmodule LlmCall.Response do
+  @type t :: %__MODULE__{
+          id: String.t() | nil,
+          model: String.t() | nil,
+          content: [LlmCall.Content.part()],
+          stop_reason: LlmCall.stop_reason(),
+          usage: LlmCall.Usage.t() | nil,
+          raw: map() | nil
+        }
+end
+
+defmodule LlmCall.Usage do
+  @type tokens :: non_neg_integer() | nil
+  @type t :: %__MODULE__{
+          input_tokens: tokens(),
+          output_tokens: tokens(),
+          total_tokens: tokens(),
+          cache_read_tokens: tokens(),
+          cache_write_tokens: tokens(),
+          reasoning_tokens: tokens()
+        }
+end
+
+defmodule LlmCall.Error do
+  @type t :: %__MODULE__{
+          kind: :protocol | :validation | :invalid_response | :provider,
+          message: String.t(),
+          code: String.t() | nil,
+          status: non_neg_integer() | nil,
+          retryable?: boolean(),
+          raw: map() | nil
+        }
+end
+
+defmodule LlmCall.Config do
+  @type t :: %__MODULE__{
+          default_provider_options: map(),
+          capture_raw: LlmCall.capture_raw()
+        }
+end
+
+defmodule LlmCall.Capabilities do
+  @type t :: %__MODULE__{
+          tools: boolean(),
+          parallel_tool_calls: boolean(),
+          tool_choice: boolean(),
+          structured_output: :none | :json_object | :json_schema,
+          image_input: boolean(),
+          file_input: boolean(),
+          reasoning: LlmCall.ReasoningCapabilities.t() | nil,
+          streaming_tool_calls: boolean(),
+          prompt_cache: boolean(),
+          stateful: boolean(),
+          streaming: boolean()
+        }
+end
+
+defmodule LlmCall.EncodedRequest do
+  @type t :: %__MODULE__{
+          method: :post,
+          path: String.t(),
+          query: %{optional(String.t()) => String.t() | integer() | boolean()},
+          headers: [{String.t(), String.t()}],
+          body: map()
+        }
+end
+```
+
+`LlmCall.StreamEvent` and its `StreamDelta` types are specified in
+[Streaming](#12-streaming).
+
+## 9. OpenAI Chat Completions vs Responses
+
+These are separate protocol adapters, not one endpoint toggle.
+
+| Aspect         | Chat Completions                        | Responses                                      |
+|----------------|-----------------------------------------|------------------------------------------------|
+| Endpoint       | `/v1/chat/completions`                  | `/v1/responses`                                |
+| Request        | `messages[]`                            | `input` items or string                        |
+| System         | system/developer message                | `instructions`                                 |
+| State          | stateless                               | optional `store` + `previous_response_id`      |
+| Response       | `choices[0].message`                    | `output[]` items + `output_text`               |
+| Tool call      | assistant `tool_calls`                  | `function_call` output item                    |
+| Tool result    | `role: "tool"` message                  | `function_call_output` input item              |
+| Built-in tools | limited function tools                  | broader built-in tools depending model/account |
+| Streaming      | `choices[0].delta` chunks               | typed `response.*` events                      |
+| Token limit    | `max_tokens` / `max_completion_tokens`  | `max_output_tokens`                            |
+| Compatibility  | widely copied by OpenAI-compatible APIs | mostly OpenAI-native                           |
+
+Implement as:
+
+```text
+LlmCall.Protocol.OpenAI.Chat
+LlmCall.Protocol.OpenAI.Responses
+```
+
+The canonical IR can be shared, but the response/event/state mapping must be
+independent.
+
+OpenAI Responses state is deliberately provider-specific. `previous_response_id`
+and `store` live in `Request.provider_options` (for example under an `:openai`
+key) and are interpreted by the Responses adapter; `LlmCall` does not model
+server-side conversation state. The canonical `Response.id` remains available
+for the caller to continue the conversation.
+
+## 10. Codec contract
+
+```elixir
+defmodule LlmCall.Codec.Info do
+  @type t :: %__MODULE__{
+          name: atom(),
+          protocol: atom(),
+          version: String.t() | nil,
+          ir_version: pos_integer()
+        }
+  defstruct [:name, :protocol, :version, :ir_version]
+end
+
+defmodule LlmCall.Codec do
+  @callback info() :: LlmCall.Codec.Info.t()
+
+  @callback encode_request(
+              LlmCall.Request.t(),
+              LlmCall.Config.t()
+            ) ::
+              {:ok, LlmCall.EncodedRequest.t()}
+              | {:error, LlmCall.Error.t()}
+
+  @callback decode_response(
+              LlmCall.wire_value(),
+              LlmCall.Config.t()
+            ) ::
+              {:ok, LlmCall.Response.t()}
+              | {:error, LlmCall.Error.t()}
+
+  @callback decode_stream_event(
+              LlmCall.wire_value(),
+              LlmCall.Config.t(),
+              LlmCall.StreamState.t()
+            ) ::
+              {:ok, [LlmCall.StreamEvent.t()], LlmCall.StreamState.t()}
+              | {:done, LlmCall.StreamState.t()}
+              | {:error, LlmCall.Error.t()}
+
+  @callback decode_error(
+              LlmCall.wire_value(),
+              LlmCall.Config.t()
+            ) :: LlmCall.Error.t()
+
+  @callback validate_request(
+              LlmCall.Request.t(),
+              LlmCall.Config.t()
+            ) :: :ok | {:error, LlmCall.Error.t()}
+
+  @callback init_stream(
+              LlmCall.Request.t(),
+              LlmCall.Config.t()
+            ) :: {:ok, LlmCall.StreamState.t()} | {:error, LlmCall.Error.t()}
+
+  @callback finish_stream(
+              LlmCall.StreamState.t(),
+              LlmCall.Config.t()
+            ) ::
+              {:ok, [LlmCall.StreamEvent.t()], LlmCall.StreamState.t()}
+              | {:error, LlmCall.Error.t()}
+
+  @callback capabilities(
+              LlmCall.Request.t(),
+              LlmCall.Config.t()
+            ) :: LlmCall.Capabilities.t()
+
+  @optional_callbacks
+    init_stream: 2,
+    decode_stream_event: 3,
+    finish_stream: 2
+end
+```
+
+`LlmCall.Codec` is a behaviour. `LlmCall.Protocol.*` modules are concrete
+wire-protocol adapters that implement it. `Protocol` here is the domain
+namespace for wire protocols, not Elixir's `defprotocol`.
+
+`info/0` lets a codec declare its protocol name, wire version, and the canonical
+IR version it implements. `init_stream/2`, `decode_stream_event/3`, and
+`finish_stream/2` are optional so a non-streaming codec does not have to
+implement dummy callbacks. When streaming is unavailable, the public API returns
+a typed `LlmCall.Error` rather than raising.
+
+Streaming state is never exposed as a bare `term()`. It is wrapped in opaquely
+typed `LlmCall.StreamState`:
+
+```elixir
+%LlmCall.StreamState{codec: MyCodec, data: codec_private_state}
+```
+
+The public API checks `StreamState.codec(state) == selected_codec` before
+delegating, so passing an Anthropic state to the OpenAI codec is a typed error.
+Codec implementations use `StreamState.data/1` and `StreamState.new/2`; the
+`data` remains deliberately opaque.
+
+`Config` contains codec defaults and capture policy, not the canonical model
+selection:
+
+```elixir
+%LlmCall.Config{
+  default_provider_options: %{},
+  capture_raw: :none
+}
+```
+
+`default_provider_options` is merged before `Request.provider_options`; the
+request value wins per key. `Request.model` is the only model selection.
+`Config` does not contain credentials or a base URL.
+
+```elixir
+@type capture_raw :: :none | :response | :all
+```
+
+### 10.1 Codec discovery and extension
+
+Codec selection is explicit:
+
+```elixir
+LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
+```
+
+There is no provider or codec registry in the core. A higher-level client may
+map provider/model names to codec modules, but `LlmCall` does not. This keeps a
+new protocol adapter independent of model catalogs and authentication.
+
+Adding a new codec should require only:
+
+1. A module implementing `LlmCall.Codec`.
+2. Protocol-specific request/response/stream fixtures.
+3. Codec metadata via `info/0`.
+4. Capability declarations for the models/endpoints the codec supports.
+
+It should not require a change to canonical `Request`, `Message`, `Response`,
+or `Tool` structs for already-representable concepts.
+
+### 10.2 Canonical type evolution
+
+Canonical IR changes follow these rules:
+
+- Add new optional fields with defaults in a minor release.
+- Add new content-part variants to the `Content.part()` union only when existing
+  codecs can ignore them safely or return a capability error for them.
+- Unknown provider content is preserved in `Content.Raw`; a codec must not
+  discard it.
+- `Raw` is an escape hatch, not a permanent substitute for a canonical type.
+  When a provider feature becomes common, promote it to a typed content/field
+  in a documented release.
+- Removing or changing the meaning of an existing canonical field requires a
+  major release.
+- Changing required codec callbacks, or making an optional streaming callback
+  required, is a breaking change.
+- `Codec.Info.ir_version` identifies the canonical IR contract a codec was
+  implemented against.
+
+### 10.3 Codec conformance tests
+
+Provide an optional test-support module:
+
+```text
+test/support/codec_conformance.ex
+```
+
+It should give third-party codec authors fixture-based assertions for:
+
+- request path/query/headers/body
+- response and error decoding
+- streaming event order
+- tool-call fragment assembly
+- usage/stop reason mapping
+- `capture_raw` behavior
+- capability validation and unsupported-field rejection
+- `info/0` metadata consistency
+
+Conformance tests are test support, not a runtime dependency.
+
+## 11. Encoded request boundary
+
+```elixir
+%LlmCall.EncodedRequest{
+  method: :post,
+  path: "/v1/chat/completions",
+  query: %{},
+  headers: [{"anthropic-version", "2023-06-01"}],
+  body: %{}
+}
+```
+
+- `path`, `query`, `headers`, and `body` are protocol-level facts.
+- `body` is a JSON-compatible term, not an encoded JSON string.
+- Headers may include required protocol headers.
+- Headers must not include credentials; authentication is added by the
+  transport.
+- The transport prepends the base URL and performs JSON encoding.
+
+Example caller:
+
+```elixir
+{:ok, encoded} =
+  LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
+
+body = JSON.encode!(encoded.body)
+
+Req.post!(
+  base_url <> encoded.path,
+  headers: auth_headers ++ encoded.headers,
+  body: body
+)
+```
+
+## 12. Streaming
+
+The core defines normalized events; it does not parse SSE.
+
+```elixir
+defmodule LlmCall.StreamEvent do
+  @type type ::
+          :message_start
+          | :content_start
+          | :text_delta
+          | :tool_call_start
+          | :tool_call_delta
+          | :tool_call_stop
+          | :thinking_delta
+          | :content_stop
+          | :message_delta
+          | :message_stop
+          | :error
+
+  @type index :: non_neg_integer() | nil
+
+  @type delta ::
+          nil
+          | %LlmCall.StreamDelta.Text{text: String.t()}
+          | %LlmCall.StreamDelta.ToolCall{
+              id: String.t() | nil,
+              name: String.t() | nil,
+              arguments: String.t() | nil,
+              index: index()
+            }
+          | %LlmCall.StreamDelta.Thinking{
+              text: String.t(),
+              signature: String.t() | nil
+            }
+          | %LlmCall.StreamDelta.MessageDelta{
+              stop_reason: LlmCall.stop_reason() | nil,
+              usage: LlmCall.Usage.t() | nil
+            }
+          | %LlmCall.StreamDelta.Raw{data: map()}
+
+  @type raw :: map() | nil
+
+  @type t :: %__MODULE__{
+          type: type(),
+          index: index(),
+          delta: delta(),
+          raw: raw()
+        }
+
+  defstruct [:type, :index, :delta, :raw]
+end
+```
+
+The delta modules are small typed structs:
+
+```elixir
+defmodule LlmCall.StreamDelta.Text do
+  @type t :: %__MODULE__{text: String.t()}
+  defstruct [:text]
+end
+
+defmodule LlmCall.StreamDelta.ToolCall do
+  @type t :: %__MODULE__{
+          id: String.t() | nil,
+          name: String.t() | nil,
+          arguments: String.t() | nil,
+          index: non_neg_integer() | nil
+        }
+  defstruct [:id, :name, :arguments, :index]
+end
+
+defmodule LlmCall.StreamDelta.Thinking do
+  @type t :: %__MODULE__{
+          text: String.t(),
+          signature: String.t() | nil
+        }
+  defstruct [:text, :signature]
+end
+
+defmodule LlmCall.StreamDelta.MessageDelta do
+  @type t :: %__MODULE__{
+          stop_reason: LlmCall.stop_reason() | nil,
+          usage: LlmCall.Usage.t() | nil
+        }
+  defstruct [:stop_reason, :usage]
+end
+
+defmodule LlmCall.StreamDelta.Raw do
+  @type t :: %__MODULE__{data: map()}
+  defstruct [:data]
+end
+```
+
+`delta` is a closed union of these canonical delta structs. It must not be
+`term()`, and each delta type must be usable without pattern-matching raw
+provider JSON.
+
+`raw` is provider-specific but still typed as a JSON object (`map()`) or
+`nil`. It is populated only when `Config.capture_raw == :all`, so normal
+streaming does not retain a second full event per chunk. If a provider sends a
+non-object sentinel, the transport/codec should normalize it to
+`{:done, state}` or wrap it in a map; it should not leak an arbitrary term into
+the public type.
+
+### 12.1 Streaming tool-call assembly
+
+The wire layer can emit tool-call fragments before the model has finished its
+output. A separate, pure `LlmCall.StreamAssembler` turns those fragments into
+complete `LlmCall.ToolCall` values.
+
+```elixir
+defmodule LlmCall.StreamAssembler do
+  @type decoder :: (String.t() -> {:ok, map()} | {:error, String.t()}) | nil
+
+  @opaque t :: %__MODULE__{
+            json_decoder: decoder(),
+            calls: map()
+          }
+
+  defstruct json_decoder: nil, calls: %{}
+
+  @spec new(keyword()) :: t()
+  def new(opts \\ [])
+
+  @spec feed(t(), LlmCall.StreamEvent.t()) ::
+          {:ok, t(), [LlmCall.ToolCall.t()]}
+
+  @spec finish(t()) :: {:ok, t(), [LlmCall.ToolCall.t()]}
+end
+```
+
+Rules:
+
+- Pending calls are keyed by `StreamEvent.index`.
+- `:tool_call_start` records `id` and `name`.
+- `:tool_call_delta` appends the `arguments` string fragment.
+- `:tool_call_stop`, `:content_stop`, or `:message_stop` finalizes pending
+  calls.
+- `finish/1` finalizes any calls that did not receive an explicit stop event.
+- Tool calls with multiple entries are independent and may complete at
+  different times.
+- The assembler does not execute tools and does not send tool results.
+- A completed call may be emitted before `:message_stop` when the provider
+  emits a per-block stop. The caller may start local side effects then, but it
+  must send the tool result in the next model request after the current
+  response completes.
+
+The core does not depend on a JSON codec. `new/1` accepts an optional
+`json_decoder`:
+
+```elixir
+StreamAssembler.new(json_decoder: &JSON.decode/1)
+```
+
+`json_decoder` receives the accumulated argument string and returns
+`{:ok, map()} | {:error, String.t()}`. If no decoder is provided, the assembler
+returns the complete `ToolCall` with `arguments: nil` and an
+`arguments_error` explaining that decoding was unavailable. If decoding fails,
+the same error field is populated and `raw_arguments` is preserved.
+
+Provider timing differs:
+
+| Protocol | Tool-call completion signal | Early execution before message end |
+| --- | --- | --- |
+| OpenAI Chat Completions | `finish_reason: "tool_calls"` / final chunk | normally at message end |
+| OpenAI Responses | `response.output_item.done` for the function call | often before response end |
+| Anthropic Messages | `content_block_stop` for the tool block | yes, when the block stops |
+| Gemini GenerateContent | complete `functionCall` part | yes |
+| Bedrock Converse | tool-use block stop / message stop | provider-dependent |
+| Cohere Chat | final tool-call chunk / finish reason | usually at response end |
+
+Early execution is an application decision. `LlmCall` only exposes complete
+calls; it does not run them or insert results into an active response.
+
+Transport responsibilities:
+
+- parse SSE framing
+- decode JSON payloads
+- detect provider stream terminators such as `[DONE]`
+- pass decoded terms to `decode_stream_event/3`
+
+Codec responsibilities:
+
+- turn provider event terms into normalized events
+- maintain protocol-specific stream state
+- preserve unknown events in `Raw`
+- return `{:done, state}` when the protocol has a terminator
+
+Tool-call assembly is a separate pure helper, for example:
+
+```text
+LlmCall.StreamAssembler
+```
+
+It may combine tool call deltas into complete `ToolCall` values, but it must not
+execute them.
+
+## 13. Tool framework integration
+
+The core only defines tool wire data. It does not call tools.
+
+### `tool_call` adapter
+
+```elixir
+specs =
+  ToolCall.describe(MyApp.Tools)
+  |> Enum.map(&LlmCall.ToolCall.from_describe/1)
+
+request = %LlmCall.Request{
+  model: "...",
+  messages: messages,
+  tools: specs
+}
+```
+
+After decoding:
+
+```elixir
+for call <- LlmCall.Response.tool_calls(response) do
+  ToolCall.run(MyApp.Tools, call.name, call.arguments)
+end
+```
+
+The adapter should live in a separate package or an optional module:
+
+```text
+llm_call_tool_call
+```
+
+Dependency direction:
+
+```text
+llm_call              no tool_call dependency
+tool_call             no llm_call dependency
+llm_call_tool_call    depends on both
+```
+
+### Other frameworks
+
+Any framework can map its own tool definition to `LlmCall.ToolSpec` and consume
+`LlmCall.ToolCall` / `LlmCall.ToolResult`. No framework is privileged.
+
+### MCP
+
+MCP is a tool/resource transport, not an LLM completion protocol. An MCP tool
+catalog can be converted into `LlmCall.ToolSpec` values outside the core.
+
+## 14. Protocol adapters
+
+### Phase 1
+
+- `LlmCall.Protocol.OpenAI.Chat`
+- `LlmCall.Protocol.Anthropic.Messages`
+- `LlmCall.Protocol.Gemini.GenerateContent`
+
+These cover the most common request/response shapes and validate the canonical
+IR.
+
+### Phase 2
+
+- `LlmCall.Protocol.OpenAI.Responses`
+- `LlmCall.Protocol.Bedrock.Converse`
+- `LlmCall.Protocol.Cohere.Chat`
+- `LlmCall.Protocol.Ollama.Chat`
+- `LlmCall.Protocol.Gemini.Interactions`
+
+### OpenAI-compatible APIs
+
+Do not create a separate protocol for every OpenAI-compatible provider.
+
+Use the OpenAI Chat codec with a provider/endpoint configuration:
+
+- base URL
+- auth headers
+- model id
+- capability flags
+- provider-specific path/query
+
+Examples include Groq, DeepSeek, Together, Fireworks, OpenRouter, xAI, vLLM,
+LM Studio, and Ollama's OpenAI-compatible endpoint. Their compatibility is not
+uniform; capabilities must be explicit.
+
+### Provider/protocol routing
+
+A provider is not a protocol:
+
+- Azure OpenAI uses OpenAI Chat/Responses shapes with deployment and API-version
+  configuration.
+- Vertex AI can route Gemini-shaped and Anthropic-shaped models.
+- Bedrock can expose Converse, Anthropic Messages, and OpenAI-compatible
+  surfaces depending on the model/endpoint.
+
+The protocol adapter is selected independently from the provider endpoint.
+
+## 15. Module layout
+
+```text
+lib/llm_call.ex
+lib/llm_call/request.ex
+lib/llm_call/response.ex
+lib/llm_call/message.ex
+lib/llm_call/content.ex
+lib/llm_call/tool_spec.ex
+lib/llm_call/tool_call.ex
+lib/llm_call/tool_result.ex
+lib/llm_call/reasoning.ex
+lib/llm_call/reasoning_capabilities.ex
+lib/llm_call/stream_event.ex
+lib/llm_call/stream_state.ex
+lib/llm_call/stream_delta.ex
+lib/llm_call/stream_assembler.ex
+lib/llm_call/usage.ex
+lib/llm_call/error.ex
+lib/llm_call/capabilities.ex
+lib/llm_call/config.ex
+lib/llm_call/encoded_request.ex
+lib/llm_call/codec.ex
+lib/llm_call/codec/info.ex
+lib/llm_call/protocol/openai/chat.ex
+lib/llm_call/protocol/anthropic/messages.ex
+lib/llm_call/protocol/gemini/generate_content.ex
+```
+
+Optional packages:
+
+```text
+llm_call_req          Req/Finch transport
+llm_call_cost         optional pricing/cost calculation
+llm_call_tool_call    ToolCall adapter
+llm_call_langchain    LangChain adapter
+```
+
+Test support:
+
+```text
+test/support/codec_conformance.ex
+```
+
+## 16. Public API sketch
+
+```elixir
+request = %LlmCall.Request{
+  model: "claude-sonnet-4-5",
+  system: [%LlmCall.Content.Text{text: "You are helpful."}],
+  messages: [
+    %LlmCall.Message{
+      role: :user,
+      content: [%LlmCall.Content.Text{text: "Hello"}]
+    }
+  ]
+}
+
+config = %LlmCall.Config{capture_raw: :none}
+
+{:ok, encoded} =
+  LlmCall.encode(LlmCall.Protocol.Anthropic.Messages, request, config)
+
+# transport performs HTTP + JSON
+
+{:ok, response} =
+  LlmCall.decode_response(
+    LlmCall.Protocol.Anthropic.Messages,
+    response_term,
+    config
+  )
+```
+
+Streaming:
+
+```elixir
+protocol = LlmCall.Protocol.Anthropic.Messages
+
+{:ok, state} = LlmCall.init_stream(protocol, request, config)
+
+{:ok, events, state} =
+  LlmCall.decode_stream_event(protocol, json_event, config, state)
+
+# Optional pure assembler; no tool execution.
+assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
+
+{:ok, assembler, completed_calls} =
+  Enum.reduce(events, {:ok, assembler, []}, fn event, {:ok, acc, calls} ->
+    {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
+    {:ok, acc, calls ++ new_calls}
+  end)
+```
+
+The core public API is:
+
+```elixir
+LlmCall.encode(protocol, request, config \\ %LlmCall.Config{})
+LlmCall.decode_response(protocol, response_term, config \\ %LlmCall.Config{})
+LlmCall.init_stream(protocol, request, config \\ %LlmCall.Config{})
+LlmCall.decode_stream_event(protocol, event_term, config, state)
+LlmCall.finish_stream(protocol, state, config)
+LlmCall.StreamAssembler.new(keyword())
+LlmCall.StreamAssembler.feed(assembler, event)
+LlmCall.StreamAssembler.finish(assembler)
+LlmCall.validate_request(protocol, request, config \\ %LlmCall.Config{})
+LlmCall.capabilities(protocol, request, config \\ %LlmCall.Config{})
+```
+
+`encode` returns `{:ok, %LlmCall.EncodedRequest{}}`; `decode_response`,
+`decode_stream_event`, `finish_stream`, and `validate_request` return their
+documented success/error tuples; `capabilities` returns
+`%LlmCall.Capabilities{}`.
+
+## 17. Testing
+
+The core test suite must not need a live API.
+
+For each protocol:
+
+1. **Request fixtures**
+   - canonical request -> exact JSON-compatible body
+   - path/query/headers
+   - tool definitions and tool choice
+   - system placement
+   - multi-modal content
+
+2. **Response fixtures**
+   - text response
+   - tool call response
+   - multiple content blocks
+   - usage/stop reason mapping
+   - provider error response
+
+3. **Streaming fixtures**
+   - text deltas
+   - tool call fragments
+   - thinking/reasoning deltas
+   - final `message_delta` stop reason and usage
+   - streaming tool-call start/delta/stop assembly
+   - fragmented JSON arguments and malformed arguments
+   - multiple tool calls by `index`
+   - early completion before `message_stop`
+   - terminator handling
+   - unknown event preservation
+   - `capture_raw: :none/:response/:all`
+
+4. **Capability tests**
+   - unsupported request fields are rejected, not silently dropped
+   - provider-specific options pass through
+   - model-specific capabilities are checked with the request model
+   - reasoning effort/budget/summary mapping and unsupported combinations
+   - cost is not fabricated from token counts
+   - non-streaming codecs reject streaming calls cleanly
+   - passing a StreamState to the wrong codec returns a typed error
+
+5. **Round-trip tests**
+   - canonical request -> provider term -> expected canonical request shape
+   - provider response -> canonical response -> expected content/tool calls
+
+6. **Tool framework adapter tests**
+   - `ToolCall` describe -> `ToolSpec`
+   - canonical `ToolCall` -> `ToolCall.run` input
+   - missing call ids and provider-specific constraints
+   - malformed JSON arguments produce `arguments_error`, not an empty map
+
+7. **Codec conformance**
+   - `info/0` protocol/version/IR version
+   - optional streaming callbacks
+   - `finish_stream/2` flushes final usage/stop events
+   - shared `LlmCall.Codec.Conformance` fixtures
+
+## 18. Failure and compatibility policy
+
+- Provider-specific features are opt-in through explicit fields or
+  `provider_options`.
+- Unsupported canonical fields produce `LlmCall.Error{kind: :validation}` or a
+  capability error.
+- Unknown provider blocks are retained as `Content.Raw`; full response raw is
+  retained only when `capture_raw` requests it.
+- The canonical IR is versioned; breaking changes require a major release.
+- `raw` data is never part of the stable cross-provider contract; it is a
+  best-effort escape hatch.
+- New provider capabilities should be added through provider options before
+  becoming canonical fields.
+
+## 19. Anti-goals
+
+If the following appear in the core project, the design has drifted:
+
+- a `Req` or `Finch` dependency
+- a default HTTP client
+- API key lookup
+- `generate_text` high-level helpers
+- a model catalog
+- a tool callback or tool runner
+- an agent loop
+- a prompt template or memory system
+- automatic retries or rate limiting
+- provider-specific branches in user application code
+
+Those belong in adapters or higher-level packages.
+
+## 20. Open decisions
+
+1. **Core transport:** stay fully transport-free. Recommended: yes.
+2. **JSON encoding:** codecs return terms; transport encodes. Recommended: yes.
+3. **Tool data in core:** include neutral `ToolSpec`, `ToolCall`, and
+   `ToolResult`; no execution. Recommended: yes.
+4. **First protocol set:** OpenAI Chat, Anthropic Messages, Gemini
+   GenerateContent. Recommended: yes.
+5. **OpenAI Responses timing:** separate Phase 2 adapter. Recommended: yes.
+6. **Stream assembler:** pure helper in core or a separate package. Start in
+   core only if it remains protocol-neutral; otherwise split.
+7. **SSE parser:** outside core, in the transport package.
+8. **Codec discovery:** explicit codec module selection; no core provider or
+   codec registry. Recommended: yes.
+
+## 21. Implementation order
+
+1. Define canonical structs and types, including reasoning.
+2. Define codec behaviour, encoded request, error, capabilities.
+3. Implement OpenAI Chat codec with request/response/stream fixtures.
+4. Implement Anthropic Messages codec.
+5. Implement Gemini GenerateContent codec.
+6. Add generic OpenAI-compatible configuration.
+7. Add optional transport package.
+8. Add optional `tool_call` adapter.
+9. Add OpenAI Responses and Bedrock/Cohere/Ollama adapters.
+
+The first milestone should be useful without any transport implementation:
+a request can be encoded and a fixture response can be decoded in tests.
+
+## 22. Design success criteria
+
+This design is working if:
+
+- A caller can use `LlmCall` without any agent framework.
+- A different tool framework can use `LlmCall` without importing `tool_call`.
+- Adding a protocol adapter does not require changing canonical messages.
+- Provider-specific features remain accessible through explicit escape hatches.
+- The core package has no HTTP, auth, registry, or tool-execution dependency.
+- Protocol fixtures are readable and testable without network access.
