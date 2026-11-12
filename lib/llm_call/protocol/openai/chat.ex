@@ -41,6 +41,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   @efforts [:none, :minimal, :low, :medium, :high]
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
   @known_message_keys ["role", "content", "tool_calls", "reasoning_content", "refusal"]
+  @known_delta_keys ["content", "reasoning_content", "tool_calls"]
 
   @impl true
   @spec info() :: LlmCall.Codec.Info.t()
@@ -94,7 +95,8 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     |> maybe_put("reasoning_effort", encode_reasoning_effort(request.reasoning))
     |> Map.merge(encode_params(request.params))
     |> put_stream(request.stream)
-    |> Map.merge(provider_options(request, config))
+    |> Map.merge(reasoning_provider_options(request.reasoning))
+    |> Config.deep_merge(provider_options(request, config))
   end
 
   defp messages(request) do
@@ -187,8 +189,19 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
         |> maybe_put("description", spec.description)
         |> maybe_put("parameters", spec.parameters)
         |> maybe_put("strict", spec.strict)
+        |> Config.deep_merge(tool_provider_options(spec))
     }
   end
+
+  defp reasoning_provider_options(%Reasoning{provider_options: options}) when is_map(options),
+    do: options
+
+  defp reasoning_provider_options(_reasoning), do: %{}
+
+  defp tool_provider_options(%ToolSpec{provider_options: options}) when is_map(options),
+    do: options
+
+  defp tool_provider_options(_spec), do: %{}
 
   defp encode_tool_choice(:auto), do: nil
   defp encode_tool_choice(:none), do: "none"
@@ -326,36 +339,53 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   defp validate_system_part(_part), do: error("system only supports text parts")
 
   defp validate_parts(messages) do
-    first_error(messages, fn %Message{content: content} -> validate_part_list(content) end)
+    first_error(messages, fn %Message{role: role, content: content} ->
+      with :ok <- validate_content_list(content) do
+        first_error(content, &validate_part(role, &1))
+      end
+    end)
   end
 
-  defp validate_part_list(content) when is_list(content) do
-    first_error(content, &validate_part/1)
-  end
+  defp validate_content_list([]), do: error("message requires at least one content part")
+  defp validate_content_list(content) when is_list(content), do: :ok
 
-  defp validate_part_list(_content), do: error("message content must be a list of content parts")
+  defp validate_content_list(_content),
+    do: error("message content must be a list of content parts")
 
-  defp validate_part(%Content.Text{}), do: :ok
+  defp validate_part(:user, %ToolCall{}), do: error("tool calls belong to assistant messages")
 
-  defp validate_part(%Content.Image{source: {:base64, _data}, media_type: nil}),
+  defp validate_part(:assistant, %ToolResult{}),
+    do: error("tool results belong to user messages")
+
+  defp validate_part(:assistant, %Content.Image{}),
+    do: error("images belong to user messages")
+
+  defp validate_part(_role, %Content.Text{}), do: :ok
+
+  defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
     do: error("base64 image requires media_type")
 
-  defp validate_part(%Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part(%Content.Image{source: {:url, _url}}), do: :ok
-  defp validate_part(%Content.Image{source: source}) when is_binary(source), do: :ok
-  defp validate_part(%Content.Image{}), do: error("image source is not supported")
-  defp validate_part(%Content.File{}), do: error("file content is not supported")
+  defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
+  defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
+  defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
+  defp validate_part(_role, %Content.Image{}), do: error("image source is not supported")
+  defp validate_part(_role, %Content.File{}), do: error("file content is not supported")
 
-  defp validate_part(%Content.Thinking{}),
+  defp validate_part(_role, %Content.Thinking{}),
     do: error("thinking content is not supported in a request")
 
-  defp validate_part(%Content.Raw{}), do: error("raw content is not supported in a request")
-  defp validate_part(%ToolCall{id: nil}), do: error("tool call requires an id")
-  defp validate_part(%ToolCall{name: nil}), do: error("tool call requires a name")
-  defp validate_part(%ToolCall{}), do: :ok
-  defp validate_part(%ToolResult{call_id: nil}), do: error("tool result requires call_id")
-  defp validate_part(%ToolResult{content: content}), do: validate_tool_result_content(content)
-  defp validate_part(_part), do: error("unsupported content part")
+  defp validate_part(_role, %Content.Raw{}),
+    do: error("raw content is not supported in a request")
+
+  defp validate_part(_role, %ToolCall{id: nil}), do: error("tool call requires an id")
+  defp validate_part(_role, %ToolCall{name: nil}), do: error("tool call requires a name")
+  defp validate_part(_role, %ToolCall{}), do: :ok
+  defp validate_part(_role, %ToolResult{call_id: nil}), do: error("tool result requires call_id")
+
+  defp validate_part(_role, %ToolResult{content: content}),
+    do: validate_tool_result_content(content)
+
+  defp validate_part(_role, _part), do: error("unsupported content part")
 
   defp validate_tool_result_content(content) when is_binary(content), do: :ok
 
@@ -534,8 +564,14 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
     text =
       case message["content"] do
-        text when is_binary(text) and text != "" -> [%Content.Text{text: text}]
-        _other -> []
+        text when is_binary(text) and text != "" ->
+          [%Content.Text{text: text}]
+
+        value when not is_nil(value) and not is_binary(value) ->
+          [%Content.Raw{type: "content", data: %{"content" => value}}]
+
+        _other ->
+          []
       end
 
     calls = Enum.map(message["tool_calls"] || [], &decode_tool_call/1)
@@ -637,7 +673,10 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     events =
       text_events(delta, index, term, config) ++
         thinking_events(delta, index, term, config) ++
-        tool_events ++ stop_events ++ usage_events
+        tool_events ++
+        stop_events ++
+        usage_events ++
+        unmapped_delta_events(delta, term, config)
 
     {events, data}
   end
@@ -663,6 +702,23 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   defp thinking_events(_delta, _index, _term, _config), do: []
+
+  defp unmapped_delta_events(delta, term, config) when is_map(delta) do
+    unknown =
+      for {key, value} <- delta, key not in @known_delta_keys, not is_nil(value), into: %{} do
+        {key, value}
+      end
+
+    case map_size(unknown) do
+      0 ->
+        []
+
+      _size ->
+        [event(:message_delta, nil, %StreamDelta.Raw{data: %{"data" => unknown}}, term, config)]
+    end
+  end
+
+  defp unmapped_delta_events(_delta, _term, _config), do: []
 
   defp tool_events(%{"tool_calls" => calls}, index, term, config, data) when is_list(calls) do
     Enum.reduce(calls, {[], data}, fn call, {events, data} ->

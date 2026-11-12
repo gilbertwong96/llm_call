@@ -178,8 +178,12 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
         "input_schema" => spec.parameters || %{"type" => "object", "properties" => %{}}
       }
       |> maybe_put("description", spec.description)
+      |> Config.deep_merge(tool_options(spec))
     end)
   end
+
+  defp tool_options(%ToolSpec{provider_options: options}) when is_map(options), do: options
+  defp tool_options(_spec), do: %{}
 
   defp encode_tool_choice(_choice, []), do: nil
   defp encode_tool_choice(:auto, _tools), do: %{"type" => "auto"}
@@ -189,11 +193,27 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp encode_reasoning(nil), do: nil
 
-  defp encode_reasoning(%Reasoning{budget_tokens: budget}) when is_integer(budget),
-    do: %{"type" => "enabled", "budget_tokens" => budget}
+  defp encode_reasoning(%Reasoning{} = reasoning) do
+    base =
+      cond do
+        is_integer(reasoning.budget_tokens) ->
+          %{"type" => "enabled", "budget_tokens" => reasoning.budget_tokens}
 
-  defp encode_reasoning(%Reasoning{effort: :none}), do: %{"type" => "disabled"}
-  defp encode_reasoning(%Reasoning{}), do: nil
+        reasoning.effort == :none ->
+          %{"type" => "disabled"}
+
+        true ->
+          %{}
+      end
+
+    case Config.deep_merge(base, reasoning_options(reasoning)) do
+      merged when map_size(merged) == 0 -> nil
+      merged -> merged
+    end
+  end
+
+  defp reasoning_options(%Reasoning{provider_options: options}) when is_map(options), do: options
+  defp reasoning_options(_reasoning), do: %{}
 
   defp encode_params(params) do
     params
@@ -215,8 +235,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp validate_messages(messages) when is_list(messages) do
     first_error(messages, fn
-      %Message{role: :assistant, content: []} ->
-        error("assistant message requires content")
+      %Message{role: role, content: []} when role in [:user, :assistant] ->
+        error("message requires at least one content part")
 
       %Message{role: role, content: content}
       when role in [:user, :assistant] and is_list(content) ->
@@ -256,7 +276,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     with :ok <- validate_effort(reasoning.effort),
          :ok <- validate_budget(reasoning.budget_tokens),
          :ok <- reject(reasoning.summary, "reasoning summary is not supported"),
-         :ok <- reject_budget_with_effort(reasoning) do
+         :ok <- reject_budget_with_effort(reasoning),
+         :ok <- validate_options(reasoning.provider_options, "reasoning.provider_options") do
       :ok
     end
   end
@@ -300,9 +321,19 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_tools(_tools, _tool_choice), do: error("tools must be a list")
 
   defp validate_tool_spec(%ToolSpec{kind: :builtin}), do: error("builtin tools are not supported")
-  defp validate_tool_spec(%ToolSpec{name: name}) when is_binary(name) and name != "", do: :ok
+
+  defp validate_tool_spec(%ToolSpec{name: name} = spec) when is_binary(name) and name != "" do
+    with :ok <- reject(spec.strict, "tool strict mode is not supported"),
+         :ok <- validate_options(spec.provider_options, "tool provider_options") do
+      :ok
+    end
+  end
+
   defp validate_tool_spec(%ToolSpec{}), do: error("function tool requires a name")
   defp validate_tool_spec(_spec), do: error("tools must be LlmCall.ToolSpec structs")
+
+  defp validate_options(options, _label) when is_map(options), do: :ok
+  defp validate_options(_options, label), do: error("#{label} must be a map")
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -334,42 +365,67 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_system_part(_part), do: error("system only supports text parts")
 
   defp validate_parts(messages) do
-    first_error(messages, fn %Message{content: content} ->
-      first_error(content, &validate_part/1)
+    first_error(messages, fn %Message{role: role, content: content} ->
+      first_error(content, &validate_part(role, &1))
     end)
   end
 
-  defp validate_part(%Content.Text{}), do: :ok
+  defp validate_part(:user, %ToolCall{}), do: error("tool calls belong to assistant messages")
 
-  defp validate_part(%Content.Thinking{signature: nil}) do
+  defp validate_part(:user, %Content.Thinking{}),
+    do: error("thinking blocks belong to assistant messages")
+
+  defp validate_part(:assistant, %ToolResult{}),
+    do: error("tool results belong to user messages")
+
+  defp validate_part(_role, %Content.Text{}), do: :ok
+
+  defp validate_part(_role, %Content.Thinking{signature: nil}) do
     error("thinking content requires a signature")
   end
 
-  defp validate_part(%Content.Thinking{}), do: :ok
+  defp validate_part(_role, %Content.Thinking{}), do: :ok
 
-  defp validate_part(%Content.Image{source: {:file_id, _file_id}}),
+  defp validate_part(_role, %Content.Image{source: {:file_id, _file_id}}),
     do: error("image source {:file_id, id} is not supported")
 
-  defp validate_part(%Content.Image{source: {:base64, _data}, media_type: nil}),
+  defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
     do: error("base64 image requires media_type")
 
-  defp validate_part(%Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part(%Content.Image{source: {:url, _url}}), do: :ok
-  defp validate_part(%Content.Image{source: source}) when is_binary(source), do: :ok
-  defp validate_part(%Content.Image{}), do: error("image source is not supported")
+  defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
+  defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
+  defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
+  defp validate_part(_role, %Content.Image{}), do: error("image source is not supported")
 
-  defp validate_part(%Content.File{source: {:base64, _data}, media_type: nil}),
+  defp validate_part(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
     do: error("base64 document requires media_type")
 
-  defp validate_part(%Content.File{}), do: :ok
-  defp validate_part(%Content.Raw{data: %{}}), do: :ok
-  defp validate_part(%Content.Raw{}), do: error("raw content requires a map payload")
-  defp validate_part(%ToolCall{id: nil}), do: error("tool call requires an id")
-  defp validate_part(%ToolCall{name: nil}), do: error("tool call requires a name")
-  defp validate_part(%ToolCall{}), do: :ok
-  defp validate_part(%ToolResult{call_id: nil}), do: error("tool result requires call_id")
-  defp validate_part(%ToolResult{content: content}), do: validate_tool_result_content(content)
-  defp validate_part(_part), do: error("unsupported content part")
+  defp validate_part(_role, %Content.File{}), do: :ok
+  defp validate_part(_role, %Content.Raw{data: %{}}), do: :ok
+  defp validate_part(_role, %Content.Raw{}), do: error("raw content requires a map payload")
+  defp validate_part(_role, %ToolCall{id: nil}), do: error("tool call requires an id")
+  defp validate_part(_role, %ToolCall{name: nil}), do: error("tool call requires a name")
+  defp validate_part(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
+  defp validate_part(_role, %ToolResult{call_id: nil}), do: error("tool result requires call_id")
+
+  defp validate_part(_role, %ToolResult{content: content}),
+    do: validate_tool_result_content(content)
+
+  defp validate_part(_role, _part), do: error("unsupported content part")
+
+  defp validate_tool_call_arguments(%ToolCall{arguments: arguments}) when is_map(arguments),
+    do: :ok
+
+  defp validate_tool_call_arguments(%ToolCall{raw_arguments: nil}), do: :ok
+
+  defp validate_tool_call_arguments(%ToolCall{raw_arguments: raw}) do
+    case :json.decode(raw) do
+      %{} -> :ok
+      _not_a_map -> error("tool call raw_arguments must decode to an object")
+    end
+  rescue
+    _decode_error -> error("tool call raw_arguments must decode to an object")
+  end
 
   defp validate_tool_result_content(content) when is_binary(content), do: :ok
 

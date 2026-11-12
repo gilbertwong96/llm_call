@@ -124,7 +124,9 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp encode_part(%Content.Text{text: text}), do: %{"text" => text}
 
-  defp encode_part(%Content.Thinking{text: text}), do: %{"text" => text, "thought" => true}
+  defp encode_part(%Content.Thinking{text: text, signature: signature}) do
+    %{"text" => text, "thought" => true} |> maybe_put("thoughtSignature", signature)
+  end
 
   defp encode_part(%Content.Image{source: {:base64, data}, media_type: media_type}) do
     %{"inlineData" => %{"mimeType" => media_type, "data" => data}}
@@ -193,10 +195,14 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
         %{"name" => spec.name}
         |> maybe_put("description", spec.description)
         |> maybe_put("parameters", spec.parameters)
+        |> Config.deep_merge(tool_options(spec))
       end)
 
     [%{"functionDeclarations" => declarations}]
   end
+
+  defp tool_options(%ToolSpec{provider_options: options}) when is_map(options), do: options
+  defp tool_options(_spec), do: %{}
 
   defp encode_tool_config(_choice, []), do: nil
   defp encode_tool_config(:auto, _tools), do: nil
@@ -234,15 +240,30 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp encode_thinking(nil), do: nil
 
-  defp encode_thinking(%Reasoning{budget_tokens: budget}) when is_integer(budget),
-    do: %{"thinkingBudget" => budget}
+  defp encode_thinking(%Reasoning{} = reasoning) do
+    base =
+      cond do
+        is_integer(reasoning.budget_tokens) ->
+          %{"thinkingBudget" => reasoning.budget_tokens}
 
-  defp encode_thinking(%Reasoning{effort: :none}), do: %{"thinkingBudget" => 0}
+        reasoning.effort == :none ->
+          %{"thinkingBudget" => 0}
 
-  defp encode_thinking(%Reasoning{effort: effort}) when effort in [:low, :high],
-    do: %{"thinkingLevel" => Atom.to_string(effort)}
+        reasoning.effort in [:low, :high] ->
+          %{"thinkingLevel" => Atom.to_string(reasoning.effort)}
 
-  defp encode_thinking(%Reasoning{}), do: nil
+        true ->
+          %{}
+      end
+
+    case Config.deep_merge(base, reasoning_options(reasoning)) do
+      merged when map_size(merged) == 0 -> nil
+      merged -> merged
+    end
+  end
+
+  defp reasoning_options(%Reasoning{provider_options: options}) when is_map(options), do: options
+  defp reasoning_options(_reasoning), do: %{}
 
   defp provider_options(request, config) do
     options = Config.provider_options(request, config)
@@ -256,6 +277,9 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp validate_messages(messages) when is_list(messages) do
     first_error(messages, fn
+      %Message{role: role, content: []} when role in [:user, :assistant] ->
+        error("message requires at least one content part")
+
       %Message{role: role, content: content}
       when role in [:user, :assistant] and is_list(content) ->
         :ok
@@ -287,7 +311,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     with :ok <- validate_effort(reasoning.effort),
          :ok <- validate_budget(reasoning.budget_tokens),
          :ok <- reject(reasoning.summary, "reasoning summary is not supported"),
-         :ok <- reject_effort_with_budget(reasoning) do
+         :ok <- reject_effort_with_budget(reasoning),
+         :ok <- validate_options(reasoning.provider_options, "reasoning.provider_options") do
       :ok
     end
   end
@@ -329,9 +354,19 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp validate_tools(_tools, _tool_choice), do: error("tools must be a list")
 
   defp validate_tool_spec(%ToolSpec{kind: :builtin}), do: error("builtin tools are not supported")
-  defp validate_tool_spec(%ToolSpec{name: name}) when is_binary(name) and name != "", do: :ok
+
+  defp validate_tool_spec(%ToolSpec{name: name} = spec) when is_binary(name) and name != "" do
+    with :ok <- reject(spec.strict, "tool strict mode is not supported"),
+         :ok <- validate_options(spec.provider_options, "tool provider_options") do
+      :ok
+    end
+  end
+
   defp validate_tool_spec(%ToolSpec{}), do: error("function tool requires a name")
   defp validate_tool_spec(_spec), do: error("tools must be LlmCall.ToolSpec structs")
+
+  defp validate_options(options, _label) when is_map(options), do: :ok
+  defp validate_options(_options, label), do: error("#{label} must be a map")
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -360,36 +395,47 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp validate_system_part(_part), do: error("system only supports text parts")
 
   defp validate_parts(messages) do
-    first_error(messages, fn %Message{content: content} ->
-      first_error(content, &validate_part/1)
+    first_error(messages, fn %Message{role: role, content: content} ->
+      first_error(content, &validate_part(role, &1))
     end)
   end
 
-  defp validate_part(%Content.Text{}), do: :ok
-  defp validate_part(%Content.Thinking{}), do: :ok
+  defp validate_part(:user, %ToolCall{}), do: error("tool calls belong to assistant messages")
 
-  defp validate_part(%Content.Image{source: {:base64, _data}, media_type: nil}),
+  defp validate_part(:user, %Content.Thinking{}),
+    do: error("thinking parts belong to assistant messages")
+
+  defp validate_part(:assistant, %ToolResult{}),
+    do: error("tool results belong to user messages")
+
+  defp validate_part(_role, %Content.Text{}), do: :ok
+  defp validate_part(_role, %Content.Thinking{}), do: :ok
+
+  defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
     do: error("base64 image requires media_type")
 
-  defp validate_part(%Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part(%Content.Image{source: {:url, _url}}), do: :ok
-  defp validate_part(%Content.Image{source: source}) when is_binary(source), do: :ok
-  defp validate_part(%Content.Image{}), do: error("image source is not supported")
+  defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
+  defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
+  defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
+  defp validate_part(_role, %Content.Image{}), do: error("image source is not supported")
 
-  defp validate_part(%Content.File{source: {:base64, _data}, media_type: nil}),
+  defp validate_part(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
     do: error("base64 file requires media_type")
 
-  defp validate_part(%Content.File{source: {:base64, _data}}), do: :ok
-  defp validate_part(%Content.File{source: {:url, _url}}), do: :ok
-  defp validate_part(%Content.File{source: source}) when is_binary(source), do: :ok
-  defp validate_part(%Content.File{}), do: error("file source is not supported")
-  defp validate_part(%Content.Raw{data: %{}}), do: :ok
-  defp validate_part(%Content.Raw{}), do: error("raw content requires a map payload")
-  defp validate_part(%ToolCall{name: nil}), do: error("tool call requires a name")
-  defp validate_part(%ToolCall{} = call), do: validate_tool_call_arguments(call)
-  defp validate_part(%ToolResult{name: nil}), do: error("tool result requires a name")
-  defp validate_part(%ToolResult{content: content}), do: validate_tool_result_content(content)
-  defp validate_part(_part), do: error("unsupported content part")
+  defp validate_part(_role, %Content.File{source: {:base64, _data}}), do: :ok
+  defp validate_part(_role, %Content.File{source: {:url, _url}}), do: :ok
+  defp validate_part(_role, %Content.File{source: source}) when is_binary(source), do: :ok
+  defp validate_part(_role, %Content.File{}), do: error("file source is not supported")
+  defp validate_part(_role, %Content.Raw{data: %{}}), do: :ok
+  defp validate_part(_role, %Content.Raw{}), do: error("raw content requires a map payload")
+  defp validate_part(_role, %ToolCall{name: nil}), do: error("tool call requires a name")
+  defp validate_part(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
+  defp validate_part(_role, %ToolResult{name: nil}), do: error("tool result requires a name")
+
+  defp validate_part(_role, %ToolResult{content: content}),
+    do: validate_tool_result_content(content)
+
+  defp validate_part(_role, _part), do: error("unsupported content part")
 
   defp validate_tool_call_arguments(%ToolCall{arguments: arguments}) when is_map(arguments),
     do: :ok
@@ -463,20 +509,24 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   def decode_response(term, %Config{} = config) when is_map(term) do
     case term["candidates"] do
       [candidate | extra] when is_map(candidate) ->
-        with {:ok, parts} <- fetch_parts(candidate) do
-          content =
-            Enum.map(parts, &decode_part/1) ++
-              Enum.map(extra, &%Content.Raw{type: "candidate", data: &1})
+        case fetch_parts(candidate) do
+          {:ok, parts} ->
+            content =
+              Enum.map(parts, &decode_part/1) ++
+                Enum.map(extra, &%Content.Raw{type: "candidate", data: &1})
 
-          {:ok,
-           %Response{
-             id: term["responseId"],
-             model: term["modelVersion"],
-             content: content,
-             stop_reason: response_stop_reason(candidate["finishReason"], content),
-             usage: decode_usage(term["usageMetadata"]),
-             raw: capture_response(config, term)
-           }}
+            {:ok,
+             %Response{
+               id: term["responseId"],
+               model: term["modelVersion"],
+               content: content,
+               stop_reason: response_stop_reason(candidate["finishReason"], content),
+               usage: decode_usage(term["usageMetadata"]),
+               raw: capture_response(config, term)
+             }}
+
+          {:error, _error} = error ->
+            candidate_without_content(candidate, extra, term, config, error)
         end
 
       _absent_or_empty ->
@@ -607,6 +657,24 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp fetch_parts(%{"content" => %{"parts" => parts}}) when is_list(parts), do: {:ok, parts}
   defp fetch_parts(_candidate), do: {:error, invalid_response("candidate has no content parts")}
 
+  defp candidate_without_content(candidate, extra, term, config, error) do
+    case candidate["finishReason"] do
+      reason when is_binary(reason) ->
+        {:ok,
+         %Response{
+           id: term["responseId"],
+           model: term["modelVersion"],
+           content: Enum.map(extra, &%Content.Raw{type: "candidate", data: &1}),
+           stop_reason: response_stop_reason(reason, []),
+           usage: decode_usage(term["usageMetadata"]),
+           raw: capture_response(config, term)
+         }}
+
+      _other ->
+        error
+    end
+  end
+
   defp blocked?(term) do
     case term["promptFeedback"] do
       %{"blockReason" => reason} when is_binary(reason) -> true
@@ -657,8 +725,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   end
 
   defp decode_part(part) when is_map(part) do
-    [key] = Map.keys(part)
-    %Content.Raw{type: key, data: part}
+    %Content.Raw{type: part |> Map.keys() |> Enum.sort() |> List.first(), data: part}
   end
 
   defp response_stop_reason(nil, _content), do: :unknown
@@ -770,9 +837,12 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp finish_events(reason, parts, term, config, data) do
     stop =
-      if reason == "STOP" and Enum.any?(parts, &is_map_key(&1, "functionCall")),
-        do: :tool_calls,
-        else: response_stop_reason(reason, [])
+      cond do
+        reason != "STOP" -> response_stop_reason(reason, [])
+        Enum.any?(parts, &is_map_key(&1, "functionCall")) -> :tool_calls
+        data.next_tool_index > 0 -> :tool_calls
+        true -> :end_turn
+      end
 
     delta = %StreamDelta.MessageDelta{stop_reason: stop, usage: nil}
 

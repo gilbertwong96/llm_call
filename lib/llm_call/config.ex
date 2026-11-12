@@ -15,6 +15,20 @@ defmodule LlmCall.Config do
   defstruct default_provider_options: %{}, capture_raw: :none
 
   @doc """
+  Deep-merges native provider options over a canonical body.
+
+  Nested maps merge recursively, so a native `generationConfig` keeps the
+  canonical `temperature`. Lists and scalars from the native side replace the
+  canonical value.
+  """
+  @spec deep_merge(map(), map()) :: map()
+  def deep_merge(canonical, native) do
+    Map.merge(canonical, native, fn _key, left, right ->
+      if is_map(left) and is_map(right), do: deep_merge(left, right), else: right
+    end)
+  end
+
+  @doc """
   Merged provider options for a request, keyed by provider namespace.
 
   Namespaces present in both the config and the request are merged per key, with

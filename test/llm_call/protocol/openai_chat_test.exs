@@ -565,4 +565,66 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
       end
     end)
   end
+
+  describe "review fixes" do
+    test "role rules reject parts that cannot appear in that turn" do
+      cases = [
+        [%Message{role: :user, content: [%ToolCall{id: "c", name: "f", arguments: %{}}]}],
+        [%Message{role: :assistant, content: [%ToolResult{call_id: "c", content: "x"}]}],
+        [%Message{role: :assistant, content: [%Content.Image{source: {:url, "u"}}]}],
+        [%Message{role: :user, content: []}],
+        [%Message{role: :assistant, content: []}]
+      ]
+
+      for messages <- cases do
+        assert {:error, %Error{kind: :validation}} =
+                 Chat.validate_request(text_request(messages: messages), %Config{})
+
+        assert {:error, %Error{kind: :validation}} =
+                 Chat.encode_request(text_request(messages: messages), %Config{})
+      end
+    end
+
+    test "an unmapped streamed delta is preserved as a Raw message delta" do
+      chunk = %{
+        "choices" => [%{"index" => 0, "delta" => %{"refusal" => "no"}, "finish_reason" => nil}]
+      }
+
+      assert {:ok,
+              [
+                %LlmCall.StreamEvent{
+                  type: :message_delta,
+                  delta: %LlmCall.StreamDelta.Raw{data: data}
+                }
+              ], _state} = Chat.decode_stream_event(chunk, %Config{}, stream_state())
+
+      assert data["data"]["refusal"] == "no"
+    end
+
+    test "non-string message content is preserved as Raw instead of dropped" do
+      payload =
+        put_in(
+          Fx.text_response(),
+          ["choices", Access.at(0), "message", "content"],
+          [%{"type" => "text", "text" => "hi"}]
+        )
+
+      assert {:ok, response} = Chat.decode_response(payload, %Config{})
+      assert [%Content.Raw{type: "content", data: %{"content" => _}}] = response.content
+    end
+
+    test "reasoning and tool provider options are merged into their native locations" do
+      reasoning = %Reasoning{effort: :high, provider_options: %{"service_tier" => "flex"}}
+      body = encode(text_request(reasoning: reasoning)).body
+      assert body["reasoning_effort"] == "high"
+      assert body["service_tier"] == "flex"
+
+      tools = [%ToolSpec{name: "f", provider_options: %{"strict_mode" => true}}]
+
+      assert encode(text_request(tools: tools)).body["tools"]
+             |> hd()
+             |> Map.fetch!("function")
+             |> Map.fetch!("strict_mode") == true
+    end
+  end
 end

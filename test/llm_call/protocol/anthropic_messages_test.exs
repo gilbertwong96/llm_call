@@ -531,4 +531,61 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
       assert {:ok, [], ^state} = Messages.finish_stream(state, %Config{})
     end
   end
+
+  describe "review fixes" do
+    test "role rules reject parts that cannot appear in that turn" do
+      cases = [
+        [%Message{role: :user, content: [%ToolCall{id: "c", name: "f", arguments: %{}}]}],
+        [%Message{role: :assistant, content: [%ToolResult{call_id: "c", content: "x"}]}],
+        [%Message{role: :user, content: []}],
+        [%Message{role: :assistant, content: []}],
+        [%Message{role: :user, content: [%Content.Thinking{text: "t", signature: "s"}]}]
+      ]
+
+      for messages <- cases do
+        assert {:error, %Error{kind: :validation}} =
+                 Messages.validate_request(text_request(messages: messages), %Config{})
+
+        assert {:error, %Error{kind: :validation}} =
+                 Messages.encode_request(text_request(messages: messages), %Config{})
+      end
+    end
+
+    test "reasoning and tool provider options are merged into their native locations" do
+      reasoning = %Reasoning{budget_tokens: 1024, provider_options: %{"display" => "omitted"}}
+
+      assert encode(text_request(reasoning: reasoning)).body["thinking"] == %{
+               "type" => "enabled",
+               "budget_tokens" => 1024,
+               "display" => "omitted"
+             }
+
+      tools = [
+        %ToolSpec{name: "f", provider_options: %{"cache_control" => %{"type" => "ephemeral"}}}
+      ]
+
+      assert encode(text_request(tools: tools)).body["tools"]
+             |> hd()
+             |> Map.fetch!("cache_control") == %{"type" => "ephemeral"}
+    end
+
+    test "strict tools are rejected when the protocol cannot express them" do
+      tools = [%ToolSpec{name: "f", strict: true}]
+
+      assert {:error, %Error{kind: :validation}} =
+               Messages.validate_request(text_request(tools: tools), %Config{})
+
+      assert {:error, %Error{kind: :validation}} =
+               Messages.encode_request(text_request(tools: tools), %Config{})
+    end
+
+    test "a tool call whose only arguments are undecodable is rejected" do
+      messages = [
+        %Message{role: :assistant, content: [%ToolCall{id: "t1", name: "f", raw_arguments: "{"}]}
+      ]
+
+      assert {:error, %Error{kind: :validation}} =
+               Messages.validate_request(text_request(messages: messages), %Config{})
+    end
+  end
 end

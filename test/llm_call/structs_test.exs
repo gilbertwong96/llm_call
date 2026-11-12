@@ -106,6 +106,15 @@ defmodule LlmCall.StructsTest do
            }
   end
 
+  test "Config.deep_merge/2 merges nested maps and replaces other values" do
+    assert Config.deep_merge(%{"a" => %{"b" => 1, "c" => 2}}, %{"a" => %{"c" => 3}}) ==
+             %{"a" => %{"b" => 1, "c" => 3}}
+
+    assert Config.deep_merge(%{"a" => [1]}, %{"a" => [2]}) == %{"a" => [2]}
+    assert Config.deep_merge(%{"a" => 1}, %{"a" => %{"b" => 2}}) == %{"a" => %{"b" => 2}}
+    assert Config.deep_merge(%{}, %{"a" => 1}) == %{"a" => 1}
+  end
+
   test "JSON.encode/1 returns a JSON string" do
     assert LlmCall.JSON.encode(%{"city" => "Oslo"}) == ~s({"city":"Oslo"})
     assert LlmCall.JSON.encode(%{}) == "{}"

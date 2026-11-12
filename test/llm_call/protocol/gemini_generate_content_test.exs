@@ -529,4 +529,96 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
                GenerateContent.decode_stream_event(%{"foo" => "bar"}, %Config{}, stream_state())
     end
   end
+
+  describe "review fixes" do
+    test "role rules reject parts that cannot appear in that turn" do
+      cases = [
+        [%Message{role: :user, content: [%ToolCall{name: "f", arguments: %{}}]}],
+        [%Message{role: :assistant, content: [%ToolResult{name: "f", content: "x"}]}],
+        [%Message{role: :user, content: []}],
+        [%Message{role: :assistant, content: []}],
+        [%Message{role: :user, content: [%Content.Thinking{text: "t"}]}]
+      ]
+
+      for messages <- cases do
+        assert {:error, %Error{kind: :validation}} =
+                 GenerateContent.validate_request(text_request(messages: messages), %Config{})
+
+        assert {:error, %Error{kind: :validation}} =
+                 GenerateContent.encode_request(text_request(messages: messages), %Config{})
+      end
+    end
+
+    test "a thinking signature round-trips as thoughtSignature" do
+      messages = [
+        %Message{role: :assistant, content: [%Content.Thinking{text: "hmm", signature: "ts"}]}
+      ]
+
+      assert encode(text_request(messages: messages)).body["contents"]
+             |> hd()
+             |> Map.fetch!("parts") == [
+               %{"text" => "hmm", "thought" => true, "thoughtSignature" => "ts"}
+             ]
+    end
+
+    test "reasoning and tool provider options are merged into their native locations" do
+      reasoning = %Reasoning{effort: :high, provider_options: %{"includeThoughts" => true}}
+
+      assert encode(text_request(reasoning: reasoning)).body["generationConfig"] == %{
+               "thinkingConfig" => %{"thinkingLevel" => "high", "includeThoughts" => true}
+             }
+
+      tools = [%ToolSpec{name: "f", provider_options: %{"behavior" => "BLOCKING"}}]
+
+      assert encode(text_request(tools: tools)).body["tools"]
+             |> hd()
+             |> Map.fetch!("functionDeclarations")
+             |> hd()
+             |> Map.fetch!("behavior") == "BLOCKING"
+    end
+
+    test "strict tools are rejected when the protocol cannot express them" do
+      tools = [%ToolSpec{name: "f", strict: true}]
+
+      assert {:error, %Error{kind: :validation}} =
+               GenerateContent.validate_request(text_request(tools: tools), %Config{})
+
+      assert {:error, %Error{kind: :validation}} =
+               GenerateContent.encode_request(text_request(tools: tools), %Config{})
+    end
+
+    test "a multi-key unknown part is preserved as Raw instead of raising" do
+      payload =
+        put_in(
+          Fx.text_response(),
+          ["candidates", Access.at(0), "content", "parts"],
+          [%{"executableCode" => %{"code" => "1"}, "partMetadata" => %{"k" => "v"}}]
+        )
+
+      assert {:ok, response} = GenerateContent.decode_response(payload, %Config{})
+
+      assert [%Content.Raw{type: "executableCode", data: %{"partMetadata" => _}}] =
+               response.content
+    end
+
+    test "a safety-blocked candidate without content is a filtered response, not an error" do
+      payload = %{
+        "candidates" => [%{"finishReason" => "SAFETY", "index" => 0}],
+        "modelVersion" => "gemini-2.5-pro"
+      }
+
+      assert {:ok, %{stop_reason: :content_filter, content: []}} =
+               GenerateContent.decode_response(payload, %Config{})
+    end
+
+    test "a function call in an earlier chunk keeps stop_reason tool_calls" do
+      chunks =
+        Fx.tool_chunks() ++ [%{"candidates" => [%{"finishReason" => "STOP", "index" => 0}]}]
+
+      {_state, events} = run_stream(chunks)
+
+      assert %LlmCall.StreamDelta.MessageDelta{stop_reason: :tool_calls} =
+               List.last(events).delta
+    end
+  end
 end
