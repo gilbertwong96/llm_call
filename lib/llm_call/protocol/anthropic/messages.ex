@@ -10,6 +10,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   """
 
   alias LlmCall.{
+    Capabilities,
     Codec,
     Config,
     Content,
@@ -17,18 +18,29 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     Error,
     Message,
     Reasoning,
+    ReasoningCapabilities,
     Request,
+    Response,
+    StreamEvent,
+    StreamState,
     ToolCall,
     ToolResult,
-    ToolSpec
+    ToolSpec,
+    Usage
   }
+
+  alias LlmCall.StreamDelta
+
+  @behaviour LlmCall.Codec
 
   @api_version "2023-06-01"
   @path "/v1/messages"
   @headers [{"content-type", "application/json"}, {"anthropic-version", @api_version}]
   @reserved_keys ~w(model messages system contents tools stream)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
+  @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
+  @impl true
   @spec info() :: Codec.Info.t()
   def info do
     %Codec.Info{
@@ -39,6 +51,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     }
   end
 
+  @impl true
   @spec encode_request(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
   def encode_request(%Request{} = request, %Config{} = config) do
@@ -54,6 +67,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     end
   end
 
+  @impl true
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
@@ -405,4 +419,292 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp error(message),
     do: {:error, %Error{kind: :validation, message: "anthropic_messages: " <> message}}
+
+  @impl true
+  def decode_response(term, %Config{} = config) when is_map(term) do
+    with {:ok, blocks} <- fetch_blocks(term) do
+      {:ok,
+       %Response{
+         id: term["id"],
+         model: term["model"],
+         content: Enum.map(blocks, &decode_block/1),
+         stop_reason: stop_reason(term["stop_reason"]),
+         usage: decode_usage(term["usage"]),
+         raw: capture_response(config, term)
+       }}
+    end
+  end
+
+  def decode_response(_term, _config) do
+    {:error, invalid_response("payload is not a JSON object")}
+  end
+
+  @impl true
+  def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
+    type = error["type"]
+
+    %Error{
+      kind: :provider,
+      message: message,
+      code: type,
+      status: nil,
+      retryable?: type in @retryable_types,
+      raw: payload
+    }
+  end
+
+  def decode_error(_term, _config) do
+    %Error{
+      kind: :invalid_response,
+      message: "anthropic_messages: unrecognized error payload",
+      raw: nil
+    }
+  end
+
+  @impl true
+  def capabilities(%Request{}, _config) do
+    %Capabilities{
+      tools: true,
+      parallel_tool_calls: true,
+      tool_choice: true,
+      structured_output: :none,
+      image_input: true,
+      file_input: true,
+      reasoning: %ReasoningCapabilities{
+        supported: true,
+        efforts: [],
+        default_effort: nil,
+        budget_tokens: true,
+        adaptive: true,
+        summary: []
+      },
+      streaming_tool_calls: true,
+      prompt_cache: true,
+      stateful: false,
+      streaming: true
+    }
+  end
+
+  @impl true
+  def init_stream(%Request{} = request, %Config{} = config) do
+    with :ok <- validate_request(request, config) do
+      {:ok,
+       StreamState.new(__MODULE__, %{
+         id: nil,
+         model: nil,
+         blocks: %{},
+         pending_tools: [],
+         usage: %Usage{},
+         finished?: false
+       })}
+    end
+  end
+
+  @impl true
+  def decode_stream_event(
+        %{"type" => "error", "error" => error},
+        %Config{} = config,
+        %StreamState{}
+      ) do
+    {:error, decode_error(%{"error" => error}, config)}
+  end
+
+  def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
+    data = StreamState.data(state)
+    {events, data} = stream_events(term, config, data)
+    {:ok, events, StreamState.new(__MODULE__, data)}
+  end
+
+  def decode_stream_event(_term, _config, %StreamState{} = state), do: {:ok, [], state}
+
+  @impl true
+  def finish_stream(%StreamState{} = state, _config), do: {:ok, [], state}
+
+  defp fetch_blocks(%{"content" => blocks}) when is_list(blocks), do: {:ok, blocks}
+  defp fetch_blocks(_term), do: {:error, invalid_response("response has no content blocks")}
+
+  defp invalid_response(message) do
+    %Error{kind: :invalid_response, message: "anthropic_messages: " <> message}
+  end
+
+  defp decode_block(%{"type" => "text"} = block) do
+    %Content.Text{text: block["text"]}
+  end
+
+  defp decode_block(%{"type" => "thinking"} = block) do
+    %Content.Thinking{text: block["thinking"], signature: block["signature"]}
+  end
+
+  defp decode_block(%{"type" => "tool_use"} = block) do
+    %ToolCall{
+      id: block["id"],
+      name: block["name"],
+      arguments: block["input"],
+      raw_arguments: nil,
+      arguments_error: nil
+    }
+  end
+
+  defp decode_block(block) when is_map(block) do
+    %Content.Raw{type: block["type"], data: block}
+  end
+
+  defp stop_reason("end_turn"), do: :end_turn
+  defp stop_reason("max_tokens"), do: :max_tokens
+  defp stop_reason("stop_sequence"), do: :stop_sequence
+  defp stop_reason("tool_use"), do: :tool_calls
+  defp stop_reason("refusal"), do: :content_filter
+  defp stop_reason(_other), do: :unknown
+
+  defp decode_usage(nil), do: nil
+  defp decode_usage(%{} = usage), do: merge_usage(%Usage{}, usage)
+  defp decode_usage(_usage), do: nil
+
+  defp merge_usage(%Usage{} = current, wire) when is_map(wire) do
+    input = wire["input_tokens"] || current.input_tokens
+    output = wire["output_tokens"] || current.output_tokens
+
+    %Usage{
+      input_tokens: input,
+      output_tokens: output,
+      total_tokens: total_tokens(input, output),
+      cache_read_tokens: wire["cache_read_input_tokens"] || current.cache_read_tokens,
+      cache_write_tokens: wire["cache_creation_input_tokens"] || current.cache_write_tokens,
+      reasoning_tokens: current.reasoning_tokens
+    }
+  end
+
+  defp merge_usage(%Usage{} = current, _wire), do: current
+
+  defp total_tokens(nil, _output), do: nil
+  defp total_tokens(_input, nil), do: nil
+  defp total_tokens(input, output), do: input + output
+
+  defp stream_events(%{"type" => "message_start"} = term, config, data) do
+    message = term["message"] || %{}
+
+    data = %{
+      data
+      | id: message["id"] || data.id,
+        model: message["model"] || data.model,
+        usage: merge_usage(data.usage, message["usage"])
+    }
+
+    {[event(:message_start, nil, nil, term, config)], data}
+  end
+
+  defp stream_events(%{"type" => "content_block_start"} = term, config, data) do
+    index = term["index"]
+    block = term["content_block"] || %{}
+
+    case block["type"] do
+      "tool_use" ->
+        delta = %StreamDelta.ToolCall{
+          id: block["id"],
+          name: block["name"],
+          arguments: nil,
+          index: index
+        }
+
+        {[event(:tool_call_start, index, delta, term, config)],
+         record_block(data, index, :tool_use)}
+
+      type ->
+        {[event(:content_start, index, nil, term, config)],
+         record_block(data, index, block_type(type))}
+    end
+  end
+
+  defp stream_events(%{"type" => "content_block_delta"} = term, config, data) do
+    block_delta(term, config, data)
+  end
+
+  defp stream_events(%{"type" => "content_block_stop"} = term, config, data) do
+    index = term["index"]
+
+    case Map.get(data.blocks, index) do
+      :tool_use ->
+        delta = %StreamDelta.ToolCall{index: index}
+
+        {[event(:tool_call_stop, index, delta, term, config)],
+         %{data | pending_tools: List.delete(data.pending_tools, index)}}
+
+      _other ->
+        {[event(:content_stop, index, nil, term, config)], data}
+    end
+  end
+
+  defp stream_events(%{"type" => "message_delta"} = term, config, data) do
+    message_delta = term["delta"] || %{}
+    data = %{data | usage: merge_usage(data.usage, term["usage"])}
+
+    reason =
+      case message_delta["stop_reason"] do
+        nil -> nil
+        wire -> stop_reason(wire)
+      end
+
+    delta = %StreamDelta.MessageDelta{stop_reason: reason, usage: data.usage}
+    {[event(:message_delta, nil, delta, term, config)], data}
+  end
+
+  defp stream_events(%{"type" => "message_stop"} = term, config, data) do
+    {[event(:message_stop, nil, nil, term, config)], %{data | finished?: true}}
+  end
+
+  defp stream_events(%{"type" => "ping"}, _config, data), do: {[], data}
+
+  defp stream_events(term, config, data) do
+    {[event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], data}
+  end
+
+  defp block_delta(term, config, data) do
+    index = term["index"]
+    delta = term["delta"] || %{}
+
+    case delta["type"] do
+      "text_delta" ->
+        {[event(:text_delta, index, %StreamDelta.Text{text: delta["text"]}, term, config)], data}
+
+      "input_json_delta" ->
+        tool_delta = %StreamDelta.ToolCall{arguments: delta["partial_json"], index: index}
+        {[event(:tool_call_delta, index, tool_delta, term, config)], data}
+
+      "thinking_delta" ->
+        thinking = %StreamDelta.Thinking{text: delta["thinking"], signature: nil}
+        {[event(:thinking_delta, index, thinking, term, config)], data}
+
+      "signature_delta" ->
+        thinking = %StreamDelta.Thinking{text: "", signature: delta["signature"]}
+        {[event(:thinking_delta, index, thinking, term, config)], data}
+
+      _other ->
+        raw = %StreamDelta.Raw{data: %{"data" => delta}}
+        {[event(:message_delta, nil, raw, term, config)], data}
+    end
+  end
+
+  defp record_block(data, index, type) do
+    data = %{data | blocks: Map.put(data.blocks, index, type)}
+
+    if type == :tool_use do
+      %{data | pending_tools: Enum.uniq([index | data.pending_tools])}
+    else
+      data
+    end
+  end
+
+  defp block_type("text"), do: :text
+  defp block_type("thinking"), do: :thinking
+  defp block_type(_type), do: :other
+
+  defp event(type, index, delta, term, config) do
+    %StreamEvent{type: type, index: index, delta: delta, raw: capture_event(config, term)}
+  end
+
+  defp capture_event(%Config{capture_raw: :all}, term) when is_map(term), do: term
+  defp capture_event(_config, _term), do: nil
+
+  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
+  defp capture_response(_config, _term), do: nil
 end

@@ -15,6 +15,8 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
     ToolSpec
   }
 
+  alias LlmCall.Fixtures.AnthropicMessages, as: Fx
+
   defp encode(request, config \\ %Config{}) do
     assert {:ok, encoded} = Messages.encode_request(request, config)
     encoded
@@ -292,6 +294,241 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
 
       assert is_binary(message)
       assert {:error, %Error{kind: :validation}} = Messages.encode_request(request, %Config{})
+    end
+  end
+
+  defp stream_state(config \\ %Config{}) do
+    assert {:ok, state} = Messages.init_stream(text_request(stream: true), config)
+    state
+  end
+
+  defp run_stream(events, config \\ %Config{}) do
+    Enum.reduce(events, {stream_state(config), []}, fn event, {state, acc} ->
+      {:ok, new_events, state} = Messages.decode_stream_event(event, config, state)
+      {state, acc ++ new_events}
+    end)
+  end
+
+  describe "decode" do
+    test "decodes text, thinking and tool_use blocks with usage" do
+      assert {:ok, response} = Messages.decode_response(Fx.text_response(), %Config{})
+      assert response.id == "msg_123"
+      assert response.model == "claude-sonnet-4-5"
+      assert response.stop_reason == :end_turn
+      assert LlmCall.Response.text(response) == "Hello"
+
+      assert response.usage == %LlmCall.Usage{
+               input_tokens: 12,
+               output_tokens: 5,
+               total_tokens: 17,
+               cache_read_tokens: 3,
+               cache_write_tokens: 7,
+               reasoning_tokens: nil
+             }
+    end
+
+    test "decodes tool_use blocks into ToolCall values with a decoded input map" do
+      {:ok, response} = Messages.decode_response(Fx.tool_response(), %Config{})
+      assert response.stop_reason == :tool_calls
+
+      assert [
+               %ToolCall{
+                 id: "toolu_1",
+                 name: "get_weather",
+                 arguments: %{"city" => "Oslo"},
+                 raw_arguments: nil,
+                 arguments_error: nil
+               }
+             ] = LlmCall.Response.tool_calls(response)
+    end
+
+    test "thinking and unknown blocks are preserved" do
+      {:ok, response} = Messages.decode_response(Fx.mixed_response(), %Config{})
+
+      assert [
+               %Content.Thinking{text: "step", signature: "sig"},
+               %Content.Text{text: "Hi"},
+               %Content.Raw{type: "redacted_thinking"}
+             ] = response.content
+    end
+
+    test "capture_raw :response keeps the payload and stop_reason mapping covers every value" do
+      payload = Fx.text_response()
+
+      assert {:ok, %{raw: ^payload}} =
+               Messages.decode_response(payload, %Config{capture_raw: :response})
+
+      for {wire, canonical} <- [
+            {"end_turn", :end_turn},
+            {"max_tokens", :max_tokens},
+            {"stop_sequence", :stop_sequence},
+            {"tool_use", :tool_calls},
+            {"refusal", :content_filter},
+            {"pause_turn", :unknown}
+          ] do
+        assert {:ok, %{stop_reason: ^canonical}} =
+                 Messages.decode_response(Fx.response_with_stop(wire), %Config{})
+      end
+    end
+
+    test "invalid payloads are invalid_response errors" do
+      assert {:error, %Error{kind: :invalid_response}} =
+               Messages.decode_response(%{"nope" => 1}, %Config{})
+
+      assert {:error, %Error{kind: :invalid_response}} =
+               Messages.decode_response(%{"content" => "text"}, %Config{})
+    end
+
+    test "decode_error/2 normalizes the provider envelope" do
+      payload = Fx.error_payload()
+
+      assert %Error{
+               kind: :provider,
+               message: "Overloaded",
+               code: "overloaded_error",
+               retryable?: true,
+               raw: ^payload
+             } = Messages.decode_error(payload, %Config{})
+
+      assert %Error{kind: :invalid_response, raw: nil} =
+               Messages.decode_error(%{"weird" => 1}, %Config{})
+    end
+
+    test "capabilities/2 declares the Anthropic surface" do
+      caps = Messages.capabilities(text_request(), %Config{})
+
+      assert %LlmCall.Capabilities{
+               tools: true,
+               parallel_tool_calls: true,
+               tool_choice: true,
+               structured_output: :none,
+               image_input: true,
+               file_input: true,
+               streaming_tool_calls: true,
+               prompt_cache: true,
+               stateful: false,
+               streaming: true
+             } = caps
+
+      assert %LlmCall.ReasoningCapabilities{
+               supported: true,
+               budget_tokens: true,
+               adaptive: true,
+               efforts: [],
+               summary: []
+             } = caps.reasoning
+    end
+  end
+
+  describe "stream" do
+    test "text stream emits start, deltas, message delta and stop" do
+      {_state, events} = run_stream(Fx.text_stream())
+
+      assert Enum.map(events, & &1.type) == [
+               :message_start,
+               :content_start,
+               :text_delta,
+               :text_delta,
+               :content_stop,
+               :message_delta,
+               :message_stop
+             ]
+
+      assert Enum.map(Enum.filter(events, &(&1.type == :text_delta)), & &1.delta.text) == [
+               "Hel",
+               "lo"
+             ]
+
+      assert %LlmCall.StreamDelta.MessageDelta{
+               stop_reason: :end_turn,
+               usage: %LlmCall.Usage{output_tokens: 5, input_tokens: 12}
+             } = Enum.at(events, 5).delta
+    end
+
+    test "tool_use blocks emit tool_call_start, deltas and tool_call_stop and assemble" do
+      {_state, events} = run_stream(Fx.tool_stream())
+
+      assert Enum.map(events, & &1.type) == [
+               :message_start,
+               :tool_call_start,
+               :tool_call_delta,
+               :tool_call_delta,
+               :tool_call_stop,
+               :message_delta,
+               :message_stop
+             ]
+
+      assembler = LlmCall.StreamAssembler.new(json_decoder: &LlmCall.TestJSON.decode/1)
+
+      {_assembler, calls} =
+        Enum.reduce(events, {assembler, []}, fn event, {assembler, acc} ->
+          {:ok, assembler, new} = LlmCall.StreamAssembler.feed(assembler, event)
+          {assembler, acc ++ new}
+        end)
+
+      assert [
+               %ToolCall{
+                 id: "toolu_1",
+                 name: "get_weather",
+                 arguments: %{"city" => "Oslo"},
+                 index: 0
+               }
+             ] = calls
+    end
+
+    test "thinking deltas and signature deltas both map to thinking_delta" do
+      {_state, events} = run_stream(Fx.thinking_stream())
+      thinking = Enum.filter(events, &(&1.type == :thinking_delta))
+
+      assert Enum.map(thinking, & &1.delta.text) == ["think", ""]
+      assert List.last(thinking).delta.signature == "sig"
+    end
+
+    test "ping emits no events and error payloads become typed errors" do
+      state = stream_state()
+
+      assert {:ok, [], ^state} =
+               Messages.decode_stream_event(%{"type" => "ping"}, %Config{}, state)
+
+      assert {:error, %Error{kind: :provider}} =
+               Messages.decode_stream_event(
+                 %{"type" => "error", "error" => Fx.error_payload()["error"]},
+                 %Config{},
+                 state
+               )
+    end
+
+    test "unknown event types are preserved as Raw message deltas" do
+      state = stream_state()
+
+      event = %{
+        "type" => "content_block_delta",
+        "index" => 0,
+        "delta" => %{"type" => "citations_delta", "citation" => %{}}
+      }
+
+      assert {:ok,
+              [
+                %LlmCall.StreamEvent{
+                  type: :message_delta,
+                  delta: %LlmCall.StreamDelta.Raw{data: data}
+                }
+              ], _state} = Messages.decode_stream_event(event, %Config{}, state)
+
+      assert data["data"]["type"] == "citations_delta"
+    end
+
+    test "capture_raw :all keeps raw events and finish_stream emits nothing" do
+      event = Fx.text_stream() |> Enum.at(2)
+
+      assert {:ok, [%LlmCall.StreamEvent{raw: ^event}], state} =
+               Messages.decode_stream_event(
+                 event,
+                 %Config{capture_raw: :all},
+                 stream_state(%Config{capture_raw: :all})
+               )
+
+      assert {:ok, [], ^state} = Messages.finish_stream(state, %Config{})
     end
   end
 end
