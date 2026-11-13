@@ -90,11 +90,30 @@ media = %LlmCall.MediaRequest{
 and a knob the codec cannot express is a validation error rather than a silent
 drop.
 
-Asynchronous video (design M2) is modelled but not yet implemented by any
-provider codec: a submit response carries an `%LlmCall.Operation{}` whose `next`
-is the request the transport sends next, and `LlmCall.decode_operation/3` returns
-the next state. The core never polls, waits, or downloads; when `next_kind` is
-`:asset` the response body is the media bytes and the caller stores them.
+Asynchronous video uses the same media API. A submit response carries an
+`%LlmCall.Operation{}` whose `next` is the request the transport sends next, and
+`LlmCall.decode_operation/3` returns the next state:
+
+```elixir
+{:ok, %LlmCall.MediaResponse{operation: op}} =
+  LlmCall.decode_media(LlmCall.Protocol.Seedance.Video, submit_body)
+
+# transport: execute op.next (a GET), then feed the decoded body back
+{:ok, %LlmCall.Operation{status: :running} = op} =
+  LlmCall.decode_operation(LlmCall.Protocol.Seedance.Video, poll_body)
+```
+
+The core never polls, waits, or downloads. `next_kind: :poll` means "execute
+`next` and feed the body back to `decode_operation/3`"; `next_kind: :asset` means
+the body is the media bytes and the caller stores them. A job ends when
+`status: :completed` carries assets, or `:failed` carries an error.
+
+Implemented async codecs:
+
+| Codec | Flow |
+| --- | --- |
+| `LlmCall.Protocol.Seedance.Video` | submit -> poll the task -> `content.video_url` |
+| `LlmCall.Protocol.MiniMax.Video` | submit -> poll the task -> on `Success` poll `/v1/files/retrieve` -> `file.download_url` |
 
 ## Protocol adapters
 
