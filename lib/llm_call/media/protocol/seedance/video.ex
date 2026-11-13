@@ -289,8 +289,12 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
   defp validate_duration(nil), do: :ok
   defp validate_duration(duration) when duration in @durations, do: :ok
 
-  defp validate_duration(_duration),
-    do: Helpers.error(@codec, "params.duration_s must be between 4 and 15")
+  defp validate_duration(_duration) do
+    Helpers.error(
+      @codec,
+      "params.duration_s must be between #{List.first(@durations)} and #{List.last(@durations)}"
+    )
+  end
 
   defp validate_seed(nil), do: :ok
   defp validate_seed(seed) when is_integer(seed) and seed >= 0, do: :ok
