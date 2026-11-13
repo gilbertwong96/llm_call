@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.Protocol.Gemini.Predict do
+defmodule LlmCall.Media.Protocol.Gemini.Predict do
   @moduledoc """
   Gemini Imagen image generation (`POST /v1beta/models/{model}:predict`).
 

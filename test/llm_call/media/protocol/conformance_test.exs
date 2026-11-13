@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.MediaConformanceTest do
+defmodule LlmCall.Media.Protocol.ConformanceTest do
   @moduledoc """
   Runs the core conformance suite over every adapter this package ships.
 
@@ -10,7 +10,7 @@ defmodule LlmCallMedia.MediaConformanceTest do
 
   alias LlmCall.{Config, MediaRequest, MediaResponse}
   alias LlmCall.MediaConformance
-  alias LlmCallMedia.Fixtures.{GeminiPredict, MiniMaxVideo, OpenAIImages, SeedanceVideo}
+  alias LlmCall.Media.Fixtures.{GeminiPredict, MiniMaxVideo, OpenAIImages, SeedanceVideo}
 
   defp request(modality, model) do
     %MediaRequest{modality: modality, model: model, prompt: "a cat"}
@@ -18,9 +18,9 @@ defmodule LlmCallMedia.MediaConformanceTest do
 
   test "every synchronous media codec satisfies the conformance contract" do
     for {codec, model, response, path} <- [
-          {LlmCallMedia.Protocol.OpenAI.Images, "gpt-image-1", OpenAIImages.base64_response(),
+          {LlmCall.Media.Protocol.OpenAI.Images, "gpt-image-1", OpenAIImages.base64_response(),
            "/v1/images/generations"},
-          {LlmCallMedia.Protocol.Gemini.Predict, "imagen-4.0-generate-001",
+          {LlmCall.Media.Protocol.Gemini.Predict, "imagen-4.0-generate-001",
            GeminiPredict.base64_response(), "/v1beta/models/imagen-4.0-generate-001:predict"}
         ] do
       request = request(:image, model)
@@ -36,10 +36,10 @@ defmodule LlmCallMedia.MediaConformanceTest do
 
   test "every asynchronous media codec satisfies the operation contract" do
     for {codec, model, submit, poll, path} <- [
-          {LlmCallMedia.Protocol.Seedance.Video, "seedance-1-5-pro-251215",
+          {LlmCall.Media.Protocol.Seedance.Video, "seedance-1-5-pro-251215",
            SeedanceVideo.submit_response(), SeedanceVideo.running_response(),
            "/api/v3/contents/generations/tasks"},
-          {LlmCallMedia.Protocol.MiniMax.Video, "MiniMax-Hailuo-2.3",
+          {LlmCall.Media.Protocol.MiniMax.Video, "MiniMax-Hailuo-2.3",
            MiniMaxVideo.submit_response(), MiniMaxVideo.processing_response(),
            "/v1/video_generation"}
         ] do

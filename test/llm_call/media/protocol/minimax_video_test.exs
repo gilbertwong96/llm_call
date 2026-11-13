@@ -1,9 +1,9 @@
-defmodule LlmCallMedia.Protocol.MiniMaxVideoTest do
+defmodule LlmCall.Media.Protocol.MiniMaxVideoTest do
   use ExUnit.Case, async: true
 
-  alias LlmCallMedia.Protocol.MiniMax.Video
+  alias LlmCall.Media.Protocol.MiniMax.Video
   alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse, Operation}
-  alias LlmCallMedia.Fixtures.MiniMaxVideo, as: Fx
+  alias LlmCall.Media.Fixtures.MiniMaxVideo, as: Fx
 
   defp request(overrides \\ []) do
     struct(

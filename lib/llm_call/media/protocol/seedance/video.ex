@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.Protocol.Seedance.Video do
+defmodule LlmCall.Media.Protocol.Seedance.Video do
   @moduledoc """
   Seedance video generation (BytePlus ModelArk content generation tasks).
 

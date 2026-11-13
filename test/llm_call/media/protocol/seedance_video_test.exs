@@ -1,9 +1,9 @@
-defmodule LlmCallMedia.Protocol.SeedanceVideoTest do
+defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
   use ExUnit.Case, async: true
 
-  alias LlmCallMedia.Protocol.Seedance.Video
+  alias LlmCall.Media.Protocol.Seedance.Video
   alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse, Operation}
-  alias LlmCallMedia.Fixtures.SeedanceVideo, as: Fx
+  alias LlmCall.Media.Fixtures.SeedanceVideo, as: Fx
 
   defp request(overrides \\ []) do
     struct(

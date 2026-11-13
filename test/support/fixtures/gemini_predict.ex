@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.Fixtures.GeminiPredict do
+defmodule LlmCall.Media.Fixtures.GeminiPredict do
   @moduledoc """
   Gemini Imagen `predict` payloads shaped like the provider's responses.
   """

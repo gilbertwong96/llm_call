@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.Protocol.MiniMax.Video do
+defmodule LlmCall.Media.Protocol.MiniMax.Video do
   @moduledoc """
   MiniMax Hailuo video generation (`v1`).
 

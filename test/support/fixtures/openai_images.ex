@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.Fixtures.OpenAIImages do
+defmodule LlmCall.Media.Fixtures.OpenAIImages do
   @moduledoc """
   OpenAI Images payloads shaped like the provider's responses.
   """

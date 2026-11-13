@@ -1,4 +1,4 @@
-defmodule LlmCallMedia.Protocol.OpenAI.Images do
+defmodule LlmCall.Media.Protocol.OpenAI.Images do
   @moduledoc """
   OpenAI image generation (`POST /v1/images/generations`).
 
