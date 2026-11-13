@@ -1,7 +1,7 @@
 defmodule LlmCall.MediaConformanceTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Config, MediaRequest}
+  alias LlmCall.{Config, MediaRequest, MediaResponse, Operation}
   alias LlmCall.MediaConformance
 
   defp codecs do
@@ -45,6 +45,74 @@ defmodule LlmCall.MediaConformanceTest do
       MediaConformance.assert_capabilities(
         LlmCall.TestCodec.BrokenAsyncMedia,
         request("fake-1"),
+        %Config{}
+      )
+    end
+  end
+
+  test "assert_operation/1 accepts every legal state" do
+    poll = %LlmCall.EncodedRequest{method: :get, path: "/jobs/1"}
+
+    for operation <- [
+          %Operation{status: :queued, next: poll, next_kind: :poll},
+          %Operation{status: :in_progress, progress: 40, next: poll, next_kind: :poll},
+          %Operation{
+            status: :completed,
+            result: %MediaResponse{assets: []},
+            next: poll,
+            next_kind: :asset,
+            next_media_type: "video/mp4"
+          },
+          %Operation{
+            status: :completed,
+            result: %MediaResponse{assets: [%LlmCall.Content.Video{source: {:url, "u"}}]}
+          },
+          %Operation{status: :failed, error: %LlmCall.Error{kind: :provider, message: "boom"}}
+        ] do
+      assert :ok = MediaConformance.assert_operation(operation)
+    end
+  end
+
+  test "assert_operation/1 rejects illegal states" do
+    poll = %LlmCall.EncodedRequest{method: :get, path: "/jobs/1"}
+
+    for operation <- [
+          %Operation{status: :completed, next: poll, next_kind: :poll, result: %MediaResponse{}},
+          %Operation{status: :completed, next: poll, next_kind: :asset, result: %MediaResponse{}},
+          %Operation{status: :completed, next_kind: :asset, next_media_type: "video/mp4"},
+          %Operation{status: :in_progress},
+          %Operation{status: :failed, next: poll},
+          %Operation{
+            status: :failed,
+            error: %LlmCall.Error{kind: :provider, message: "x"},
+            result: %MediaResponse{}
+          }
+        ] do
+      assert_raise ExUnit.AssertionError, fn -> MediaConformance.assert_operation(operation) end
+    end
+  end
+
+  test "assert_capability_consistency/3 accepts declared values on the M1 codecs" do
+    assert :ok =
+             MediaConformance.assert_capability_consistency(
+               LlmCall.Protocol.OpenAI.Images,
+               %MediaRequest{modality: :image, model: "gpt-image-1", prompt: "a cat"},
+               %Config{}
+             )
+
+    assert :ok =
+             MediaConformance.assert_capability_consistency(
+               LlmCall.Protocol.Gemini.Predict,
+               %MediaRequest{modality: :image, model: "imagen-4.0-generate-001", prompt: "a cat"},
+               %Config{}
+             )
+  end
+
+  test "assert_capability_consistency/3 catches a declaration validation does not honour" do
+    assert_raise ExUnit.AssertionError, fn ->
+      MediaConformance.assert_capability_consistency(
+        LlmCall.TestCodec.FakeMedia,
+        %MediaRequest{modality: :image, model: "fake-1", prompt: "a cat"},
         %Config{}
       )
     end

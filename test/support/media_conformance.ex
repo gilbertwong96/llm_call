@@ -13,7 +13,17 @@ defmodule LlmCall.MediaConformance do
 
   import ExUnit.Assertions
 
-  alias LlmCall.{Codec, Config, EncodedRequest, Error, MediaCapabilities}
+  alias LlmCall.{
+    Codec,
+    Config,
+    Content,
+    EncodedRequest,
+    Error,
+    MediaCapabilities,
+    MediaRequest,
+    MediaResponse,
+    Operation
+  }
 
   @credential_headers ["authorization", "x-api-key", "api-key"]
 
@@ -104,5 +114,148 @@ defmodule LlmCall.MediaConformance do
            "#{inspect(codec)} is synchronous, so decode_operation/3 must be a validation error"
 
     :ok
+  end
+
+  @doc """
+  Checks one `LlmCall.Operation` against the state-machine invariants.
+
+  A state a codec can return must satisfy: `:queued`/`:in_progress` poll with no
+  result; `:completed` never polls, always has a result, and an `:asset` fetch
+  names its media type; `:failed` carries an error and nothing else.
+  """
+  @spec assert_operation(Operation.t()) :: :ok
+  def assert_operation(%Operation{} = operation) do
+    case operation.status do
+      status when status in [:queued, :in_progress] ->
+        assert operation.result == nil,
+               "#{inspect(status)} operation must not carry a result"
+
+        assert operation.next_kind == :poll,
+               "#{inspect(status)} operation must poll, got next_kind: #{inspect(operation.next_kind)}"
+
+        assert match?(%EncodedRequest{}, operation.next),
+               "#{inspect(status)} operation must carry the next request"
+
+      :completed ->
+        refute operation.next_kind == :poll,
+               "a completed operation must not poll; it either carries assets or an :asset fetch"
+
+        assert match?(%MediaResponse{}, operation.result),
+               "a completed operation must carry a MediaResponse result"
+
+        case operation.next_kind do
+          :asset ->
+            assert match?(%EncodedRequest{}, operation.next),
+                   "an :asset fetch must carry the next request"
+
+            assert is_binary(operation.next_media_type),
+                   "an :asset fetch must name its media type"
+
+          nil ->
+            :ok
+
+          other ->
+            flunk("unexpected next_kind on a completed operation: #{inspect(other)}")
+        end
+
+      :failed ->
+        assert operation.next == nil, "a failed operation must not carry a next request"
+        assert operation.result == nil, "a failed operation must not carry a result"
+        assert match?(%Error{}, operation.error), "a failed operation must carry an error"
+
+      other ->
+        flunk("unexpected operation status: #{inspect(other)}")
+    end
+
+    :ok
+  end
+
+  @doc """
+  Checks that `capabilities/2` and `validate_request/2` agree.
+
+  Every declared `size`, `aspect_ratio`, `duration_s`, and `max_n` must be
+  accepted, and an undeclared non-nil value must be a validation error.
+  """
+  @spec assert_capability_consistency(module(), MediaRequest.t(), Config.t()) :: :ok
+  def assert_capability_consistency(codec, base_request, config) do
+    capabilities = codec.capabilities(base_request, config)
+
+    check_declared(codec, base_request, config, capabilities.sizes, :size, "3x3")
+    check_declared(codec, base_request, config, capabilities.aspect_ratios, :aspect_ratio, "0:0")
+    check_declared(codec, base_request, config, capabilities.durations_s, :duration_s, 10_000)
+    check_max_n(codec, base_request, config, capabilities.max_n)
+    check_flag(codec, base_request, config, :seed, capabilities.seed, 1)
+
+    check_flag(
+      codec,
+      base_request,
+      config,
+      :negative_prompt,
+      capabilities.negative_prompt,
+      "ugly"
+    )
+
+    check_references(codec, base_request, config, capabilities.references)
+
+    :ok
+  end
+
+  defp check_declared(_codec, _request, _config, [], _key, _sentinel), do: :ok
+
+  defp check_declared(codec, request, config, values, key, sentinel) do
+    Enum.each(values, fn value ->
+      assert :ok == codec.validate_request(with_param(request, key, value), config),
+             "#{inspect(codec)} declares #{key} #{inspect(value)} but rejects it"
+    end)
+
+    unless sentinel in values do
+      result = codec.validate_request(with_param(request, key, sentinel), config)
+
+      assert match?({:error, %Error{kind: :validation}}, result),
+             "#{inspect(codec)} accepts an undeclared #{key} #{inspect(sentinel)}: #{inspect(result)}"
+    end
+
+    :ok
+  end
+
+  defp check_max_n(_codec, _request, _config, nil), do: :ok
+
+  defp check_max_n(codec, request, config, max_n) do
+    assert :ok == codec.validate_request(with_param(request, :n, max_n), config),
+           "#{inspect(codec)} declares max_n #{max_n} but rejects n: #{max_n}"
+
+    result = codec.validate_request(with_param(request, :n, max_n + 1), config)
+
+    assert match?({:error, %Error{kind: :validation}}, result),
+           "#{inspect(codec)} accepts n: #{max_n + 1} beyond max_n #{max_n}"
+
+    :ok
+  end
+
+  defp check_flag(_codec, _request, _config, _key, true, _value), do: :ok
+
+  defp check_flag(codec, request, config, key, false, value) do
+    result = codec.validate_request(with_param(request, key, value), config)
+
+    assert match?({:error, %Error{kind: :validation}}, result),
+           "#{inspect(codec)} declares #{key}: false but accepts #{key}: #{inspect(value)}"
+
+    :ok
+  end
+
+  defp check_references(_codec, _request, _config, true), do: :ok
+
+  defp check_references(codec, request, config, false) do
+    reference = %Content.Image{source: {:url, "https://example.com/ref.png"}}
+    result = codec.validate_request(%{request | references: [reference]}, config)
+
+    assert match?({:error, %Error{kind: :validation}}, result),
+           "#{inspect(codec)} declares references: false but accepts a reference"
+
+    :ok
+  end
+
+  defp with_param(%MediaRequest{} = request, key, value) do
+    %{request | params: Map.put(request.params, key, value)}
   end
 end
