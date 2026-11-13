@@ -24,6 +24,8 @@ defmodule LlmCall.Request do
           | :json_object
           | {:json_schema, String.t(), map(), boolean() | nil}
 
+  @type modalities :: [LlmCall.modality()]
+
   @type params :: %{
           optional(atom()) => nil | boolean() | number() | String.t() | [String.t()]
         }
@@ -35,6 +37,7 @@ defmodule LlmCall.Request do
           tools: [LlmCall.ToolSpec.t()],
           tool_choice: tool_choice(),
           output: output(),
+          modalities: modalities(),
           reasoning: LlmCall.Reasoning.t() | nil,
           params: params(),
           provider_options: map(),
@@ -47,6 +50,7 @@ defmodule LlmCall.Request do
             tools: [],
             tool_choice: :auto,
             output: :text,
+            modalities: [:text],
             reasoning: nil,
             params: %{},
             provider_options: %{},

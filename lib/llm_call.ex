@@ -22,6 +22,8 @@ defmodule LlmCall do
 
   @type capture_raw :: :none | :response | :all
 
+  @type modality :: :text | :image | :video
+
   @type wire_value ::
           nil
           | boolean()

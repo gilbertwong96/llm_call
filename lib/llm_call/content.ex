@@ -55,6 +55,17 @@ defmodule LlmCall.Content.Raw do
   defstruct [:type, :data]
 end
 
+defmodule LlmCall.Content.Video do
+  @moduledoc "A video block, used for references and generated assets."
+
+  @type t :: %__MODULE__{
+          source: LlmCall.Content.source(),
+          media_type: String.t() | nil
+        }
+
+  defstruct [:source, :media_type]
+end
+
 defmodule LlmCall.Content do
   @moduledoc """
   Canonical content parts.
@@ -78,6 +89,7 @@ defmodule LlmCall.Content do
               media_type: String.t() | nil,
               filename: String.t() | nil
             }
+          | %LlmCall.Content.Video{source: source(), media_type: String.t() | nil}
           | %LlmCall.ToolCall{}
           | %LlmCall.ToolResult{}
           | %LlmCall.Content.Thinking{text: String.t(), signature: String.t() | nil}

@@ -106,6 +106,19 @@ defmodule LlmCall.StructsTest do
            }
   end
 
+  test "media-related defaults" do
+    assert %Request{modalities: [:text]} = %Request{}
+    assert %Capabilities{output_modalities: [:text]} = %Capabilities{}
+    assert %EncodedRequest{method: :get} = %EncodedRequest{method: :get}
+
+    video = %Content.Video{source: {:url, "https://example.com/a.mp4"}, media_type: "video/mp4"}
+    assert video.media_type == "video/mp4"
+
+    assert %Content.Video{source: {:base64, "AAA"}, media_type: nil} = %Content.Video{
+             source: {:base64, "AAA"}
+           }
+  end
+
   test "Config.deep_merge/2 merges nested maps and replaces other values" do
     assert Config.deep_merge(%{"a" => %{"b" => 1, "c" => 2}}, %{"a" => %{"c" => 3}}) ==
              %{"a" => %{"b" => 1, "c" => 3}}

@@ -7,7 +7,7 @@ defmodule LlmCall.EncodedRequest do
   """
 
   @type t :: %__MODULE__{
-          method: :post,
+          method: :post | :get,
           path: String.t(),
           query: %{optional(String.t()) => String.t() | integer() | boolean()},
           headers: [{String.t(), String.t()}],
