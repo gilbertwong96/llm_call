@@ -1,7 +1,9 @@
 defmodule LlmCall.MediaConformanceTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Config, MediaRequest, MediaResponse, Operation}
+  alias LlmCall.{Config, Operation}
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.MediaConformance
 
   defp request(model) do

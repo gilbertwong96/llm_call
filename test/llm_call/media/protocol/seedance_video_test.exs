@@ -2,7 +2,9 @@ defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.Media.Protocol.Seedance.Video
-  alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse, Operation}
+  alias LlmCall.{Config, Content, Error, Operation}
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.Media.Fixtures.SeedanceVideo, as: Fx
 
   defp request(overrides \\ []) do
@@ -16,7 +18,7 @@ defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
     assert %LlmCall.Codec.Info{name: :seedance_video, protocol: :seedance_video, ir_version: 1} =
              Video.info()
 
-    assert %LlmCall.MediaCapabilities{
+    assert %LlmCall.Media.Capabilities{
              modalities: [:video],
              async: true,
              max_n: nil,

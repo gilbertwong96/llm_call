@@ -3,7 +3,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   OpenAI image generation (`POST /v1/images/generations`).
 
   Dedicated image endpoints take a prompt and media parameters, so this codec
-  implements `LlmCall.MediaCodec` rather than the completion behaviour.
+  implements `LlmCall.Media.Codec` rather than the completion behaviour.
 
   `references` are rejected: image edits and variations require a multipart
   upload, which the transport owns. `response_format` is forced to `b64_json` so
@@ -13,21 +13,14 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   catalog, so a size a specific model rejects surfaces as a provider error.
   """
 
-  alias LlmCall.{
-    Codec,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    MediaCapabilities,
-    MediaRequest,
-    MediaResponse,
-    Usage
-  }
+  alias LlmCall.{Codec, Config, Content, EncodedRequest, Error, Usage}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
 
   alias LlmCall.Protocol.Helpers
 
-  @behaviour LlmCall.MediaCodec
+  @behaviour LlmCall.Media.Codec
 
   @codec :openai_images
   @path "/v1/images/generations"

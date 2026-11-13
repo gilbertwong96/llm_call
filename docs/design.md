@@ -1459,10 +1459,10 @@ lib/llm_call/config.ex
 lib/llm_call/encoded_request.ex
 lib/llm_call/codec.ex
 lib/llm_call/codec/info.ex
-lib/llm_call/media_codec.ex
-lib/llm_call/media_request.ex
-lib/llm_call/media_response.ex
-lib/llm_call/media_capabilities.ex
+lib/llm_call/media/codec.ex
+lib/llm_call/media/request.ex
+lib/llm_call/media/response.ex
+lib/llm_call/media/capabilities.ex
 lib/llm_call/operation.ex
 lib/llm_call/codec_conformance.ex
 lib/llm_call/media_conformance.ex
@@ -1748,7 +1748,7 @@ defmodule LlmCall.Content.Video do
   defstruct [:source, :media_type]
 end
 
-defmodule LlmCall.MediaRequest do
+defmodule LlmCall.Media.Request do
   @type modality :: :image | :video
 
   @type params :: %{
@@ -1770,7 +1770,7 @@ defmodule LlmCall.MediaRequest do
         }
 end
 
-defmodule LlmCall.MediaResponse do
+defmodule LlmCall.Media.Response do
   @type asset :: LlmCall.Content.Image.t() | LlmCall.Content.Video.t()
 
   @type t :: %__MODULE__{
@@ -1789,7 +1789,7 @@ defmodule LlmCall.Operation do
           id: String.t() | nil,
           status: status(),
           progress: 0..100 | nil,
-          result: LlmCall.MediaResponse.t() | nil,
+          result: LlmCall.Media.Response.t() | nil,
           next: LlmCall.EncodedRequest.t() | nil,
           next_kind: :poll | :asset | nil,
           next_media_type: String.t() | nil,
@@ -1798,7 +1798,7 @@ defmodule LlmCall.Operation do
         }
 end
 
-defmodule LlmCall.MediaCapabilities do
+defmodule LlmCall.Media.Capabilities do
   @type t :: %__MODULE__{
           modalities: [:image] | [:video],
           async: boolean(),
@@ -1912,16 +1912,16 @@ execute(next)  # body is the media bytes
 ### 23.5 `MediaCodec` behaviour and public API
 
 ```elixir
-defmodule LlmCall.MediaCodec do
+defmodule LlmCall.Media.Codec do
   @callback info() :: LlmCall.Codec.Info.t()
-  @callback capabilities(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
-              LlmCall.MediaCapabilities.t()
-  @callback validate_request(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+  @callback capabilities(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
+              LlmCall.Media.Capabilities.t()
+  @callback validate_request(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
               :ok | {:error, LlmCall.Error.t()}
-  @callback encode_submit(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+  @callback encode_submit(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
               {:ok, LlmCall.EncodedRequest.t()} | {:error, LlmCall.Error.t()}
   @callback decode_submit(LlmCall.wire_value(), LlmCall.Config.t()) ::
-              {:ok, LlmCall.MediaResponse.t()} | {:error, LlmCall.Error.t()}
+              {:ok, LlmCall.Media.Response.t()} | {:error, LlmCall.Error.t()}
   @callback decode_operation(LlmCall.wire_value(), LlmCall.Config.t()) ::
               {:ok, LlmCall.Operation.t()} | {:error, LlmCall.Error.t()}
   @callback decode_error(LlmCall.wire_value(), LlmCall.Config.t()) :: LlmCall.Error.t()

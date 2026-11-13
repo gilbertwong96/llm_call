@@ -13,17 +13,10 @@ defmodule LlmCall.MediaConformance do
 
   import ExUnit.Assertions
 
-  alias LlmCall.{
-    Codec,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    MediaCapabilities,
-    MediaRequest,
-    MediaResponse,
-    Operation
-  }
+  alias LlmCall.{Codec, Config, Content, EncodedRequest, Error, Operation}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
 
   @credential_headers ["authorization", "x-api-key", "api-key"]
 
@@ -43,12 +36,12 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  @spec assert_capabilities(module(), LlmCall.MediaRequest.t(), Config.t()) :: :ok
+  @spec assert_capabilities(module(), LlmCall.Media.Request.t(), Config.t()) :: :ok
   def assert_capabilities(codec, request, config) do
     assert Code.ensure_loaded?(codec), "#{inspect(codec)} is not loaded"
 
     assert %MediaCapabilities{async: async} = codec.capabilities(request, config),
-           "#{inspect(codec)}.capabilities/2 must return %LlmCall.MediaCapabilities{}"
+           "#{inspect(codec)}.capabilities/2 must return %LlmCall.Media.Capabilities{}"
 
     if async do
       assert function_exported?(codec, :decode_operation, 2),
@@ -61,7 +54,7 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  @spec assert_submit_path(module(), LlmCall.MediaRequest.t(), String.t()) :: :ok
+  @spec assert_submit_path(module(), LlmCall.Media.Request.t(), String.t()) :: :ok
   def assert_submit_path(codec, request, expected_path) do
     result = codec.encode_submit(request, %Config{})
 
@@ -144,7 +137,7 @@ defmodule LlmCall.MediaConformance do
                "a completed operation must not poll; it either carries assets or an :asset fetch"
 
         assert match?(%MediaResponse{}, operation.result),
-               "a completed operation must carry a MediaResponse result"
+               "a completed operation must carry a media response result"
 
         assert operation.error == nil, "a completed operation must not carry an error"
 

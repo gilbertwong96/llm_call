@@ -4,7 +4,7 @@
 
 - A completion endpoint (messages, system prompt, tools) → `LlmCall.Codec`.
 - A dedicated media endpoint (image/video generation, possibly long-running) →
-  `LlmCall.MediaCodec`.
+  `LlmCall.Media.Codec`.
 
 Both are described in [`docs/design.md`](docs/design.md) (§10, §23.5).
 

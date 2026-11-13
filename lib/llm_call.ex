@@ -116,15 +116,15 @@ defmodule LlmCall do
 
   The codec validates first; a knob it cannot express is a typed error.
   """
-  @spec encode_media(module(), LlmCall.MediaRequest.t(), Config.t()) ::
+  @spec encode_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
-  def encode_media(codec, %LlmCall.MediaRequest{} = request, config \\ %Config{}) do
+  def encode_media(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
     codec.encode_submit(request, config)
   end
 
   @doc "Decodes a media generation response, sync assets or an operation."
   @spec decode_media(module(), LlmCall.wire_value(), Config.t()) ::
-          {:ok, LlmCall.MediaResponse.t()} | {:error, Error.t()}
+          {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
   def decode_media(codec, term, config \\ %Config{}) do
     codec.decode_submit(term, config)
   end
@@ -144,16 +144,16 @@ defmodule LlmCall do
   end
 
   @doc "Checks a media request against the fields a codec can represent."
-  @spec validate_media(module(), LlmCall.MediaRequest.t(), Config.t()) ::
+  @spec validate_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
-  def validate_media(codec, %LlmCall.MediaRequest{} = request, config \\ %Config{}) do
+  def validate_media(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
     codec.validate_request(request, config)
   end
 
   @doc "Describes the media surface a codec declares."
-  @spec media_capabilities(module(), LlmCall.MediaRequest.t(), Config.t()) ::
-          LlmCall.MediaCapabilities.t()
-  def media_capabilities(codec, %LlmCall.MediaRequest{} = request, config \\ %Config{}) do
+  @spec media_capabilities(module(), LlmCall.Media.Request.t(), Config.t()) ::
+          LlmCall.Media.Capabilities.t()
+  def media_capabilities(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
     codec.capabilities(request, config)
   end
 

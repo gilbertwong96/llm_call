@@ -14,21 +14,14 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
   catalog, so a model-specific limit surfaces as a provider error.
   """
 
-  alias LlmCall.{
-    Codec,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    MediaCapabilities,
-    MediaRequest,
-    MediaResponse,
-    Operation
-  }
+  alias LlmCall.{Codec, Config, Content, EncodedRequest, Error, Operation}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
 
   alias LlmCall.Protocol.Helpers
 
-  @behaviour LlmCall.MediaCodec
+  @behaviour LlmCall.Media.Codec
 
   @codec :seedance_video
   @api_version "v3"

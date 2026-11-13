@@ -10,20 +10,14 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
   `model` must be a bare model id: it is interpolated into the request path.
   """
 
-  alias LlmCall.{
-    Codec,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    MediaCapabilities,
-    MediaRequest,
-    MediaResponse
-  }
+  alias LlmCall.{Codec, Config, Content, EncodedRequest, Error}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
 
   alias LlmCall.Protocol.Helpers
 
-  @behaviour LlmCall.MediaCodec
+  @behaviour LlmCall.Media.Codec
 
   @codec :gemini_predict
   @api_version "v1beta"

@@ -22,7 +22,7 @@ defmodule LlmCall.Operation do
           id: String.t() | nil,
           status: status(),
           progress: 0..100 | nil,
-          result: LlmCall.MediaResponse.t() | nil,
+          result: LlmCall.Media.Response.t() | nil,
           next: LlmCall.EncodedRequest.t() | nil,
           next_kind: :poll | :asset | nil,
           next_media_type: String.t() | nil,

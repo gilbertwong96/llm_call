@@ -1,4 +1,4 @@
-defmodule LlmCall.MediaResponse do
+defmodule LlmCall.Media.Response do
   @moduledoc """
   The result of a media generation.
 

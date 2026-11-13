@@ -1,4 +1,4 @@
-defmodule LlmCall.MediaCapabilities do
+defmodule LlmCall.Media.Capabilities do
   @moduledoc """
   The media surface a codec declares.
 

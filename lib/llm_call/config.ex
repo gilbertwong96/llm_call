@@ -34,7 +34,7 @@ defmodule LlmCall.Config do
   Namespaces present in both the config and the request are merged per key, with
   the request value winning.
   """
-  @spec provider_options(LlmCall.Request.t() | LlmCall.MediaRequest.t(), t()) :: map()
+  @spec provider_options(LlmCall.Request.t() | LlmCall.Media.Request.t(), t()) :: map()
   def provider_options(%{provider_options: request_options}, %__MODULE__{
         default_provider_options: default_options
       }) do

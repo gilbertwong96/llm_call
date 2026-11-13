@@ -8,7 +8,9 @@ defmodule LlmCall.Media.Protocol.ConformanceTest do
 
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Config, MediaRequest, MediaResponse}
+  alias LlmCall.{Config}
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.MediaConformance
   alias LlmCall.Media.Fixtures.{GeminiPredict, MiniMaxVideo, OpenAIImages, SeedanceVideo}
 

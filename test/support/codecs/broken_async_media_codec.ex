@@ -4,9 +4,10 @@ defmodule LlmCall.TestCodec.BrokenAsyncMedia do
   """
   # Declares async: true but does not implement decode_operation/2, so conformance
   # must catch it.
-  @behaviour LlmCall.MediaCodec
+  @behaviour LlmCall.Media.Codec
 
-  alias LlmCall.{Codec, Error, MediaCapabilities}
+  alias LlmCall.{Codec, Error}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
 
   @impl true
   def info,

@@ -1,7 +1,9 @@
 defmodule LlmCall.MediaApiTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse, Operation}
+  alias LlmCall.{Config, Content, Error, Operation}
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.TestCodec.{AsyncMedia, FakeMedia}
 
   defp request(overrides \\ []) do
@@ -19,7 +21,7 @@ defmodule LlmCall.MediaApiTest do
   test "validate_media/3 and media_capabilities/3 delegate" do
     assert :ok = LlmCall.validate_media(FakeMedia, request())
 
-    assert %LlmCall.MediaCapabilities{modalities: [:image], max_n: 4, sizes: ["1024x1024"]} =
+    assert %LlmCall.Media.Capabilities{modalities: [:image], max_n: 4, sizes: ["1024x1024"]} =
              LlmCall.media_capabilities(FakeMedia, request())
   end
 

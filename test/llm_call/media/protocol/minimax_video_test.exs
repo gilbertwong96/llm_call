@@ -2,7 +2,9 @@ defmodule LlmCall.Media.Protocol.MiniMaxVideoTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.Media.Protocol.MiniMax.Video
-  alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse, Operation}
+  alias LlmCall.{Config, Content, Error, Operation}
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.Media.Fixtures.MiniMaxVideo, as: Fx
 
   defp request(overrides \\ []) do
@@ -21,7 +23,7 @@ defmodule LlmCall.Media.Protocol.MiniMaxVideoTest do
            } =
              Video.info()
 
-    assert %LlmCall.MediaCapabilities{
+    assert %LlmCall.Media.Capabilities{
              modalities: [:video],
              async: true,
              max_n: nil,

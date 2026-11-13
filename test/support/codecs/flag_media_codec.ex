@@ -4,9 +4,11 @@ defmodule LlmCall.TestCodec.FlagMedia do
   """
   # Declares seed: true but rejects every seed, so the capability-consistency
   # check must catch the mismatch.
-  @behaviour LlmCall.MediaCodec
+  @behaviour LlmCall.Media.Codec
 
-  alias LlmCall.{Codec, Error, MediaCapabilities, MediaRequest}
+  alias LlmCall.{Codec, Error}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
+  alias LlmCall.Media.Request, as: MediaRequest
 
   @impl true
   def info, do: %Codec.Info{name: :flag_media, protocol: :flag_media, ir_version: 1}

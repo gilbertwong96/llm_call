@@ -1,4 +1,4 @@
-defmodule LlmCall.MediaCodec do
+defmodule LlmCall.Media.Codec do
   @moduledoc """
   The behaviour every media generation adapter implements.
 
@@ -13,17 +13,17 @@ defmodule LlmCall.MediaCodec do
 
   @callback info() :: LlmCall.Codec.Info.t()
 
-  @callback capabilities(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
-              LlmCall.MediaCapabilities.t()
+  @callback capabilities(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
+              LlmCall.Media.Capabilities.t()
 
-  @callback validate_request(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+  @callback validate_request(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
               :ok | {:error, LlmCall.Error.t()}
 
-  @callback encode_submit(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+  @callback encode_submit(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
               {:ok, LlmCall.EncodedRequest.t()} | {:error, LlmCall.Error.t()}
 
   @callback decode_submit(LlmCall.wire_value(), LlmCall.Config.t()) ::
-              {:ok, LlmCall.MediaResponse.t()} | {:error, LlmCall.Error.t()}
+              {:ok, LlmCall.Media.Response.t()} | {:error, LlmCall.Error.t()}
 
   @callback decode_operation(LlmCall.wire_value(), LlmCall.Config.t()) ::
               {:ok, LlmCall.Operation.t()} | {:error, LlmCall.Error.t()}

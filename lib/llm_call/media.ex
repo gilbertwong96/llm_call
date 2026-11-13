@@ -2,9 +2,9 @@ defmodule LlmCall.Media do
   @moduledoc """
   Namespace for the media adapters vendored with this library.
 
-  The media **IR** — `LlmCall.MediaRequest`, `LlmCall.MediaResponse`,
-  `LlmCall.Operation`, `LlmCall.MediaCapabilities`, and the
-  `LlmCall.MediaCodec` behaviour — is the stable surface. The adapters under
+  The media **IR** — `LlmCall.Media.Request`, `LlmCall.Media.Response`,
+  `LlmCall.Operation`, `LlmCall.Media.Capabilities`, and the
+  `LlmCall.Media.Codec` behaviour — is the stable surface. The adapters under
   `LlmCall.Media.Protocol.*` are vendored implementations: they ship with the
   library, follow the same conformance suite as the reference chat adapters, and
   track provider APIs that change more often than the IR does.

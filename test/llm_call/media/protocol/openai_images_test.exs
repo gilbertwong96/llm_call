@@ -2,7 +2,9 @@ defmodule LlmCall.Media.Protocol.OpenAIImagesTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.Media.Protocol.OpenAI.Images
-  alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse}
+  alias LlmCall.{Config, Content, Error}
+  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.Media.Fixtures.OpenAIImages, as: Fx
 
   defp request(overrides \\ []) do
@@ -84,7 +86,7 @@ defmodule LlmCall.Media.Protocol.OpenAIImagesTest do
   end
 
   test "capabilities declare the image surface" do
-    assert %LlmCall.MediaCapabilities{
+    assert %LlmCall.Media.Capabilities{
              modalities: [:image],
              async: false,
              max_n: 10,

@@ -73,7 +73,7 @@ Dedicated image endpoints use the media API instead, because they take a prompt
 and media parameters rather than messages:
 
 ```elixir
-media = %LlmCall.MediaRequest{
+media = %LlmCall.Media.Request{
   modality: :image,
   model: "gpt-image-1",
   prompt: "a cat, watercolor",
@@ -82,7 +82,7 @@ media = %LlmCall.MediaRequest{
 
 {:ok, encoded} = LlmCall.encode_media(LlmCall.Media.Protocol.OpenAI.Images, media)
 # ...
-{:ok, %LlmCall.MediaResponse{assets: assets}} =
+{:ok, %LlmCall.Media.Response{assets: assets}} =
   LlmCall.decode_media(LlmCall.Media.Protocol.OpenAI.Images, decoded_body)
 ```
 
@@ -95,7 +95,7 @@ Asynchronous video uses the same media API. A submit response carries an
 `LlmCall.decode_operation/3` returns the next state:
 
 ```elixir
-{:ok, %LlmCall.MediaResponse{operation: op}} =
+{:ok, %LlmCall.Media.Response{operation: op}} =
   LlmCall.decode_media(LlmCall.Media.Protocol.Seedance.Video, submit_body)
 
 # transport: execute op.next (a GET), then feed the decoded body back
@@ -132,7 +132,7 @@ of the stable API surface (see `LlmCall.Media`):
 | MiniMax Hailuo | `LlmCall.Media.Protocol.MiniMax.Video` |
 
 The library does not promise provider coverage. An adapter outside this
-repository is a module implementing `LlmCall.Codec` or `LlmCall.MediaCodec` plus
+repository is a module implementing `LlmCall.Codec` or `LlmCall.Media.Codec` plus
 honest fixtures; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 Codec selection is explicit; there is no provider registry. OpenAI-compatible

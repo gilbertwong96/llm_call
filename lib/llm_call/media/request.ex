@@ -1,4 +1,4 @@
-defmodule LlmCall.MediaRequest do
+defmodule LlmCall.Media.Request do
   @moduledoc """
   A provider-neutral image or video generation request.
 
