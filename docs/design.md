@@ -285,6 +285,7 @@ Rules:
   tools: [%LlmCall.ToolSpec{}],
   tool_choice: :auto,
   output: :text,
+  modalities: [:text],
   reasoning: %LlmCall.Reasoning{effort: :high},
   params: %{
     temperature: 0.2,
@@ -309,7 +310,12 @@ Fields:
   mandatory `:tool` role.
 - `tools` — optional neutral tool specifications.
 - `tool_choice` — `:auto | :none | :required | {:tool, name} | {:allowed, [name]}`.
-- `output` — `:text | :json_object | {:json_schema, name, schema, strict?}`.
+- `output` — `:text | :json_object | {:json_schema, name, schema, strict?}`. This
+  describes the text format only.
+- `modalities` — which output modalities the caller accepts, default `[:text]`.
+  `[:text, :image]` means a response may contain generated image parts as well as
+  text. It is a capability request, not a demand: `[:text, :image]` still allows a
+  text-only response. See [Media generation](#23-media-generation-image-and-video).
 - `reasoning` — optional `%LlmCall.Reasoning{}`; controls thinking/reasoning
   effort or budget where the protocol supports it. Provider-specific controls
   remain in `reasoning.provider_options`.
@@ -370,7 +376,8 @@ Initial canonical content types:
 
 - `%LlmCall.Content.Text{text: String.t()}`
 - `%LlmCall.Content.Image{source: source(), media_type: String.t() | nil}`
-- `%LlmCall.Content.File{source: source(), media_type: String.t() | nil, filename: String.t() | nil}`
+- `%LlmCall.Content.File{source: source(), media_type: String.t() | nil, filename: String.t() | nil}
+- `%LlmCall.Content.Video{source: source(), media_type: String.t() | nil}`
 - `%LlmCall.ToolCall{}`
 - `%LlmCall.ToolResult{}`
 - `%LlmCall.Content.Thinking{text: String.t(), signature: String.t() | nil}`
@@ -569,6 +576,7 @@ Capabilities are explicit and per protocol/config:
   parallel_tool_calls: false,
   tool_choice: true,
   structured_output: :json_schema,
+  output_modalities: [:text],
   image_input: true,
   file_input: false,
   reasoning: %LlmCall.ReasoningCapabilities{
@@ -599,6 +607,8 @@ documentation.
 defmodule LlmCall do
   @type model :: String.t()
   @type capture_raw :: :none | :response | :all
+
+  @type modality :: :text | :image | :video
   @type wire_value ::
           nil
           | boolean()
@@ -646,6 +656,7 @@ defmodule LlmCall.Content do
               media_type: String.t() | nil,
               filename: String.t() | nil
             }
+          | %LlmCall.Content.Video{source: source(), media_type: String.t() | nil}
           | %LlmCall.ToolCall{}
           | %LlmCall.ToolResult{}
           | %LlmCall.Content.Thinking{text: String.t(), signature: String.t() | nil}
@@ -705,6 +716,7 @@ defmodule LlmCall.Request do
           tools: [LlmCall.ToolSpec.t()],
           tool_choice: tool_choice(),
           output: output(),
+          modalities: [LlmCall.modality()],
           reasoning: LlmCall.Reasoning.t() | nil,
           params: params(),
           provider_options: map(),
@@ -823,6 +835,7 @@ defmodule LlmCall.Capabilities do
           parallel_tool_calls: boolean(),
           tool_choice: boolean(),
           structured_output: :none | :json_object | :json_schema,
+          output_modalities: [LlmCall.modality()],
           image_input: boolean(),
           file_input: boolean(),
           reasoning: LlmCall.ReasoningCapabilities.t() | nil,
@@ -835,7 +848,7 @@ end
 
 defmodule LlmCall.EncodedRequest do
   @type t :: %__MODULE__{
-          method: :post,
+          method: :post | :get,
           path: String.t(),
           query: %{optional(String.t()) => String.t() | integer() | boolean()},
           headers: [{String.t(), String.t()}],
@@ -1030,6 +1043,9 @@ Canonical IR changes follow these rules:
   in a documented release.
 - Removing or changing the meaning of an existing canonical field requires a
   major release.
+- Adding an optional field with a default does not bump
+  `Codec.Info.ir_version`; the version changes only when existing codecs must
+  adapt to the change.
 - Changing required codec callbacks, or making an optional streaming callback
   required, is a breaking change.
 - `Codec.Info.ir_version` identifies the canonical IR contract a codec was
@@ -1555,6 +1571,15 @@ For each protocol:
    - `finish_stream/2` flushes final usage/stop events
    - shared `LlmCall.Codec.Conformance` fixtures
 
+8. **Media generation tests**
+   - image request -> exact body, path, headers
+   - synchronous image response -> `MediaResponse.assets`
+   - submit -> poll -> completed state machine, including an asset-fetch step
+   - capability rejection for knobs a codec cannot express
+   - `capture_raw` on `MediaResponse.raw` and `Operation.raw`
+   - a media codec without `decode_operation/2` returns a typed error
+   - `Request.modalities` mapping per codec, including the streaming rejection
+
 ## 18. Failure and compatibility policy
 
 - Provider-specific features are opt-in through explicit fields or
@@ -1613,6 +1638,15 @@ Those belong in adapters or higher-level packages.
 8. Add optional `tool_call` adapter.
 9. Add OpenAI Responses and Bedrock/Cohere/Ollama adapters.
 
+Phase M (media generation, [§23](#23-media-generation-image-and-video)):
+
+10. Add `Content.Video`, `Request.modalities`, `Capabilities.output_modalities`,
+    and map `modalities` to `responseModalities` in the Gemini codec.
+11. Add `MediaRequest`, `MediaResponse`, `Operation`, `MediaCapabilities`, the
+    `MediaCodec` behaviour, and the public media API.
+12. M1 adapters: OpenAI Images, Gemini Predict (Imagen).
+13. M2 adapters: OpenAI Videos, Gemini PredictLongRunning (Veo).
+
 The first milestone should be useful without any transport implementation:
 a request can be encoded and a fixture response can be decoded in tests.
 
@@ -1626,3 +1660,259 @@ This design is working if:
 - Provider-specific features remain accessible through explicit escape hatches.
 - The core package has no HTTP, auth, registry, or tool-execution dependency.
 - Protocol fixtures are readable and testable without network access.
+- A caller can generate images and run video generation jobs without writing
+  provider-specific HTTP, and without the core polling or downloading anything.
+
+## 23. Media generation (image and video)
+
+Media generation is a first-class capability, not a separate package. It uses two
+entry points over one content vocabulary:
+
+- a completion that may return generated media (`Request.modalities`, decoded
+  into `Response.content`), and
+- a dedicated media request (`MediaRequest` -> `MediaResponse`), which may be
+  synchronous or a long-running operation.
+
+The reason for two entry points is that dedicated image/video endpoints have no
+`messages`, `system`, or `tools`; flattening a completion request into
+`{prompt, n, size}` would be a hidden convention.
+
+### 23.1 Canonical additions
+
+```elixir
+defmodule LlmCall.Content.Video do
+  @type t :: %__MODULE__{
+          source: LlmCall.Content.source(),
+          media_type: String.t() | nil
+        }
+  defstruct [:source, :media_type]
+end
+
+defmodule LlmCall.MediaRequest do
+  @type modality :: :image | :video
+
+  @type params :: %{
+          optional(:n) => pos_integer() | nil,
+          optional(:size) => String.t() | nil,
+          optional(:aspect_ratio) => String.t() | nil,
+          optional(:duration_s) => pos_integer() | nil,
+          optional(:seed) => non_neg_integer() | nil,
+          optional(:negative_prompt) => String.t() | nil
+        }
+
+  @type t :: %__MODULE__{
+          modality: modality(),
+          model: String.t(),
+          prompt: String.t(),
+          references: [LlmCall.Content.part()],
+          params: params(),
+          provider_options: map()
+        }
+end
+
+defmodule LlmCall.MediaResponse do
+  @type asset :: LlmCall.Content.Image.t() | LlmCall.Content.Video.t()
+
+  @type t :: %__MODULE__{
+          assets: [asset()],
+          revised_prompt: String.t() | nil,
+          usage: LlmCall.Usage.t() | nil,
+          operation: LlmCall.Operation.t() | nil,
+          raw: map() | nil
+        }
+end
+
+defmodule LlmCall.Operation do
+  @type status :: :queued | :in_progress | :completed | :failed
+
+  @type t :: %__MODULE__{
+          id: String.t(),
+          status: status(),
+          progress: 0..100 | nil,
+          result: LlmCall.MediaResponse.t() | nil,
+          next: LlmCall.EncodedRequest.t() | nil,
+          next_kind: :poll | :asset | nil,
+          next_media_type: String.t() | nil,
+          error: LlmCall.Error.t() | nil,
+          raw: map() | nil
+        }
+end
+
+defmodule LlmCall.MediaCapabilities do
+  @type t :: %__MODULE__{
+          modalities: [:image] | [:video],
+          async: boolean(),
+          max_n: pos_integer() | nil,
+          sizes: [String.t()],
+          aspect_ratios: [String.t()],
+          durations_s: [pos_integer()],
+          references: boolean(),
+          seed: boolean(),
+          negative_prompt: boolean()
+        }
+end
+```
+
+`MediaRequest` has no `stream`, no `system`, and no `tools` field. `prompt` is the
+provider's prompt field, not a message list.
+
+`references` are images or videos the generation is conditioned on. Only
+JSON-carriable content is allowed: `%Content.Image{}` and `%Content.Video{}` with
+`{:url, _}`, `{:base64, _}`, or string sources. Anything else is a validation
+error. A codec that would need a multipart upload rejects `references`.
+
+`Content.Audio` does not exist. Audio is not in scope; adding a type no codec can
+fill would be dead weight ([§10.2](#102-canonical-type-evolution)).
+
+### 23.2 Completion-side media output
+
+`Request.modalities` (default `[:text]`) is what the caller will accept:
+
+- an empty list, duplicates, or a value outside `:text | :image | :video` is a
+  validation error;
+- Gemini GenerateContent maps it to `generationConfig.responseModalities`
+  (upcased), omitting the field for the default `[:text]`;
+- Gemini GenerateContent with `:video`, and OpenAI Chat or Anthropic Messages
+  with `:image` or `:video`, are validation errors;
+- **`stream: true` with `:image` or `:video` in `modalities` is a validation
+  error.** Progressive media streaming would need a new delta type and touches the
+  assembler and every codec; it is out of scope. A caller that wants images calls
+  without streaming.
+- `Capabilities.output_modalities` declares the supported set per codec (default
+  `[:text]`), so a caller can check before encoding.
+- Decoding does not change: generated media arrive as `%Content.Image{}` or
+  `%Content.Video{}` parts in `Response.content`.
+
+### 23.3 Media validation and capabilities
+
+`validate_request/2` is a `MediaCodec` callback, implemented per codec. It must
+consult `capabilities/2` so that a knob outside the declared surface is a
+`:validation` error before anything is sent.
+
+List-valued capability fields enumerate accepted values:
+
+- `sizes: []` means the codec accepts **no** `size` value;
+- `max_n: nil` means no declared cap on `n`;
+- a `nil` request knob means "provider default" and is always accepted.
+
+Capabilities are static per codec. There is no model catalog
+([§2.2](#22-what-this-is-not)), so a codec declares the union its endpoint
+supports; a model-specific limit that a codec cannot know surfaces as a provider
+error, not a fabricated local guess.
+
+`params` keys outside the canonical set in §23.1 are validation errors. A codec
+rejects a non-nil knob it cannot express. `provider_options` is namespaced and
+merged like the completion side; a key that would replace `model`, `prompt`,
+`instances`, `parameters`, or `modality` is a validation error.
+
+### 23.4 Operation state machine
+
+One rule governs every operation:
+
+- `next` is always the encoded request the transport executes next, built by the
+  codec. There is no "encode a poll request from an id" callback.
+- `next_kind: :poll` -> decode the response body and call `decode_operation/3`.
+- `next_kind: :asset` -> the response body is media bytes. The core never touches
+  them; the transport gives them to the caller with `next_media_type`.
+- `status: :queued | :in_progress` -> `result: nil`, `error: nil`, `next` set,
+  `next_kind: :poll`.
+- `status: :completed` with `next_kind: :asset` -> `result: %MediaResponse{assets: []}`
+  (the asset is reachable only through `next`).
+- `status: :completed` with `next: nil` -> `result: %MediaResponse{assets: [...]}`.
+- `status: :completed` with `next_kind: :poll` is **not** produced: a codec that
+  knows the asset needs another request says so in the same decode result.
+- `status: :failed` -> `error` set, `result: nil`, `next: nil`.
+- `decode_submit/2` may return `%MediaResponse{assets: [...]}` with
+  `operation: nil` when the submit response already carries the finished asset.
+
+The core never polls, sleeps, retries, or downloads. A caller loop is:
+
+```elixir
+{:ok, %MediaResponse{operation: %Operation{status: :in_progress} = op}} =
+  LlmCall.decode_media(codec, submit_term, config)
+
+execute(op.next)
+{:ok, %Operation{status: :completed, next: next, next_kind: :asset}} =
+  LlmCall.decode_operation(codec, poll_term, config)
+
+execute(next)  # body is the media bytes
+```
+
+`Operation.raw` follows `capture_raw` (`:response` and `:all`).
+
+### 23.5 `MediaCodec` behaviour and public API
+
+```elixir
+defmodule LlmCall.MediaCodec do
+  @callback info() :: LlmCall.Codec.Info.t()
+  @callback capabilities(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+              LlmCall.MediaCapabilities.t()
+  @callback validate_request(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+              :ok | {:error, LlmCall.Error.t()}
+  @callback encode_submit(LlmCall.MediaRequest.t(), LlmCall.Config.t()) ::
+              {:ok, LlmCall.EncodedRequest.t()} | {:error, LlmCall.Error.t()}
+  @callback decode_submit(LlmCall.wire_value(), LlmCall.Config.t()) ::
+              {:ok, LlmCall.MediaResponse.t()} | {:error, LlmCall.Error.t()}
+  @callback decode_operation(LlmCall.wire_value(), LlmCall.Config.t()) ::
+              {:ok, LlmCall.Operation.t()} | {:error, LlmCall.Error.t()}
+  @callback decode_error(LlmCall.wire_value(), LlmCall.Config.t()) :: LlmCall.Error.t()
+
+  @optional_callbacks decode_operation: 2
+end
+```
+
+```elixir
+LlmCall.encode_media(codec, media_request, config \\ %LlmCall.Config{})
+LlmCall.decode_media(codec, term, config \\ %LlmCall.Config{})
+LlmCall.decode_operation(codec, term, config \\ %LlmCall.Config{})
+LlmCall.validate_media(codec, media_request, config \\ %LlmCall.Config{})
+LlmCall.media_capabilities(codec, media_request, config \\ %LlmCall.Config{})
+```
+
+`encode_media/3` delegates to the codec, which validates first. `decode_operation/3`
+returns a typed `:validation` error when the codec has no `decode_operation/2`,
+exactly like the optional streaming callbacks.
+
+Media codecs reuse `LlmCall.Codec.Info`. `ir_version` stays `1`: adding optional
+canonical fields with defaults does not change the contract an existing codec was
+written against.
+
+### 23.6 Protocol adapters
+
+Phase M1, synchronous image:
+
+- `LlmCall.Protocol.OpenAI.Images` — `POST /v1/images/generations`, body
+  `{model, prompt, n?, size?, response_format: "b64_json"}`. `references`,
+  `aspect_ratio`, `duration_s`, `negative_prompt`, and `seed` are validation
+  errors. Response `data[]`: `b64_json` -> `{:base64, data}`, `url` -> `{:url, url}`.
+  `revised_prompt` is the first non-nil value; the rest stay in `raw`.
+- `LlmCall.Protocol.Gemini.Predict` (Imagen) — `POST /v1beta/models/{model}:predict`,
+  body `{instances: [{prompt}], parameters: {sampleCount?, aspectRatio?, negativePrompt?}}`.
+  `size`, `duration_s`, `seed`, and `references` are validation errors. Response
+  `predictions[].bytesBase64Encoded` plus `mimeType` -> base64 image.
+
+Phase M2, asynchronous video:
+
+- `LlmCall.Protocol.OpenAI.Videos` — submit `POST /v1/videos`
+  `{model, prompt, seconds?, size?}` -> `{id, status, progress?}`; `next` is
+  `GET /v1/videos/{id}` with `next_kind: :poll`. When the job completes, the bytes
+  are only reachable through `GET /v1/videos/{id}/content`, so the completed
+  decode returns `status: :completed`, `next_kind: :asset`,
+  `next_media_type: "video/mp4"`, and `result: %MediaResponse{assets: []}`.
+  `references`, `aspect_ratio`, `negative_prompt`, and `seed` are validation errors.
+- `LlmCall.Protocol.Gemini.PredictLongRunning` (Veo) — submit
+  `POST /v1beta/models/{model}:predictLongRunning`
+  `{instances: [{prompt}], parameters: {aspectRatio?, durationSeconds?, negativePrompt?, sampleCount?}}`
+  -> `{name}`; `next` is `GET /v1beta/{name}` with `next_kind: :poll`. Completion
+  carries `response.generateVideoResponse.generatedSamples[].video.uri` ->
+  `%Content.Video{source: {:url, uri}, media_type: "video/mp4"}`, `next: nil`.
+  `size`, `seed`, and `references` are validation errors.
+
+### 23.7 Media non-goals
+
+- audio input or output;
+- media streaming (partial or progressive assets), including
+  `stream: true` with an image/video modality;
+- multipart uploads (image edits/variations from a local file);
+- downloading media bytes, polling loops, retries, timeouts, or job persistence;
+- cost and model catalogs for media models.
