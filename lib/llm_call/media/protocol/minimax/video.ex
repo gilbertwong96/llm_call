@@ -51,11 +51,11 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
     %MediaCapabilities{
       modalities: [:video],
       async: true,
-      max_n: nil,
+      max_n: :unsupported,
       sizes: [],
       aspect_ratios: [],
       durations_s: @durations,
-      references: true,
+      max_references: 1,
       seed: false,
       negative_prompt: false
     }

@@ -48,11 +48,11 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
     %MediaCapabilities{
       modalities: [:video],
       async: true,
-      max_n: nil,
+      max_n: :unsupported,
       sizes: [],
       aspect_ratios: @ratios,
       durations_s: @durations,
-      references: true,
+      max_references: 2,
       seed: true,
       negative_prompt: false
     }

@@ -16,7 +16,8 @@ defmodule LlmCall.TestCodec.AsyncMedia do
     do: %Codec.Info{name: :async_media, protocol: :async_media, version: nil, ir_version: 1}
 
   @impl true
-  def capabilities(_request, _config), do: %MediaCapabilities{modalities: [:video], async: true}
+  def capabilities(_request, _config),
+    do: %MediaCapabilities{modalities: [:video], async: true, max_references: nil}
 
   @impl true
   def validate_request(%MediaRequest{} = request, _config) do

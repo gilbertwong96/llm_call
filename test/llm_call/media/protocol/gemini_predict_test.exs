@@ -95,7 +95,7 @@ defmodule LlmCall.Media.Protocol.GeminiPredictTest do
              sizes: [],
              aspect_ratios: aspect_ratios,
              durations_s: [],
-             references: false,
+             max_references: nil,
              seed: false,
              negative_prompt: true
            } = Predict.capabilities(request(), %Config{})

@@ -36,6 +36,34 @@ defmodule LlmCall.Media.Protocol.ConformanceTest do
     end
   end
 
+  test "capability declarations expose the reference cap" do
+    assert %LlmCall.Media.Capabilities{max_references: 2, max_n: :unsupported} =
+             LlmCall.Media.Protocol.Seedance.Video.capabilities(
+               %LlmCall.Media.Request{
+                 modality: :video,
+                 model: "seedance-1-5-pro-251215",
+                 prompt: "a cat"
+               },
+               %Config{}
+             )
+
+    assert %LlmCall.Media.Capabilities{max_references: 1, max_n: :unsupported} =
+             LlmCall.Media.Protocol.MiniMax.Video.capabilities(
+               %LlmCall.Media.Request{
+                 modality: :video,
+                 model: "MiniMax-Hailuo-2.3",
+                 prompt: "a cat"
+               },
+               %Config{}
+             )
+
+    assert %LlmCall.Media.Capabilities{max_n: 10, max_references: nil} =
+             LlmCall.Media.Protocol.OpenAI.Images.capabilities(
+               %LlmCall.Media.Request{modality: :image, model: "gpt-image-1", prompt: "a cat"},
+               %Config{}
+             )
+  end
+
   test "a codec that does not declare a modality rejects it" do
     request = %LlmCall.Media.Request{
       modality: :image,

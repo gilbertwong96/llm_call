@@ -44,7 +44,7 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
       sizes: [],
       aspect_ratios: @aspect_ratios,
       durations_s: [],
-      references: false,
+      max_references: nil,
       seed: false,
       negative_prompt: true
     }

@@ -26,11 +26,11 @@ defmodule LlmCall.Media.Protocol.MiniMaxVideoTest do
     assert %LlmCall.Media.Capabilities{
              modalities: [:video],
              async: true,
-             max_n: nil,
+             max_n: :unsupported,
              sizes: [],
              aspect_ratios: [],
              durations_s: [6, 10],
-             references: true,
+             max_references: 1,
              seed: false,
              negative_prompt: false
            } = Video.capabilities(request(), %Config{})

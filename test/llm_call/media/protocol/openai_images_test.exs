@@ -93,7 +93,7 @@ defmodule LlmCall.Media.Protocol.OpenAIImagesTest do
              sizes: sizes,
              aspect_ratios: [],
              durations_s: [],
-             references: false,
+             max_references: nil,
              seed: false,
              negative_prompt: false
            } = Images.capabilities(request(), %Config{})

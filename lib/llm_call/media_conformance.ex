@@ -198,7 +198,7 @@ defmodule LlmCall.MediaConformance do
       "ugly"
     )
 
-    check_references(codec, base_request, config, capabilities.references)
+    check_max_references(codec, base_request, config, capabilities.max_references)
 
     :ok
   end
@@ -221,11 +221,11 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  defp check_max_n(codec, request, config, nil) do
+  defp check_max_n(codec, request, config, :unsupported) do
     result = codec.validate_request(with_param(request, :n, 1), config)
 
     assert match?({:error, %Error{kind: :validation}}, result),
-           "#{inspect(codec)} declares max_n: nil (n unsupported) but accepts n: 1"
+           "#{inspect(codec)} declares max_n: :unsupported but accepts n: 1"
 
     :ok
   end
@@ -258,16 +258,29 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  defp check_references(_codec, _request, _config, true), do: :ok
-
-  defp check_references(codec, request, config, false) do
-    reference = %Content.Image{source: {:url, "https://example.com/ref.png"}}
-    result = codec.validate_request(%{request | references: [reference]}, config)
+  defp check_max_references(codec, request, config, nil) do
+    result = codec.validate_request(%{request | references: references(1)}, config)
 
     assert match?({:error, %Error{kind: :validation}}, result),
-           "#{inspect(codec)} declares references: false but accepts a reference"
+           "#{inspect(codec)} declares max_references: nil but accepts a reference"
 
     :ok
+  end
+
+  defp check_max_references(codec, request, config, max) do
+    assert :ok == codec.validate_request(%{request | references: references(max)}, config),
+           "#{inspect(codec)} declares max_references: #{max} but rejects #{max} references"
+
+    result = codec.validate_request(%{request | references: references(max + 1)}, config)
+
+    assert match?({:error, %Error{kind: :validation}}, result),
+           "#{inspect(codec)} accepts #{max + 1} references beyond max_references: #{max}"
+
+    :ok
+  end
+
+  defp references(count) do
+    for _ <- 1..count, do: %Content.Image{source: {:url, "https://example.com/ref.png"}}
   end
 
   defp with_param(%MediaRequest{} = request, key, value) do

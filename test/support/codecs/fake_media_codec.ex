@@ -19,6 +19,7 @@ defmodule LlmCall.TestCodec.FakeMedia do
       async: false,
       max_n: 4,
       sizes: ["1024x1024"],
+      max_references: nil,
       seed: true
     }
   end
