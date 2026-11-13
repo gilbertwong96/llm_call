@@ -10,11 +10,12 @@ Module namespace: `LlmCall`
 `LlmCall` is a **wire-protocol codec** for LLM APIs, and the ecosystem that
 writes adapters for it.
 
-The core ships the canonical IR, the codec behaviours, the conformance suites,
-and a small set of **reference adapters** — the dialect families the IR is
-written against. Adapters for every other provider live in packages, because
-provider coverage is not a goal: the IR's value comes from the breadth of
-knowledge behind it, not from the breadth of shipped code.
+The library ships the canonical IR, the codec behaviours, the conformance
+suites, three **reference adapters** — the dialect families the IR is written
+against — and a set of **vendored media adapters**. Provider coverage is still
+not a goal: the IR's value comes from the breadth of knowledge behind it, not
+from the breadth of shipped code. A vendored adapter tracks its provider's API;
+the IR it maps into is the stable surface.
 
 `LlmCall` turns a provider-neutral request into the request body, path, and
 protocol headers a provider expects, and turns provider response terms into a
@@ -81,7 +82,8 @@ Providers do not agree on:
 - an agent loop, memory, prompt-template, or chain framework
 - a replacement for `ReqLLM` or LangChain
 - a provider catalog, or a promise to support every provider. Beyond the
-  reference adapters in this repository, adapters are packages (see §14)
+  reference and vendored adapters in this repository, an adapter is an
+  application's own module or a third-party package (see §14)
 
 ### 2.3 Relationship to `tool_call`
 
@@ -1386,19 +1388,24 @@ catalog can be converted into `LlmCall.ToolSpec` values outside the core.
 These cover the most common request/response shapes and validate the canonical
 IR.
 
-### Beyond the reference set
+### Vendored media adapters
 
-Everything else is a **package**, not a phase. There is no roadmap of adapters
-core owes, and no provider list to complete:
+These ship in this repository under `LlmCall.Media.Protocol.*`. They are not
+part of the stable API surface: a provider API change can force an adapter change
+in a minor release, which is why they are named separately from the reference
+adapters. See `LlmCall.Media` for the contract.
 
-- `llm_call_media` (in this repository, `packages/`) — OpenAI Images,
-  Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
-- Community packages — OpenAI Responses, Bedrock Converse, Cohere, Ollama,
-  Mistral, and any other protocol.
+- `LlmCall.Media.Protocol.OpenAI.Images`
+- `LlmCall.Media.Protocol.Gemini.Predict` (Imagen)
+- `LlmCall.Media.Protocol.Seedance.Video`
+- `LlmCall.Media.Protocol.MiniMax.Video`
 
-The rules for an adapter package (namespace, dependency direction, fixtures,
-conformance) are in `docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md`
-and `CONTRIBUTING.md`.
+### Beyond this repository
+
+There is no roadmap of adapters the library owes, and no provider list to
+complete. An adapter that is not vendored here is an application module or a
+package, in or outside this repository, following the same behaviour and the
+same conformance suite. `CONTRIBUTING.md` states the bar.
 
 ### OpenAI-compatible APIs
 
@@ -1463,16 +1470,16 @@ lib/llm_call/protocol/helpers.ex
 lib/llm_call/protocol/openai/chat.ex
 lib/llm_call/protocol/anthropic/messages.ex
 lib/llm_call/protocol/gemini/generate_content.ex
+lib/llm_call/media.ex
+lib/llm_call/media/protocol/openai/images.ex
+lib/llm_call/media/protocol/gemini/predict.ex
+lib/llm_call/media/protocol/seedance/video.ex
+lib/llm_call/media/protocol/minimax/video.ex
 ```
 
-The three protocol modules are **reference adapters**: they are the dialect
-families the IR is written against. Every other adapter is a package.
-
-Packages in this repository:
-
-```text
-packages/llm_call_media/          OpenAI Images, Gemini Imagen, Seedance, MiniMax
-```
+The three `protocol/*` modules are **reference adapters**: the dialect families
+the IR is written against. The `media/protocol/*` modules are **vendored**
+adapters: they ship with the library but are not part of the stable surface.
 
 Optional packages:
 
@@ -1689,9 +1696,10 @@ Those belong in adapters or higher-level packages.
    `MediaCodec` behaviour, and the public media API.
 10. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
     document the adapter-authoring contract.
-11. Ship `packages/llm_call_media` with the image and video adapters.
+11. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
+    Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
 
-Adapters beyond the reference set are packages, not implementation phases.
+Adapters beyond the reference and vendored sets are not implementation phases.
 
 The first milestone should be useful without any transport implementation:
 a request can be encoded and a fixture response can be decoded in tests.
@@ -1704,7 +1712,8 @@ This design is working if:
 - A third party can write an adapter, decode against their own fixtures, and
   verify its shapes, capture policy, stream plumbing, capabilities, and operation
   states with the conformance suite — without touching core.
-- Adding an adapter never requires a core release.
+- An adapter outside this repository needs no core release; a vendored one is
+  allowed to change with its provider without changing the IR.
 - A different tool framework can use `LlmCall` without importing `tool_call`.
 - Adding a protocol adapter does not require changing canonical messages.
 - Provider-specific features remain accessible through explicit escape hatches.
@@ -1715,9 +1724,9 @@ This design is working if:
 
 ## 23. Media generation (image and video)
 
-The media **IR** is first-class and lives in core; media **adapters** are
-packages (`packages/llm_call_media`). It uses two entry points over one content
-vocabulary:
+The media **IR** is first-class and stable; media **adapters** are vendored
+under `LlmCall.Media.Protocol.*` and are not part of the stable surface. It uses
+two entry points over one content vocabulary:
 
 - a completion that may return generated media (`Request.modalities`, decoded
   into `Response.content`), and
@@ -1939,27 +1948,63 @@ written against.
 
 ### 23.6 Protocol adapters
 
-Media adapters are **packages**, not core modules. They live in
-`packages/llm_call_media` under `LlmCallMedia.Protocol.*`; that package's README
-documents each protocol's wire detail — endpoints, statuses, parameter mapping,
-capability surface, and the canonical fields it cannot express.
+The media adapters are **vendored** with the library under
+`LlmCall.Media.Protocol.*`: they ship in the `llm_call` application, follow the
+same conformance suite as the reference chat adapters, and are not part of the
+stable API surface (see `LlmCall.Media`). The media IR they map into is stable;
+they are not.
 
-| Adapter | Modality | Flow |
-| --- | --- | --- |
-| `LlmCallMedia.Protocol.OpenAI.Images` | image | `POST /v1/images/generations` (sync) |
-| `LlmCallMedia.Protocol.Gemini.Predict` | image | `POST /v1beta/models/{model}:predict` (Imagen, sync) |
-| `LlmCallMedia.Protocol.Seedance.Video` | video | submit -> poll the task -> `content.video_url` |
-| `LlmCallMedia.Protocol.MiniMax.Video` | video | submit -> poll -> `/v1/files/retrieve` -> `file.download_url` |
+Phase M1, synchronous image:
 
-Two protocol rules the IR relies on, enforced by the package:
+- `LlmCall.Media.Protocol.OpenAI.Images` — `POST /v1/images/generations`, body
+  `{model, prompt, n?, size?}`. `response_format: "b64_json"` is sent only for
+  `dall-e-*` models: `gpt-image-1` rejects the key and returns base64 anyway, and
+  `provider_options.openai` may override the value. `references`,
+  `aspect_ratio`, `duration_s`, `negative_prompt`, and `seed` are validation
+  errors. Response `data[]`: `b64_json` -> `{:base64, data}`, `url` -> `{:url, url}`.
+  `revised_prompt` is the first non-nil value; the rest stay in `raw`.
+- `LlmCall.Media.Protocol.Gemini.Predict` (Imagen) — `POST /v1beta/models/{model}:predict`,
+  body `{instances: [{prompt}], parameters: {sampleCount?, aspectRatio?, negativePrompt?}}`.
+  `size`, `duration_s`, `seed`, and `references` are validation errors. Native
+  `parameters` knobs (`personGeneration`, `safetySetting`, `outputOptions`, ...)
+  merge through `provider_options`. Response `predictions[].bytesBase64Encoded`
+  plus `mimeType` -> base64 image; a prediction with `raiFilteredReason` and no
+  bytes is skipped while another prediction has bytes, and is a `:provider` error
+  when none do.
 
-- Seedance distinguishes the first and last frame with `role` (`first_frame`,
-  `last_frame`), because ModelArk requires the roles to tell the pair apart.
-- MiniMax reports errors as HTTP 200 with a non-zero `base_resp.status_code`, so
-  a non-zero `base_resp` is a `:provider` error.
+Phase M2, asynchronous video. The M2 codecs target the two video APIs this
+project actually uses; Sora and Veo are not implemented.
 
-Sora, Veo, and every other media API are future packages. Core does not track
-them.
+- `LlmCall.Media.Protocol.Seedance.Video` (BytePlus ModelArk) — submit
+  `POST /api/v3/contents/generations/tasks` with
+  `{model, content: [{type: "text", text: prompt}, {type: "image_url",
+  image_url: {url}, role}?], ratio?, duration?, seed?}`; `next` is
+  `GET /api/v3/contents/generations/tasks/{id}` with `next_kind: :poll`.
+  Statuses map as `queued` -> `:queued`, `running` -> `:in_progress`,
+  `succeeded` -> `:completed` with
+  `%Content.Video{source: {:url, content.video_url}}`, and
+  `failed | cancelled | expired` -> `:failed`. `size`, `negative_prompt`, and `n`
+  are validation errors; `resolution`, `watermark`, `generate_audio`,
+  `camera_fixed`, and `service_tier` are native knobs reached through
+  `provider_options`. `references` accepts one or two images: the first is
+  `role: "first_frame"` and the second `role: "last_frame"`, because ModelArk
+  requires the roles to tell the pair apart. `durations_s` declares the union
+  across Seedance models (2-30 s); a model-specific limit is a provider error.
+- `LlmCall.Media.Protocol.MiniMax.Video` (Hailuo, `v1`) — submit
+  `POST /v1/video_generation` with
+  `{model, prompt, duration?, first_frame_image?}` -> `{task_id}`; `next` is
+  `GET /v1/query/video_generation?task_id={id}`. On `Success` the query returns
+  only a `file_id`, so the operation stays `:in_progress` with `next` =
+  `GET /v1/files/retrieve?file_id={id}`, and that payload completes the job with
+  `%Content.Video{source: {:url, file.download_url}}`. `Fail` -> `:failed`.
+  Statuses `Preparing | Queueing | Processing` -> `:in_progress`. `size`,
+  `aspect_ratio`, `seed`, and `negative_prompt` are validation errors;
+  `resolution`, `prompt_optimizer`, `fast_pretreatment`, `callback_url`, and
+  `extra` are reached through `provider_options`. `references` accepts one image
+  (first frame).
+- Both codecs treat a provider error envelope as a `:provider` error. MiniMax
+  reports errors as HTTP 200 with a non-zero `base_resp.status_code`, so a
+  non-zero `base_resp` is an error regardless of the transport status.
 
 ### 23.7 Media non-goals
 
