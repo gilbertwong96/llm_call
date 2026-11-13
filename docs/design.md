@@ -1645,7 +1645,7 @@ Phase M (media generation, [§23](#23-media-generation-image-and-video)):
 11. Add `MediaRequest`, `MediaResponse`, `Operation`, `MediaCapabilities`, the
     `MediaCodec` behaviour, and the public media API.
 12. M1 adapters: OpenAI Images, Gemini Predict (Imagen).
-13. M2 adapters: OpenAI Videos, Gemini PredictLongRunning (Veo).
+13. M2 adapters: Seedance (BytePlus ModelArk) and MiniMax Hailuo.
 
 The first milestone should be useful without any transport implementation:
 a request can be encoded and a fixture response can be decoded in tests.
@@ -1726,7 +1726,7 @@ defmodule LlmCall.Operation do
   @type status :: :queued | :in_progress | :completed | :failed
 
   @type t :: %__MODULE__{
-          id: String.t(),
+          id: String.t() | nil,
           status: status(),
           progress: 0..100 | nil,
           result: LlmCall.MediaResponse.t() | nil,
@@ -1829,6 +1829,10 @@ One rule governs every operation:
 - `decode_submit/2` may return `%MediaResponse{assets: [...]}` with
   `operation: nil` when the submit response already carries the finished asset.
 
+`id` may be `nil` on a follow-up step: a codec is stateless, so a poll whose
+payload does not repeat the job id (MiniMax's file-retrieve step) cannot supply
+it.
+
 The core never polls, sleeps, retries, or downloads. A caller loop is:
 
 ```elixir
@@ -1901,22 +1905,37 @@ Phase M1, synchronous image:
   bytes is skipped while another prediction has bytes, and is a `:provider` error
   when none do.
 
-Phase M2, asynchronous video:
+Phase M2, asynchronous video. The M2 codecs target the two video APIs this
+project actually uses; Sora and Veo are not implemented.
 
-- `LlmCall.Protocol.OpenAI.Videos` — submit `POST /v1/videos`
-  `{model, prompt, seconds?, size?}` -> `{id, status, progress?}`; `next` is
-  `GET /v1/videos/{id}` with `next_kind: :poll`. When the job completes, the bytes
-  are only reachable through `GET /v1/videos/{id}/content`, so the completed
-  decode returns `status: :completed`, `next_kind: :asset`,
-  `next_media_type: "video/mp4"`, and `result: %MediaResponse{assets: []}`.
-  `references`, `aspect_ratio`, `negative_prompt`, and `seed` are validation errors.
-- `LlmCall.Protocol.Gemini.PredictLongRunning` (Veo) — submit
-  `POST /v1beta/models/{model}:predictLongRunning`
-  `{instances: [{prompt}], parameters: {aspectRatio?, durationSeconds?, negativePrompt?, sampleCount?}}`
-  -> `{name}`; `next` is `GET /v1beta/{name}` with `next_kind: :poll`. Completion
-  carries `response.generateVideoResponse.generatedSamples[].video.uri` ->
-  `%Content.Video{source: {:url, uri}, media_type: "video/mp4"}`, `next: nil`.
-  `size`, `seed`, and `references` are validation errors.
+- `LlmCall.Protocol.Seedance.Video` (BytePlus ModelArk) — submit
+  `POST /api/v3/contents/generations/tasks` with
+  `{model, content: [{type: "text", text: prompt}, {type: "image_url",
+  image_url: {url}}?], ratio?, duration?, seed?}`; `next` is
+  `GET /api/v3/contents/generations/tasks/{id}` with `next_kind: :poll`.
+  Statuses map as `queued` -> `:queued`, `running` -> `:in_progress`,
+  `succeeded` -> `:completed` with
+  `%Content.Video{source: {:url, content.video_url}}`, and
+  `failed | cancelled | expired` -> `:failed`. `size`, `negative_prompt`, and `n`
+  are validation errors; `resolution`, `watermark`, `generate_audio`,
+  `camera_fixed`, and `service_tier` are native knobs reached through
+  `provider_options`. `references` accepts one or two images (first and last
+  frame).
+- `LlmCall.Protocol.MiniMax.Video` (Hailuo, `v1`) — submit
+  `POST /v1/video_generation` with
+  `{model, prompt, duration?, first_frame_image?}` -> `{task_id}`; `next` is
+  `GET /v1/query/video_generation?task_id={id}`. On `Success` the query returns
+  only a `file_id`, so the operation stays `:in_progress` with `next` =
+  `GET /v1/files/retrieve?file_id={id}`, and that payload completes the job with
+  `%Content.Video{source: {:url, file.download_url}}`. `Fail` -> `:failed`.
+  Statuses `Preparing | Queueing | Processing` -> `:in_progress`. `size`,
+  `aspect_ratio`, `seed`, and `negative_prompt` are validation errors;
+  `resolution`, `prompt_optimizer`, `fast_pretreatment`, `callback_url`, and
+  `extra` are reached through `provider_options`. `references` accepts one image
+  (first frame).
+- Both codecs treat a provider error envelope as a `:provider` error. MiniMax
+  reports errors as HTTP 200 with a non-zero `base_resp.status_code`, so a
+  non-zero `base_resp` is an error regardless of the transport status.
 
 ### 23.7 Media non-goals
 
