@@ -1,5 +1,7 @@
 defmodule LlmCall.TestCodec.FlagMedia do
-  @moduledoc false
+  @moduledoc """
+  Media codec fake that declares `seed: true` and rejects every seed, so the flag check must catch it.
+  """
   # Declares seed: true but rejects every seed, so the capability-consistency
   # check must catch the mismatch.
   @behaviour LlmCall.MediaCodec

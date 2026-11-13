@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.SeedanceVideo do
-  @moduledoc false
+  @moduledoc """
+  Seedance (BytePlus ModelArk) task payloads shaped like the provider's responses.
+  """
 
   def submit_response, do: %{"id" => "cgt-2026-abc"}
 

@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.MiniMaxVideo do
-  @moduledoc false
+  @moduledoc """
+  MiniMax Hailuo payloads, including the `base_resp` error envelopes.
+  """
 
   defp ok, do: %{"status_code" => 0, "status_msg" => "success"}
 

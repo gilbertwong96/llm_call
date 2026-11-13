@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.OpenAIChat do
-  @moduledoc false
+  @moduledoc """
+  OpenAI Chat payloads shaped like the provider's responses and stream chunks.
+  """
 
   def text_response do
     %{

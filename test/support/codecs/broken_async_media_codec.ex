@@ -1,5 +1,7 @@
 defmodule LlmCall.TestCodec.BrokenAsyncMedia do
-  @moduledoc false
+  @moduledoc """
+  Media codec fake that declares `async: true` but omits `decode_operation/2`, so conformance must catch it.
+  """
   # Declares async: true but does not implement decode_operation/2, so conformance
   # must catch it.
   @behaviour LlmCall.MediaCodec

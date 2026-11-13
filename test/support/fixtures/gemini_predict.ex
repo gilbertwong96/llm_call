@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.GeminiPredict do
-  @moduledoc false
+  @moduledoc """
+  Gemini Imagen `predict` payloads shaped like the provider's responses.
+  """
 
   def base64_response do
     %{"predictions" => [%{"bytesBase64Encoded" => "AAA", "mimeType" => "image/png"}]}

@@ -1,5 +1,7 @@
 defmodule LlmCall.TestCodec.Fake do
-  @moduledoc false
+  @moduledoc """
+  Synchronous completion codec fake with a full callback set, used to exercise the public dispatch API.
+  """
   @behaviour LlmCall.Codec
 
   alias LlmCall.{

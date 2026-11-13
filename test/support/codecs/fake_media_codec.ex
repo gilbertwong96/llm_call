@@ -1,5 +1,7 @@
 defmodule LlmCall.TestCodec.FakeMedia do
-  @moduledoc false
+  @moduledoc """
+  Media codec fake that deliberately ignores its declared capabilities, so the capability-consistency check must catch it.
+  """
   @behaviour LlmCall.MediaCodec
 
   alias LlmCall.{

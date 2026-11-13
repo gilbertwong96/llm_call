@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.GeminiGenerateContent do
-  @moduledoc false
+  @moduledoc """
+  Gemini GenerateContent payloads shaped like the provider's responses.
+  """
 
   def text_response do
     %{

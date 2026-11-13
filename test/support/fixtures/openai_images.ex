@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.OpenAIImages do
-  @moduledoc false
+  @moduledoc """
+  OpenAI Images payloads shaped like the provider's responses.
+  """
 
   def base64_response do
     %{

@@ -1,5 +1,7 @@
 defmodule LlmCall.TestJSON do
-  @moduledoc false
+  @moduledoc """
+  JSON decoder stub for tests: maps decode to `{:ok, map}` and malformed input to `{:error, reason}`.
+  """
 
   def decode(input) do
     case :json.decode(input) do

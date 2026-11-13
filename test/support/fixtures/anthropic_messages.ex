@@ -1,5 +1,7 @@
 defmodule LlmCall.Fixtures.AnthropicMessages do
-  @moduledoc false
+  @moduledoc """
+  Anthropic Messages payloads shaped like the provider's responses, for adapter tests.
+  """
 
   def text_response do
     %{

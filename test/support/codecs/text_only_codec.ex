@@ -1,5 +1,7 @@
 defmodule LlmCall.TestCodec.TextOnly do
-  @moduledoc false
+  @moduledoc """
+  Completion codec fake without streaming callbacks, used to check the typed 'does not support' error.
+  """
   @behaviour LlmCall.Codec
 
   alias LlmCall.{Capabilities, Codec, EncodedRequest, Error, Response}

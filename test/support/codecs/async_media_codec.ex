@@ -1,5 +1,7 @@
 defmodule LlmCall.TestCodec.AsyncMedia do
-  @moduledoc false
+  @moduledoc """
+  Asynchronous media codec fake. Honours its own capability declarations and drives the `Operation` state machine through every state.
+  """
   @behaviour LlmCall.MediaCodec
 
   alias LlmCall.{
