@@ -3,8 +3,8 @@ defmodule LlmCall.Config do
   Codec defaults and capture policy.
 
   Holds no credentials and no base URL: those belong to the transport.
-  `default_provider_options` is merged before `LlmCall.Request.provider_options`,
-  and the request wins per key.
+  `default_provider_options` is merged before a request's `provider_options`
+  (completion or media), and the request wins per key.
   """
 
   @type t :: %__MODULE__{
@@ -34,8 +34,8 @@ defmodule LlmCall.Config do
   Namespaces present in both the config and the request are merged per key, with
   the request value winning.
   """
-  @spec provider_options(LlmCall.Request.t(), t()) :: map()
-  def provider_options(%LlmCall.Request{provider_options: request_options}, %__MODULE__{
+  @spec provider_options(LlmCall.Request.t() | LlmCall.MediaRequest.t(), t()) :: map()
+  def provider_options(%{provider_options: request_options}, %__MODULE__{
         default_provider_options: default_options
       }) do
     Map.merge(default_options, request_options, fn _namespace, defaults, request ->
