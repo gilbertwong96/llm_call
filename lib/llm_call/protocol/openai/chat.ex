@@ -76,6 +76,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
+         :ok <- validate_modalities(request.modalities),
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
          :ok <- validate_reasoning(request.reasoning),
@@ -250,6 +251,28 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp validate_model(model) when is_binary(model) and model != "", do: :ok
   defp validate_model(_model), do: Helpers.error(@codec, "model is required")
+
+  defp validate_modalities(modalities) when is_list(modalities) and modalities != [] do
+    cond do
+      Enum.any?(modalities, &(&1 not in [:text, :image, :video])) ->
+        Helpers.error(@codec, "modality must be :text, :image or :video")
+
+      length(Enum.uniq(modalities)) != length(modalities) ->
+        Helpers.error(@codec, "modalities must not repeat a value")
+
+      Enum.any?(modalities, &(&1 != :text)) ->
+        Helpers.error(
+          @codec,
+          "output modality #{inspect(Enum.reject(modalities, &(&1 == :text)))} is not supported"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_modalities(_modalities),
+    do: Helpers.error(@codec, "modalities must be a non-empty list")
 
   defp validate_messages([]), do: Helpers.error(@codec, "at least one message is required")
 
@@ -500,6 +523,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :json_schema,
+      output_modalities: [:text],
       image_input: true,
       file_input: false,
       reasoning: %ReasoningCapabilities{

@@ -635,4 +635,24 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
       assert [%{"role" => "user"}] = body["messages"]
     end
   end
+
+  describe "modalities" do
+    test "text is the only accepted output modality" do
+      refute Map.has_key?(encode(text_request()).body, "responseModalities")
+
+      for modalities <- [[:image], [:text, :image], [:video]] do
+        request = text_request(modalities: modalities)
+
+        assert {:error, %Error{kind: :validation, message: message}} =
+                 Chat.validate_request(request, %Config{})
+
+        assert message =~ "modality"
+        assert {:error, %Error{kind: :validation}} = Chat.encode_request(request, %Config{})
+      end
+    end
+
+    test "capabilities declare text output only" do
+      assert Chat.capabilities(text_request(), %Config{}).output_modalities == [:text]
+    end
+  end
 end

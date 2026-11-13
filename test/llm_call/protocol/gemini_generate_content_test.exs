@@ -637,4 +637,52 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
       end
     end
   end
+
+  describe "modalities" do
+    test "image output maps to responseModalities and merges into generationConfig" do
+      body = encode(text_request(modalities: [:text, :image])).body
+      assert body["generationConfig"] == %{"responseModalities" => ["TEXT", "IMAGE"]}
+
+      body = encode(text_request(modalities: [:text, :image], params: %{temperature: 0.2})).body
+
+      assert body["generationConfig"] == %{
+               "temperature" => 0.2,
+               "responseModalities" => ["TEXT", "IMAGE"]
+             }
+
+      refute Map.has_key?(
+               encode(text_request()).body["generationConfig"] || %{},
+               "responseModalities"
+             )
+    end
+
+    test "video needs the long-running path and image output cannot be streamed" do
+      for modalities <- [[:video], [:text, :video]] do
+        assert {:error, %Error{kind: :validation}} =
+                 GenerateContent.validate_request(text_request(modalities: modalities), %Config{})
+      end
+
+      streamed = text_request(modalities: [:text, :image], stream: true)
+
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(streamed, %Config{})
+
+      assert message =~ "stream"
+
+      assert {:error, %Error{kind: :validation}} =
+               GenerateContent.init_stream(streamed, %Config{})
+    end
+
+    test "malformed modality lists are rejected" do
+      for modalities <- [[], [:text, :text], [:audio], :text] do
+        assert {:error, %Error{kind: :validation}} =
+                 GenerateContent.validate_request(text_request(modalities: modalities), %Config{})
+      end
+    end
+
+    test "capabilities declare text and image output" do
+      assert GenerateContent.capabilities(text_request(), %Config{}).output_modalities ==
+               [:text, :image]
+    end
+  end
 end

@@ -604,4 +604,24 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
                Messages.encode_request(text_request(system: system), %Config{})
     end
   end
+
+  describe "modalities" do
+    test "text is the only accepted output modality" do
+      refute Map.has_key?(encode(text_request()).body, "responseModalities")
+
+      for modalities <- [[:image], [:text, :image], [:video]] do
+        request = text_request(modalities: modalities)
+
+        assert {:error, %Error{kind: :validation, message: message}} =
+                 Messages.validate_request(request, %Config{})
+
+        assert message =~ "modality"
+        assert {:error, %Error{kind: :validation}} = Messages.encode_request(request, %Config{})
+      end
+    end
+
+    test "capabilities declare text output only" do
+      assert Messages.capabilities(text_request(), %Config{}).output_modalities == [:text]
+    end
+  end
 end

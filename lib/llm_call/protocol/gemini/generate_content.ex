@@ -77,6 +77,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
+         :ok <- validate_modalities(request.modalities),
+         :ok <- validate_streaming_modalities(request),
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
          :ok <- validate_reasoning(request.reasoning),
@@ -230,8 +232,15 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
       |> Helpers.maybe_put("stopSequences", request.params[:stop])
       |> Map.merge(encode_output(request.output))
       |> Helpers.maybe_put("thinkingConfig", encode_thinking(request.reasoning))
+      |> Helpers.maybe_put("responseModalities", encode_modalities(request.modalities))
 
     if config == %{}, do: nil, else: config
+  end
+
+  defp encode_modalities([:text]), do: nil
+
+  defp encode_modalities(modalities) do
+    Enum.map(modalities, &(&1 |> Atom.to_string() |> String.upcase()))
   end
 
   defp encode_output(:text), do: %{}
@@ -272,6 +281,35 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     options = Config.provider_options(request, config)
     Map.get(options, :gemini) || Map.get(options, :google) || %{}
   end
+
+  defp validate_modalities(modalities) when is_list(modalities) and modalities != [] do
+    cond do
+      Enum.any?(modalities, &(&1 not in [:text, :image, :video])) ->
+        Helpers.error(@codec, "modality must be :text, :image or :video")
+
+      length(Enum.uniq(modalities)) != length(modalities) ->
+        Helpers.error(@codec, "modalities must not repeat a value")
+
+      :video in modalities ->
+        Helpers.error(@codec, "video output requires the long-running predict path")
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_modalities(_modalities),
+    do: Helpers.error(@codec, "modalities must be a non-empty list")
+
+  defp validate_streaming_modalities(%Request{stream: true, modalities: modalities}) do
+    if :image in modalities do
+      Helpers.error(@codec, "image output cannot be streamed")
+    else
+      :ok
+    end
+  end
+
+  defp validate_streaming_modalities(%Request{}), do: :ok
 
   defp validate_model(model) when is_binary(model) and model != "" do
     if String.contains?(model, ["/", ":"]) do
@@ -607,6 +645,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :json_schema,
+      output_modalities: [:text, :image],
       image_input: true,
       file_input: true,
       reasoning: %ReasoningCapabilities{
