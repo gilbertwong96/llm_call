@@ -63,6 +63,7 @@ Every adapter must:
    LlmCall.Codec.Conformance.assert_path(MyCodec, request, "/v1/my-endpoint")
    LlmCall.Codec.Conformance.assert_capture_raw(MyCodec, response_fixture)
    LlmCall.Codec.Conformance.assert_stream_state_ownership(MyCodec, OtherCodec, request)
+   LlmCall.Codec.Conformance.assert_rejects(MyCodec, invalid_request, %LlmCall.Config{})
    ```
 
    or, for media, `LlmCall.MediaConformance` (`assert_info/1`,

@@ -106,6 +106,25 @@ defmodule LlmCall.Codec.Conformance do
     :ok
   end
 
+  @doc """
+  Asserts that a codec rejects a request it cannot represent in full.
+
+  The core promise is that an unrepresentable canonical field is a validation
+  error, never a silent drop. This is the assertion a package uses to prove it,
+  and the one that pins a protocol's unsupported fields as a test rather than a
+  convention.
+  """
+  @spec assert_rejects(module(), LlmCall.Request.t(), Config.t()) :: :ok
+  def assert_rejects(codec, request, config) do
+    result = codec.encode_request(request, config)
+
+    assert match?({:error, %LlmCall.Error{kind: :validation}}, result),
+           "#{inspect(codec)} must reject a request with a field it cannot express, " <>
+             "got: #{inspect(result)}"
+
+    :ok
+  end
+
   @spec assert_stream_roundtrip(module(), LlmCall.Request.t()) :: :ok
   def assert_stream_roundtrip(codec, request) do
     assert {:ok, %StreamState{} = state} = codec.init_stream(request, %Config{}),

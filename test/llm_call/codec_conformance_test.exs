@@ -58,6 +58,27 @@ defmodule LlmCall.CodecConformanceTest do
              )
   end
 
+  test "assert_rejects/3 pins the no-silent-drops promise" do
+    request = %LlmCall.Request{
+      model: "gpt-4o",
+      messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]}],
+      params: %{top_k: 5}
+    }
+
+    assert :ok = Conformance.assert_rejects(LlmCall.Protocol.OpenAI.Chat, request, %Config{})
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_rejects(
+        LlmCall.Protocol.OpenAI.Chat,
+        %LlmCall.Request{
+          model: "gpt-4o",
+          messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]}]
+        },
+        %Config{}
+      )
+    end
+  end
+
   test "conformance assertions catch a violating codec" do
     codec = LlmCall.Protocol.OpenAI.Chat
 

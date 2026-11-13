@@ -579,7 +579,10 @@ decoded by a protocol codec become `LlmCall.Error`.
 
 ### 8.10 Capabilities
 
-Capabilities are explicit and per protocol/config:
+Capabilities are explicit and per protocol/config. They are **protocol-level**:
+`capabilities/2` takes the request for signature symmetry but does not inspect the
+model; a model-specific limit surfaces as a provider error rather than a
+fabricated local guess.
 
 ```elixir
 %LlmCall.Capabilities{
@@ -587,7 +590,7 @@ Capabilities are explicit and per protocol/config:
   parallel_tool_calls: false,
   tool_choice: true,
   structured_output: :json_schema,
-  output_modalities: [:text],
+  modalities: [:text],
   image_input: true,
   file_input: false,
   reasoning: %LlmCall.ReasoningCapabilities{
@@ -707,7 +710,7 @@ defmodule LlmCall.Content.Raw do
 end
 
 defmodule LlmCall.Request do
-  @type system :: nil | String.t() | [LlmCall.Content.part()]
+  @type system :: nil | String.t() | [LlmCall.Content.Text.t()]
   @type tool_choice ::
           :auto
           | :none
@@ -790,7 +793,7 @@ defmodule LlmCall.ToolCall do
 end
 
 defmodule LlmCall.ToolResult do
-  @type content :: [LlmCall.Content.part()] | String.t()
+  @type content :: [LlmCall.Content.Text.t()] | String.t()
   @type t :: %__MODULE__{
           call_id: String.t() | nil,
           name: String.t() | nil,
@@ -846,7 +849,7 @@ defmodule LlmCall.Capabilities do
           parallel_tool_calls: boolean(),
           tool_choice: boolean(),
           structured_output: :none | :json_object | :json_schema,
-          output_modalities: [LlmCall.modality()],
+          modalities: [LlmCall.modality()],
           image_input: boolean(),
           file_input: boolean(),
           reasoning: LlmCall.ReasoningCapabilities.t() | nil,
@@ -1080,7 +1083,7 @@ What they check today:
 
 - `info/0` metadata
 - streaming-callback presence matching `capabilities.streaming` (and
-  `decode_operation/2` matching `MediaCapabilities.async`)
+  `decode_operation/2` matching `LlmCall.Media.Capabilities.async`)
 - encoded path/method/body/query shape, and credential-free headers
 - `capture_raw` on `Response.raw` and `MediaResponse.raw` (core's unit tests also
   cover `Operation.raw`; the published suite does not)
@@ -1089,11 +1092,13 @@ What they check today:
 - `Operation` state-machine invariants
 - capability declarations matching validation, in both directions, for **media**
   codecs
+- rejection of a request with a field the codec cannot express
+  (`assert_rejects/3`) — the "no silent drops" promise as a test
 
-Not yet checked, and tracked as a follow-up: response and error decoding,
+Not yet checked, tracked as a follow-up (C1): response and error decoding,
 streaming event order, tool-call fragment assembly, usage/stop-reason mapping,
-and a chat-side capability↔validation check. See `docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md` §8.1.
-A package can verify its shapes, capture policy, stream plumbing, capabilities,
+and a chat-side capability↔validation check. An adapter can verify its shapes,
+capture policy, stream plumbing, capabilities, rejection of unsupported fields,
 and operation states — not its decoders.
 
 ## 11. Encoded request boundary
@@ -1691,8 +1696,8 @@ Those belong in adapters or higher-level packages.
 7. Add optional transport package.
 8. Add optional `tool_call` adapter.
 9. Add the media IR ([§23](#23-media-generation-image-and-video)):
-   `Content.Video`, `Request.modalities`, `Capabilities.output_modalities`,
-   `MediaRequest`, `MediaResponse`, `Operation`, `MediaCapabilities`, the
+   `Content.Video`, `Request.modalities`, `Capabilities.modalities`,
+   `LlmCall.Media.Request`, `LlmCall.Media.Response`, `LlmCall.Operation`, `LlmCall.Media.Capabilities`, the
    `MediaCodec` behaviour, and the public media API.
 10. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
     document the adapter-authoring contract.
@@ -1730,7 +1735,7 @@ two entry points over one content vocabulary:
 
 - a completion that may return generated media (`Request.modalities`, decoded
   into `Response.content`), and
-- a dedicated media request (`MediaRequest` -> `MediaResponse`), which may be
+- a dedicated media request (`LlmCall.Media.Request` -> `LlmCall.Media.Response`), which may be
   synchronous or a long-running operation.
 
 The reason for two entry points is that dedicated image/video endpoints have no
@@ -1764,7 +1769,7 @@ defmodule LlmCall.Media.Request do
           modality: modality(),
           model: String.t(),
           prompt: String.t(),
-          references: [LlmCall.Content.part()],
+          references: [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
           params: params(),
           provider_options: map()
         }
@@ -1802,18 +1807,18 @@ defmodule LlmCall.Media.Capabilities do
   @type t :: %__MODULE__{
           modalities: [:image] | [:video],
           async: boolean(),
-          max_n: pos_integer() | nil,
+          max_n: pos_integer() | :unsupported,
           sizes: [String.t()],
           aspect_ratios: [String.t()],
           durations_s: [pos_integer()],
-          references: boolean(),
+          max_references: non_neg_integer() | nil,
           seed: boolean(),
           negative_prompt: boolean()
         }
 end
 ```
 
-`MediaRequest` has no `stream`, no `system`, and no `tools` field. `prompt` is the
+`LlmCall.Media.Request` has no `stream`, no `system`, and no `tools` field. `prompt` is the
 provider's prompt field, not a message list.
 
 `references` are images or videos the generation is conditioned on. Only
@@ -1838,7 +1843,7 @@ fill would be dead weight ([§10.2](#102-canonical-type-evolution)).
   error.** Progressive media streaming would need a new delta type and touches the
   assembler and every codec; it is out of scope. A caller that wants images calls
   without streaming.
-- `Capabilities.output_modalities` declares the supported set per codec (default
+- `Capabilities.modalities` declares the supported set per codec (default
   `[:text]`), so a caller can check before encoding.
 - Decoding does not change: generated media arrive as `%Content.Image{}` or
   `%Content.Video{}` parts in `Response.content`.
@@ -1852,8 +1857,10 @@ consult `capabilities/2` so that a knob outside the declared surface is a
 List-valued capability fields enumerate accepted values:
 
 - `sizes: []` means the codec accepts **no** `size` value;
-- `max_n: nil` means the codec accepts **no** `n` value (the provider takes one
-  asset per request), while a non-nil `max_n` accepts `1..max_n`;
+- `max_n: :unsupported` means the codec accepts **no** `n` value (the provider
+  takes one asset per request), while an integer `max_n` accepts `1..max_n`;
+- `max_references: nil` means the codec accepts no reference; an integer is the
+  number it takes (`2` for a first/last-frame pair, `1` for a first frame);
 - a `nil` request knob means "provider default" and is always accepted.
 
 Capabilities are static per codec. There is no model catalog
@@ -1876,6 +1883,10 @@ One rule governs every operation:
 
 - `next` is always the encoded request the transport executes next, built by the
   codec. There is no "encode a poll request from an id" callback.
+- `decode_operation/3` receives only the payload and the config. A codec is
+  stateless, so every continuation value — a file id, a cursor, a page token —
+  must travel inside `next` (path, query, or headers). A protocol whose cursor
+  cannot be expressed there is out of scope.
 - `next_kind: :poll` -> decode the response body and call `decode_operation/3`.
 - `next_kind: :asset` -> the response body is media bytes. The core never touches
   them; the transport gives them to the caller with `next_media_type`.
