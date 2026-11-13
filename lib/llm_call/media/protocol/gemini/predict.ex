@@ -114,7 +114,7 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
       kind: :provider,
       message: message,
       code: status,
-      status: error["code"],
+      status: nil,
       retryable?: status in @retryable_statuses,
       raw: payload
     }

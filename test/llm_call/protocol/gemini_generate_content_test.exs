@@ -406,7 +406,7 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
                kind: :provider,
                message: "Quota exceeded",
                code: "RESOURCE_EXHAUSTED",
-               status: 429,
+               status: nil,
                retryable?: true,
                raw: ^payload
              } = GenerateContent.decode_error(payload, %Config{})

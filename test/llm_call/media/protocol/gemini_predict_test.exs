@@ -152,7 +152,7 @@ defmodule LlmCall.Media.Protocol.GeminiPredictTest do
              kind: :provider,
              message: "Quota exceeded",
              code: "RESOURCE_EXHAUSTED",
-             status: 429,
+             status: nil,
              retryable?: true,
              raw: ^payload
            } = Predict.decode_error(payload, %Config{})
