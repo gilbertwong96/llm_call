@@ -1,1 +1,0 @@
-{application,llm_call_media,[{modules,['Elixir.LlmCallMedia.Protocol.Gemini.Predict','Elixir.LlmCallMedia.Protocol.MiniMax.Video','Elixir.LlmCallMedia.Protocol.OpenAI.Images','Elixir.LlmCallMedia.Protocol.Seedance.Video']},{optional_applications,[]},{applications,[kernel,stdlib,elixir,logger,llm_call]},{description,"llm_call_media"},{registered,[]},{vsn,"0.1.0"}]}.

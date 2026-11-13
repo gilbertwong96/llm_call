@@ -3,7 +3,7 @@ defmodule LlmCall.ModuledocTest do
 
   test "no module opts out of documentation" do
     offenders =
-      ["lib/**/*.ex", "test/support/**/*.ex"]
+      ["lib/**/*.ex", "test/support/**/*.ex", "packages/*/lib/**/*.ex", "packages/*/test/**/*.ex"]
       |> Enum.flat_map(&Path.wildcard/1)
       |> Enum.filter(&(File.read!(&1) =~ "@moduledoc false"))
 

@@ -47,8 +47,8 @@ Every adapter must:
    `{:error, %LlmCall.Error{kind: :validation}}` for anything the protocol cannot
    express. Never drop a canonical field silently.
 4. **Declare capabilities that match validation.** A `size` you declare must be
-   accepted; a knob you reject must be absent from the declaration. The
-   conformance suite checks both directions.
+   accepted; a knob you reject must be absent from the declaration. The **media**
+   conformance suite checks both directions; the chat suite does not yet.
 5. **Use `LlmCall.Protocol.Helpers`** for error formatting, `maybe_put`,
    reserved-key checks, and the `capture_raw` policy, so the suite can assert
    behaviour consistently.
@@ -64,7 +64,8 @@ Every adapter must:
    ```
 
    or, for media, `LlmCall.MediaConformance` (`assert_info/1`,
-   `assert_capabilities/3`, `assert_submit_path/3`, `assert_capture_raw/2`,
+   `assert_capabilities/3`, `assert_capability_consistency/3`,
+   `assert_submit_path/3`, `assert_capture_raw/2`, `assert_operation/1`,
    `assert_sync_rejects_operation/1` — see the module docs).
 
    What the suites do not check yet: response/error decoding, event order,

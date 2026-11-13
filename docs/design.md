@@ -1080,15 +1080,17 @@ What they check today:
 - streaming-callback presence matching `capabilities.streaming` (and
   `decode_operation/2` matching `MediaCapabilities.async`)
 - encoded path/method/body/query shape, and credential-free headers
-- `capture_raw` on `Response.raw`, `MediaResponse.raw`, and `Operation.raw`
+- `capture_raw` on `Response.raw` and `MediaResponse.raw` (core's unit tests also
+  cover `Operation.raw`; the published suite does not)
 - stream roundtrip and stream-state ownership (the request is passed in, so an
   out-of-tree codec is checkable)
 - `Operation` state-machine invariants
-- capability declarations matching validation, in both directions
+- capability declarations matching validation, in both directions, for **media**
+  codecs
 
 Not yet checked, and tracked as a follow-up: response and error decoding,
-streaming event order, tool-call fragment assembly, and usage/stop-reason
-mapping. See `docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md` §8.1.
+streaming event order, tool-call fragment assembly, usage/stop-reason mapping,
+and a chat-side capability↔validation check. See `docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md` §8.1.
 A package can verify its shapes, capture policy, stream plumbing, capabilities,
 and operation states — not its decoders.
 
@@ -1681,20 +1683,15 @@ Those belong in adapters or higher-level packages.
 6. Add generic OpenAI-compatible configuration.
 7. Add optional transport package.
 8. Add optional `tool_call` adapter.
-9. Publish the conformance suites from `lib/` and ban `@moduledoc false`.
-10. Extract the media adapters into `packages/llm_call_media`; keep the media IR
-    and behaviours in core.
+9. Add the media IR ([§23](#23-media-generation-image-and-video)):
+   `Content.Video`, `Request.modalities`, `Capabilities.output_modalities`,
+   `MediaRequest`, `MediaResponse`, `Operation`, `MediaCapabilities`, the
+   `MediaCodec` behaviour, and the public media API.
+10. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
+    document the adapter-authoring contract.
+11. Ship `packages/llm_call_media` with the image and video adapters.
 
 Adapters beyond the reference set are packages, not implementation phases.
-
-Phase M (media generation, [§23](#23-media-generation-image-and-video)):
-
-10. Add `Content.Video`, `Request.modalities`, `Capabilities.output_modalities`,
-    and map `modalities` to `responseModalities` in the Gemini codec.
-11. Add `MediaRequest`, `MediaResponse`, `Operation`, `MediaCapabilities`, the
-    `MediaCodec` behaviour, and the public media API.
-12. M1 adapters: OpenAI Images, Gemini Predict (Imagen).
-13. M2 adapters: Seedance (BytePlus ModelArk) and MiniMax Hailuo.
 
 The first milestone should be useful without any transport implementation:
 a request can be encoded and a fixture response can be decoded in tests.
@@ -1942,57 +1939,27 @@ written against.
 
 ### 23.6 Protocol adapters
 
-Phase M1, synchronous image:
+Media adapters are **packages**, not core modules. They live in
+`packages/llm_call_media` under `LlmCallMedia.Protocol.*`; that package's README
+documents each protocol's wire detail — endpoints, statuses, parameter mapping,
+capability surface, and the canonical fields it cannot express.
 
-- `LlmCall.Protocol.OpenAI.Images` — `POST /v1/images/generations`, body
-  `{model, prompt, n?, size?}`. `response_format: "b64_json"` is sent only for
-  `dall-e-*` models: `gpt-image-1` rejects the key and returns base64 anyway, and
-  `provider_options.openai` may override the value. `references`,
-  `aspect_ratio`, `duration_s`, `negative_prompt`, and `seed` are validation
-  errors. Response `data[]`: `b64_json` -> `{:base64, data}`, `url` -> `{:url, url}`.
-  `revised_prompt` is the first non-nil value; the rest stay in `raw`.
-- `LlmCall.Protocol.Gemini.Predict` (Imagen) — `POST /v1beta/models/{model}:predict`,
-  body `{instances: [{prompt}], parameters: {sampleCount?, aspectRatio?, negativePrompt?}}`.
-  `size`, `duration_s`, `seed`, and `references` are validation errors. Native
-  `parameters` knobs (`personGeneration`, `safetySetting`, `outputOptions`, ...)
-  merge through `provider_options`. Response `predictions[].bytesBase64Encoded`
-  plus `mimeType` -> base64 image; a prediction with `raiFilteredReason` and no
-  bytes is skipped while another prediction has bytes, and is a `:provider` error
-  when none do.
+| Adapter | Modality | Flow |
+| --- | --- | --- |
+| `LlmCallMedia.Protocol.OpenAI.Images` | image | `POST /v1/images/generations` (sync) |
+| `LlmCallMedia.Protocol.Gemini.Predict` | image | `POST /v1beta/models/{model}:predict` (Imagen, sync) |
+| `LlmCallMedia.Protocol.Seedance.Video` | video | submit -> poll the task -> `content.video_url` |
+| `LlmCallMedia.Protocol.MiniMax.Video` | video | submit -> poll -> `/v1/files/retrieve` -> `file.download_url` |
 
-Phase M2, asynchronous video. The M2 codecs target the two video APIs this
-project actually uses; Sora and Veo are not implemented.
+Two protocol rules the IR relies on, enforced by the package:
 
-- `LlmCall.Protocol.Seedance.Video` (BytePlus ModelArk) — submit
-  `POST /api/v3/contents/generations/tasks` with
-  `{model, content: [{type: "text", text: prompt}, {type: "image_url",
-  image_url: {url}, role}?], ratio?, duration?, seed?}`; `next` is
-  `GET /api/v3/contents/generations/tasks/{id}` with `next_kind: :poll`.
-  Statuses map as `queued` -> `:queued`, `running` -> `:in_progress`,
-  `succeeded` -> `:completed` with
-  `%Content.Video{source: {:url, content.video_url}}`, and
-  `failed | cancelled | expired` -> `:failed`. `size`, `negative_prompt`, and `n`
-  are validation errors; `resolution`, `watermark`, `generate_audio`,
-  `camera_fixed`, and `service_tier` are native knobs reached through
-  `provider_options`. `references` accepts one or two images: the first is
-  `role: "first_frame"` and the second `role: "last_frame"`, because ModelArk
-  requires the roles to tell the pair apart. `durations_s` declares the union
-  across Seedance models (2-30 s); a model-specific limit is a provider error.
-- `LlmCall.Protocol.MiniMax.Video` (Hailuo, `v1`) — submit
-  `POST /v1/video_generation` with
-  `{model, prompt, duration?, first_frame_image?}` -> `{task_id}`; `next` is
-  `GET /v1/query/video_generation?task_id={id}`. On `Success` the query returns
-  only a `file_id`, so the operation stays `:in_progress` with `next` =
-  `GET /v1/files/retrieve?file_id={id}`, and that payload completes the job with
-  `%Content.Video{source: {:url, file.download_url}}`. `Fail` -> `:failed`.
-  Statuses `Preparing | Queueing | Processing` -> `:in_progress`. `size`,
-  `aspect_ratio`, `seed`, and `negative_prompt` are validation errors;
-  `resolution`, `prompt_optimizer`, `fast_pretreatment`, `callback_url`, and
-  `extra` are reached through `provider_options`. `references` accepts one image
-  (first frame).
-- Both codecs treat a provider error envelope as a `:provider` error. MiniMax
-  reports errors as HTTP 200 with a non-zero `base_resp.status_code`, so a
-  non-zero `base_resp` is an error regardless of the transport status.
+- Seedance distinguishes the first and last frame with `role` (`first_frame`,
+  `last_frame`), because ModelArk requires the roles to tell the pair apart.
+- MiniMax reports errors as HTTP 200 with a non-zero `base_resp.status_code`, so
+  a non-zero `base_resp` is a `:provider` error.
+
+Sora, Veo, and every other media API are future packages. Core does not track
+them.
 
 ### 23.7 Media non-goals
 

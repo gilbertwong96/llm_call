@@ -16,12 +16,21 @@ end
 
 ## Adapters
 
-| Adapter | Modality | Flow |
-| --- | --- | --- |
-| `LlmCallMedia.Protocol.OpenAI.Images` | image | `POST /v1/images/generations` (sync) |
-| `LlmCallMedia.Protocol.Gemini.Predict` | image | `POST /v1beta/models/{model}:predict` (Imagen) |
-| `LlmCallMedia.Protocol.Seedance.Video` | video | submit -> poll the task -> `content.video_url` |
-| `LlmCallMedia.Protocol.MiniMax.Video` | video | submit -> poll -> `/v1/files/retrieve` -> `file.download_url` |
+| Adapter | Modality | Wire version | Flow |
+| --- | --- | --- | --- |
+| `LlmCallMedia.Protocol.OpenAI.Images` | image | — | `POST /v1/images/generations` (sync) |
+| `LlmCallMedia.Protocol.Gemini.Predict` | image | `v1beta` | `POST /v1beta/models/{model}:predict` (Imagen) |
+| `LlmCallMedia.Protocol.Seedance.Video` | video | `v3` | submit -> poll the task -> `content.video_url` |
+| `LlmCallMedia.Protocol.MiniMax.Video` | video | `v1` | submit -> poll -> `/v1/files/retrieve` -> `file.download_url` |
+
+Canonical fields each adapter refuses rather than drops:
+
+| Adapter | Rejected as validation errors |
+| --- | --- |
+| OpenAI Images | `references`, `aspect_ratio`, `duration_s`, `negative_prompt`, `seed`, `n` > 10, unknown `size` |
+| Gemini Imagen | `size`, `duration_s`, `seed`, `references` |
+| Seedance | `size`, `n`, `negative_prompt`; more than two references; `duration_s` outside 2–30 |
+| MiniMax | `size`, `aspect_ratio`, `seed`, `negative_prompt`; more than one reference |
 
 ### OpenAI Images
 
@@ -67,4 +76,4 @@ mix test
 ```
 
 The suite runs `LlmCall.MediaConformance` over every adapter here — the same
-assertions core runs over its reference adapters.
+suite core ships and runs over its own media codec fakes.
