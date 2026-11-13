@@ -49,6 +49,51 @@ assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 `LlmCall.finish_stream/3` is required for Gemini: it sends no stream
 terminator, so accumulated usage and `:message_stop` arrive only there.
 
+## Media generation
+
+A completion can ask for image output; the generated parts arrive in the normal
+`Response.content`:
+
+```elixir
+request = %LlmCall.Request{
+  model: "gemini-2.5-flash-image",
+  modalities: [:text, :image],
+  messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "a cat"}]}]
+}
+
+{:ok, encoded} = LlmCall.encode(codec, request)
+# ...
+{:ok, response} = LlmCall.decode_response(codec, decoded_body)
+# response.content may now contain %LlmCall.Content.Image{}
+```
+
+Dedicated image endpoints use the media API instead, because they take a prompt
+and media parameters rather than messages:
+
+```elixir
+media = %LlmCall.MediaRequest{
+  modality: :image,
+  model: "gpt-image-1",
+  prompt: "a cat, watercolor",
+  params: %{n: 2, size: "1024x1024"}
+}
+
+{:ok, encoded} = LlmCall.encode_media(LlmCall.Protocol.OpenAI.Images, media)
+# ...
+{:ok, %LlmCall.MediaResponse{assets: assets}} =
+  LlmCall.decode_media(LlmCall.Protocol.OpenAI.Images, decoded_body)
+```
+
+`LlmCall.media_capabilities/3` reports what a codec accepts for each media knob,
+and a knob the codec cannot express is a validation error rather than a silent
+drop.
+
+Asynchronous video (design M2) is modelled but not yet implemented by any
+provider codec: a submit response carries an `%LlmCall.Operation{}` whose `next`
+is the request the transport sends next, and `LlmCall.decode_operation/3` returns
+the next state. The core never polls, waits, or downloads; when `next_kind` is
+`:asset` the response body is the media bytes and the caller stores them.
+
 ## Protocol adapters
 
 | Protocol | Module |
@@ -56,6 +101,8 @@ terminator, so accumulated usage and `:message_stop` arrive only there.
 | OpenAI Chat Completions | `LlmCall.Protocol.OpenAI.Chat` |
 | Anthropic Messages | `LlmCall.Protocol.Anthropic.Messages` |
 | Gemini GenerateContent | `LlmCall.Protocol.Gemini.GenerateContent` |
+| OpenAI Images (generation) | `LlmCall.Protocol.OpenAI.Images` |
+| Gemini Imagen (generation) | `LlmCall.Protocol.Gemini.Predict` |
 
 Codec selection is explicit; there is no provider registry. OpenAI-compatible
 endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI surface, ...) use the

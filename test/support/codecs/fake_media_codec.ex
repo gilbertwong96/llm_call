@@ -4,7 +4,6 @@ defmodule LlmCall.TestCodec.FakeMedia do
 
   alias LlmCall.{
     Codec,
-    Config,
     Content,
     EncodedRequest,
     Error,

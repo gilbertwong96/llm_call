@@ -4,12 +4,10 @@ defmodule LlmCall.TestCodec.AsyncMedia do
 
   alias LlmCall.{
     Codec,
-    Config,
     Content,
     EncodedRequest,
     Error,
     MediaCapabilities,
-    MediaRequest,
     MediaResponse,
     Operation
   }
