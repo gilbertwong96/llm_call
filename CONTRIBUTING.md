@@ -49,8 +49,11 @@ Every adapter must:
    `{:error, %LlmCall.Error{kind: :validation}}` for anything the protocol cannot
    express. Never drop a canonical field silently.
 4. **Declare capabilities that match validation.** A `size` you declare must be
-   accepted; a knob you reject must be absent from the declaration. The **media**
-   conformance suite checks both directions; the chat suite does not yet.
+   accepted; a knob you reject must be absent from the declaration. For media, a
+   modality you declare must be accepted, `max_n: :unsupported` must reject every
+   `n`, and `max_references` must accept exactly that many references. The
+   **media** conformance suite checks all of these in both directions; the chat
+   suite does not yet.
 5. **Use `LlmCall.Protocol.Helpers`** for error formatting, `maybe_put`,
    reserved-key checks, and the `capture_raw` policy, so the suite can assert
    behaviour consistently.

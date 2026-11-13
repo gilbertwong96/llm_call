@@ -28,7 +28,7 @@ defmodule LlmCall.Media.Request do
           modality: modality(),
           model: String.t(),
           prompt: String.t(),
-          references: [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
+          references: nil | [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
           params: params(),
           provider_options: map()
         }

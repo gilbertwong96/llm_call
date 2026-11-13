@@ -315,8 +315,8 @@ Fields:
 
 - `model` — provider/model identifier as understood by the selected protocol
   and endpoint.
-- `system` — `nil`, a string, or a list of content parts. The codec decides
-  where it belongs in the provider request.
+- `system` — `nil`, a string, or a list of text parts. The codec decides where
+  it belongs in the provider request.
 - `messages` — user/assistant turns. Tool results are content parts, not a
   mandatory `:tool` role.
 - `tools` — optional neutral tool specifications.
@@ -573,6 +573,12 @@ provider-specific extension.
   raw: map() | nil
 }
 ```
+
+`code` is the provider's machine-readable code as a string (OpenAI's `code`,
+Anthropic's error type, Google's status such as `"RESOURCE_EXHAUSTED"`,
+MiniMax's numeric code stringified). `status` is the HTTP status, and **only the
+transport sets it**: a codec never sees the response status, so it always leaves
+it `nil`.
 
 HTTP-level transport failures are transport errors. Provider error envelopes
 decoded by a protocol codec become `LlmCall.Error`.
@@ -920,7 +926,16 @@ defmodule LlmCall.Codec.Info do
         }
   defstruct [:name, :protocol, :version, :ir_version]
 end
+```
 
+`name` identifies the codec instance and `protocol` the wire family; they are
+equal for every codec today (one codec per family) and differ only when one
+module serves a family with variants. `version` is the wire version the codec
+targets — Anthropic's `2023-06-01`, Gemini's `v1beta`, Seedance's `v3` — and
+`nil` when the protocol has no versioned surface (OpenAI Chat and Images).
+`ir_version` is the canonical IR contract the codec was written against.
+
+```elixir
 defmodule LlmCall.Codec do
   @callback info() :: LlmCall.Codec.Info.t()
 
@@ -1085,7 +1100,7 @@ What they check today:
 - streaming-callback presence matching `capabilities.streaming` (and
   `decode_operation/2` matching `LlmCall.Media.Capabilities.async`)
 - encoded path/method/body/query shape, and credential-free headers
-- `capture_raw` on `Response.raw` and `MediaResponse.raw` (core's unit tests also
+- `capture_raw` on `Response.raw` and `LlmCall.Media.Response.raw` (core's unit tests also
   cover `Operation.raw`; the published suite does not)
 - stream roundtrip and stream-state ownership (the request is passed in, so an
   out-of-tree codec is checkable)
@@ -1567,9 +1582,15 @@ LlmCall.capabilities(protocol, request, config \\ %LlmCall.Config{})
 ```
 
 `encode` returns `{:ok, %LlmCall.EncodedRequest{}}`; `decode_response`,
-`decode_stream_event`, `finish_stream`, and `validate_request` return their
-documented success/error tuples; `capabilities` returns
-`%LlmCall.Capabilities{}`.
+`decode_stream_event`, `finish_stream`, `validate_request`, `capabilities`,
+`decode_operation`, and the media operations return their documented
+success/error tuples; `capabilities` and `media_capabilities` return
+`{:ok, struct} | {:error, %LlmCall.Error{}}`.
+
+Dispatch never raises for a module that implements the other behaviour: each
+entry checks a behaviour-unique callback (`encode_request/2` for completion,
+`encode_submit/2` for media) and returns a `:validation` error. The exception is
+`decode_error/3`, whose callback exists in both behaviours.
 
 ## 17. Testing
 
@@ -1607,7 +1628,7 @@ For each protocol:
 4. **Capability tests**
    - unsupported request fields are rejected, not silently dropped
    - provider-specific options pass through
-   - model-specific capabilities are checked with the request model
+   - protocol-level capabilities are checked per codec
    - reasoning effort/budget/summary mapping and unsupported combinations
    - cost is not fabricated from token counts
    - non-streaming codecs reject streaming calls cleanly
@@ -1631,10 +1652,10 @@ For each protocol:
 
 8. **Media generation tests**
    - image request -> exact body, path, headers
-   - synchronous image response -> `MediaResponse.assets`
+   - synchronous image response -> `LlmCall.Media.Response.assets`
    - submit -> poll -> completed state machine, including an asset-fetch step
    - capability rejection for knobs a codec cannot express
-   - `capture_raw` on `MediaResponse.raw` and `Operation.raw`
+   - `capture_raw` on `LlmCall.Media.Response.raw` and `Operation.raw`
    - a media codec without `decode_operation/2` returns a typed error
    - `Request.modalities` mapping per codec, including the streaming rejection
 
@@ -1698,7 +1719,7 @@ Those belong in adapters or higher-level packages.
 9. Add the media IR ([§23](#23-media-generation-image-and-video)):
    `Content.Video`, `Request.modalities`, `Capabilities.modalities`,
    `LlmCall.Media.Request`, `LlmCall.Media.Response`, `LlmCall.Operation`, `LlmCall.Media.Capabilities`, the
-   `MediaCodec` behaviour, and the public media API.
+   `LlmCall.Media.Codec` behaviour, and the public media API.
 10. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
     document the adapter-authoring contract.
 11. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
@@ -1769,7 +1790,7 @@ defmodule LlmCall.Media.Request do
           modality: modality(),
           model: String.t(),
           prompt: String.t(),
-          references: [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
+          references: nil | [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
           params: params(),
           provider_options: map()
         }
@@ -1805,7 +1826,7 @@ end
 
 defmodule LlmCall.Media.Capabilities do
   @type t :: %__MODULE__{
-          modalities: [:image] | [:video],
+          modalities: [LlmCall.Media.Request.modality()],
           async: boolean(),
           max_n: pos_integer() | :unsupported,
           sizes: [String.t()],
@@ -1850,7 +1871,7 @@ fill would be dead weight ([§10.2](#102-canonical-type-evolution)).
 
 ### 23.3 Media validation and capabilities
 
-`validate_request/2` is a `MediaCodec` callback, implemented per codec. It must
+`validate_request/2` is a `LlmCall.Media.Codec` callback, implemented per codec. It must
 consult `capabilities/2` so that a knob outside the declared surface is a
 `:validation` error before anything is sent.
 
@@ -1892,13 +1913,13 @@ One rule governs every operation:
   them; the transport gives them to the caller with `next_media_type`.
 - `status: :queued | :in_progress` -> `result: nil`, `error: nil`, `next` set,
   `next_kind: :poll`.
-- `status: :completed` with `next_kind: :asset` -> `result: %MediaResponse{assets: []}`
+- `status: :completed` with `next_kind: :asset` -> `result: %LlmCall.Media.Response{assets: []}`
   (the asset is reachable only through `next`).
-- `status: :completed` with `next: nil` -> `result: %MediaResponse{assets: [...]}`.
+- `status: :completed` with `next: nil` -> `result: %LlmCall.Media.Response{assets: [...]}`.
 - `status: :completed` with `next_kind: :poll` is **not** produced: a codec that
   knows the asset needs another request says so in the same decode result.
 - `status: :failed` -> `error` set, `result: nil`, `next: nil`.
-- `decode_submit/2` may return `%MediaResponse{assets: [...]}` with
+- `decode_submit/2` may return `%LlmCall.Media.Response{assets: [...]}` with
   `operation: nil` when the submit response already carries the finished asset.
 
 `id` may be `nil` on a follow-up step: a codec is stateless, so a poll whose
@@ -1908,7 +1929,7 @@ it.
 The core never polls, sleeps, retries, or downloads. A caller loop is:
 
 ```elixir
-{:ok, %MediaResponse{operation: %Operation{status: :in_progress} = op}} =
+{:ok, %LlmCall.Media.Response{operation: %Operation{status: :in_progress} = op}} =
   LlmCall.decode_media(codec, submit_term, config)
 
 execute(op.next)
@@ -1920,7 +1941,7 @@ execute(next)  # body is the media bytes
 
 `Operation.raw` follows `capture_raw` (`:response` and `:all`).
 
-### 23.5 `MediaCodec` behaviour and public API
+### 23.5 `LlmCall.Media.Codec` behaviour and public API
 
 ```elixir
 defmodule LlmCall.Media.Codec do

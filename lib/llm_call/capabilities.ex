@@ -1,6 +1,6 @@
 defmodule LlmCall.Capabilities do
   @moduledoc """
-  What a codec supports for the model in the request.
+  What a completion protocol supports.
 
   Capabilities are explicit so unsupported canonical fields can be rejected
   before a transport sends anything, instead of being dropped silently.

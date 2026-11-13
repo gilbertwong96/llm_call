@@ -52,7 +52,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
       sizes: [],
       aspect_ratios: @ratios,
       durations_s: @durations,
-      max_references: 2,
+      max_references: @max_references,
       seed: true,
       negative_prompt: false
     }

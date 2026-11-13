@@ -86,9 +86,10 @@ media = %LlmCall.Media.Request{
   LlmCall.decode_media(LlmCall.Media.Protocol.OpenAI.Images, decoded_body)
 ```
 
-`LlmCall.media_capabilities/3` reports what a codec accepts for each media knob,
-and a knob the codec cannot express is a validation error rather than a silent
-drop.
+`LlmCall.media_capabilities/3` (returning `{:ok, capabilities}`) reports what a
+codec accepts for each media knob: `max_n: :unsupported` means no `n`, and
+`max_references` is the number of reference images the endpoint takes. A knob the
+codec cannot express is a validation error rather than a silent drop.
 
 Asynchronous video uses the same media API. A submit response carries an
 `%LlmCall.Operation{}` whose `next` is the request the transport sends next, and
