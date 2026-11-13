@@ -7,10 +7,17 @@ Module namespace: `LlmCall`
 
 ## 1. Summary
 
-`LlmCall` is a **wire-protocol codec** for LLM APIs.
+`LlmCall` is a **wire-protocol codec** for LLM APIs, and the ecosystem that
+writes adapters for it.
 
-It turns a provider-neutral request into the request body, path, and protocol
-headers a provider expects, and turns provider response terms into a
+The core ships the canonical IR, the codec behaviours, the conformance suites,
+and a small set of **reference adapters** — the dialect families the IR is
+written against. Adapters for every other provider live in packages, because
+provider coverage is not a goal: the IR's value comes from the breadth of
+knowledge behind it, not from the breadth of shipped code.
+
+`LlmCall` turns a provider-neutral request into the request body, path, and
+protocol headers a provider expects, and turns provider response terms into a
 provider-neutral response. It deliberately does **not** own HTTP, authentication,
 model discovery, tool execution, approvals, retries, or an agent loop.
 
@@ -73,6 +80,8 @@ Providers do not agree on:
 - an approval, timeout, or audit system
 - an agent loop, memory, prompt-template, or chain framework
 - a replacement for `ReqLLM` or LangChain
+- a provider catalog, or a promise to support every provider. Beyond the
+  reference adapters in this repository, adapters are packages (see §14)
 
 ### 2.3 Relationship to `tool_call`
 
@@ -1053,24 +1062,35 @@ Canonical IR changes follow these rules:
 
 ### 10.3 Codec conformance tests
 
-Provide an optional test-support module:
+The conformance suites are published from `lib/` so adapter packages can call
+them:
 
 ```text
-test/support/codec_conformance.ex
+lib/llm_call/codec_conformance.ex    # LlmCall.Codec.Conformance
+lib/llm_call/media_conformance.ex    # LlmCall.MediaConformance
 ```
 
-It should give third-party codec authors fixture-based assertions for:
+They are test support, not runtime dependencies: they `import
+ExUnit.Assertions` (part of every Elixir installation) and are meant to be
+called from a test.
 
-- request path/query/headers/body
-- response and error decoding
-- streaming event order
-- tool-call fragment assembly
-- usage/stop reason mapping
-- `capture_raw` behavior
-- capability validation and unsupported-field rejection
-- `info/0` metadata consistency
+What they check today:
 
-Conformance tests are test support, not a runtime dependency.
+- `info/0` metadata
+- streaming-callback presence matching `capabilities.streaming` (and
+  `decode_operation/2` matching `MediaCapabilities.async`)
+- encoded path/method/body/query shape, and credential-free headers
+- `capture_raw` on `Response.raw`, `MediaResponse.raw`, and `Operation.raw`
+- stream roundtrip and stream-state ownership (the request is passed in, so an
+  out-of-tree codec is checkable)
+- `Operation` state-machine invariants
+- capability declarations matching validation, in both directions
+
+Not yet checked, and tracked as a follow-up: response and error decoding,
+streaming event order, tool-call fragment assembly, and usage/stop-reason
+mapping. See `docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md` §8.1.
+A package can verify its shapes, capture policy, stream plumbing, capabilities,
+and operation states — not its decoders.
 
 ## 11. Encoded request boundary
 
@@ -1364,13 +1384,19 @@ catalog can be converted into `LlmCall.ToolSpec` values outside the core.
 These cover the most common request/response shapes and validate the canonical
 IR.
 
-### Phase 2
+### Beyond the reference set
 
-- `LlmCall.Protocol.OpenAI.Responses`
-- `LlmCall.Protocol.Bedrock.Converse`
-- `LlmCall.Protocol.Cohere.Chat`
-- `LlmCall.Protocol.Ollama.Chat`
-- `LlmCall.Protocol.Gemini.Interactions`
+Everything else is a **package**, not a phase. There is no roadmap of adapters
+core owes, and no provider list to complete:
+
+- `llm_call_media` (in this repository, `packages/`) — OpenAI Images,
+  Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
+- Community packages — OpenAI Responses, Bedrock Converse, Cohere, Ollama,
+  Mistral, and any other protocol.
+
+The rules for an adapter package (namespace, dependency direction, fixtures,
+conformance) are in `docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md`
+and `CONTRIBUTING.md`.
 
 ### OpenAI-compatible APIs
 
@@ -1424,9 +1450,26 @@ lib/llm_call/config.ex
 lib/llm_call/encoded_request.ex
 lib/llm_call/codec.ex
 lib/llm_call/codec/info.ex
+lib/llm_call/media_codec.ex
+lib/llm_call/media_request.ex
+lib/llm_call/media_response.ex
+lib/llm_call/media_capabilities.ex
+lib/llm_call/operation.ex
+lib/llm_call/codec_conformance.ex
+lib/llm_call/media_conformance.ex
+lib/llm_call/protocol/helpers.ex
 lib/llm_call/protocol/openai/chat.ex
 lib/llm_call/protocol/anthropic/messages.ex
 lib/llm_call/protocol/gemini/generate_content.ex
+```
+
+The three protocol modules are **reference adapters**: they are the dialect
+families the IR is written against. Every other adapter is a package.
+
+Packages in this repository:
+
+```text
+packages/llm_call_media/          OpenAI Images, Gemini Imagen, Seedance, MiniMax
 ```
 
 Optional packages:
@@ -1438,10 +1481,11 @@ llm_call_tool_call    ToolCall adapter
 llm_call_langchain    LangChain adapter
 ```
 
-Test support:
+Test support (core's own suite):
 
 ```text
-test/support/codec_conformance.ex
+test/support/codecs/      completing and non-conforming codec fakes
+test/support/fixtures/    reference-adapter payloads
 ```
 
 ## 16. Public API sketch
@@ -1619,7 +1663,8 @@ Those belong in adapters or higher-level packages.
    `ToolResult`; no execution. Recommended: yes.
 4. **First protocol set:** OpenAI Chat, Anthropic Messages, Gemini
    GenerateContent. Recommended: yes.
-5. **OpenAI Responses timing:** separate Phase 2 adapter. Recommended: yes.
+5. **OpenAI Responses timing:** an ecosystem package, not a core adapter.
+   Recommended: yes.
 6. **Stream assembler:** pure helper in core or a separate package. Start in
    core only if it remains protocol-neutral; otherwise split.
 7. **SSE parser:** outside core, in the transport package.
@@ -1636,7 +1681,11 @@ Those belong in adapters or higher-level packages.
 6. Add generic OpenAI-compatible configuration.
 7. Add optional transport package.
 8. Add optional `tool_call` adapter.
-9. Add OpenAI Responses and Bedrock/Cohere/Ollama adapters.
+9. Publish the conformance suites from `lib/` and ban `@moduledoc false`.
+10. Extract the media adapters into `packages/llm_call_media`; keep the media IR
+    and behaviours in core.
+
+Adapters beyond the reference set are packages, not implementation phases.
 
 Phase M (media generation, [§23](#23-media-generation-image-and-video)):
 
@@ -1655,6 +1704,10 @@ a request can be encoded and a fixture response can be decoded in tests.
 This design is working if:
 
 - A caller can use `LlmCall` without any agent framework.
+- A third party can write an adapter, decode against their own fixtures, and
+  verify its shapes, capture policy, stream plumbing, capabilities, and operation
+  states with the conformance suite — without touching core.
+- Adding an adapter never requires a core release.
 - A different tool framework can use `LlmCall` without importing `tool_call`.
 - Adding a protocol adapter does not require changing canonical messages.
 - Provider-specific features remain accessible through explicit escape hatches.
@@ -1665,8 +1718,9 @@ This design is working if:
 
 ## 23. Media generation (image and video)
 
-Media generation is a first-class capability, not a separate package. It uses two
-entry points over one content vocabulary:
+The media **IR** is first-class and lives in core; media **adapters** are
+packages (`packages/llm_call_media`). It uses two entry points over one content
+vocabulary:
 
 - a completion that may return generated media (`Request.modalities`, decoded
   into `Response.content`), and
