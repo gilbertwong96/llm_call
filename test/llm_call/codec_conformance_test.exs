@@ -33,7 +33,9 @@ defmodule LlmCall.CodecConformanceTest do
       assert :ok = Conformance.assert_path(codec, request(model, false), path)
       assert :ok = Conformance.assert_capture_raw(codec, response)
       assert :ok = Conformance.assert_stream_roundtrip(codec, request(model, true))
-      assert :ok = Conformance.assert_stream_state_ownership(codec, TextOnly)
+
+      assert :ok =
+               Conformance.assert_stream_state_ownership(codec, TextOnly, request(model, true))
     end
   end
 
@@ -45,6 +47,15 @@ defmodule LlmCall.CodecConformanceTest do
         %Config{}
       )
     end
+  end
+
+  test "ownership is checked with the caller's request, so unknown codecs work" do
+    assert :ok =
+             Conformance.assert_stream_state_ownership(
+               LlmCall.Protocol.OpenAI.Chat,
+               LlmCall.TestCodec.TextOnly,
+               request("my-own-model", true)
+             )
   end
 
   test "conformance assertions catch a violating codec" do

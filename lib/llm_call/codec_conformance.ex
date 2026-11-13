@@ -124,9 +124,9 @@ defmodule LlmCall.Codec.Conformance do
     :ok
   end
 
-  @spec assert_stream_state_ownership(module(), module()) :: :ok
-  def assert_stream_state_ownership(codec, other_codec) do
-    assert {:ok, state} = codec.init_stream(stream_request(codec), %Config{})
+  @spec assert_stream_state_ownership(module(), module(), LlmCall.Request.t()) :: :ok
+  def assert_stream_state_ownership(codec, other_codec, request) do
+    assert {:ok, state} = codec.init_stream(request, %Config{})
 
     assert {:error, %LlmCall.Error{kind: :validation}} =
              LlmCall.decode_stream_event(other_codec, %{}, %Config{}, state),
@@ -147,19 +147,4 @@ defmodule LlmCall.Codec.Conformance do
              is_struct(delta, StreamDelta.MessageDelta) or is_struct(delta, StreamDelta.Raw),
            "stream event delta must be nil or one of the canonical StreamDelta structs, got: #{inspect(delta)}"
   end
-
-  defp stream_request(codec) do
-    %LlmCall.Request{
-      model: model_for(codec),
-      params: %{max_tokens: 16},
-      stream: true,
-      messages: [
-        %LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]}
-      ]
-    }
-  end
-
-  defp model_for(LlmCall.Protocol.OpenAI.Chat), do: "gpt-4o"
-  defp model_for(LlmCall.Protocol.Anthropic.Messages), do: "claude-sonnet-4-5"
-  defp model_for(_codec), do: "gemini-2.5-pro"
 end
