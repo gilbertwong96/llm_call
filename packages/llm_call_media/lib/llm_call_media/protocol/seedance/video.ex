@@ -1,0 +1,367 @@
+defmodule LlmCallMedia.Protocol.Seedance.Video do
+  @moduledoc """
+  Seedance video generation (BytePlus ModelArk content generation tasks).
+
+  Submit `POST /api/v3/contents/generations/tasks`, then poll
+  `GET /api/v3/contents/generations/tasks/{id}`. The prompt and any reference
+  images are `content` parts; `ratio`, `duration`, and `seed` are top-level.
+
+  Native knobs this canonical layer has no field for (`resolution`, `watermark`,
+  `generate_audio`, `camera_fixed`, `service_tier`, `return_last_frame`) are
+  reached through `provider_options.seedance`.
+
+  `durations_s` declares the range this codec accepts; the core has no model
+  catalog, so a model-specific limit surfaces as a provider error.
+  """
+
+  alias LlmCall.{
+    Codec,
+    Config,
+    Content,
+    EncodedRequest,
+    Error,
+    MediaCapabilities,
+    MediaRequest,
+    MediaResponse,
+    Operation
+  }
+
+  alias LlmCall.Protocol.Helpers
+
+  @behaviour LlmCall.MediaCodec
+
+  @codec :seedance_video
+  @api_version "v3"
+  @path "/api/v3/contents/generations/tasks"
+  @headers [{"content-type", "application/json"}]
+  @reserved_keys ~w(model prompt content instances parameters modality)
+  @param_keys [:aspect_ratio, :duration_s, :seed]
+  @ratios ["adaptive", "1:1", "4:3", "3:4", "16:9", "9:16", "21:9"]
+  # Union across Seedance models: 1.0 accepts 2-12 s, 1.5 pro 4-12 s, 2.0 4-15 s,
+  # 2.5 4-30 s. A model-specific limit surfaces as a provider error.
+  @durations Enum.to_list(2..30)
+  @max_references 2
+  @retryable_codes ~w(InternalServiceError RateLimitExceeded)
+
+  @impl true
+  @spec info() :: Codec.Info.t()
+  def info do
+    %Codec.Info{name: @codec, protocol: @codec, version: @api_version, ir_version: 1}
+  end
+
+  @impl true
+  @spec capabilities(MediaRequest.t(), Config.t()) :: MediaCapabilities.t()
+  def capabilities(%MediaRequest{}, %Config{}) do
+    %MediaCapabilities{
+      modalities: [:video],
+      async: true,
+      max_n: nil,
+      sizes: [],
+      aspect_ratios: @ratios,
+      durations_s: @durations,
+      references: true,
+      seed: true,
+      negative_prompt: false
+    }
+  end
+
+  @impl true
+  @spec validate_request(MediaRequest.t(), Config.t()) :: :ok | {:error, Error.t()}
+  def validate_request(%MediaRequest{} = request, %Config{} = config) do
+    with :ok <- validate_modality(request.modality),
+         :ok <- validate_model(request.model),
+         :ok <- validate_prompt(request.prompt),
+         :ok <- validate_params(request.params),
+         :ok <- validate_references(request.references),
+         :ok <- validate_provider_options(request, config) do
+      :ok
+    end
+  end
+
+  @impl true
+  @spec encode_submit(MediaRequest.t(), Config.t()) ::
+          {:ok, EncodedRequest.t()} | {:error, Error.t()}
+  def encode_submit(%MediaRequest{} = request, %Config{} = config) do
+    with :ok <- validate_request(request, config) do
+      body =
+        %{
+          "model" => request.model,
+          "content" => [%{"type" => "text", "text" => request.prompt}] ++ reference_parts(request)
+        }
+        |> Helpers.maybe_put("ratio", request.params[:aspect_ratio])
+        |> Helpers.maybe_put("duration", request.params[:duration_s])
+        |> Helpers.maybe_put("seed", request.params[:seed])
+        |> Config.deep_merge(provider_options(request, config))
+
+      {:ok,
+       %EncodedRequest{
+         method: :post,
+         path: @path,
+         query: %{},
+         headers: @headers,
+         body: body
+       }}
+    end
+  end
+
+  @impl true
+  @spec decode_submit(LlmCall.wire_value(), Config.t()) ::
+          {:ok, MediaResponse.t()} | {:error, Error.t()}
+  def decode_submit(%{"id" => id} = payload, %Config{} = config)
+      when is_binary(id) and id != "" do
+    {:ok,
+     %MediaResponse{
+       assets: [],
+       operation: %Operation{
+         id: id,
+         status: :queued,
+         next: poll_request(id),
+         next_kind: :poll
+       },
+       raw: capture_response(config, payload)
+     }}
+  end
+
+  def decode_submit(_term, _config) do
+    {:error, invalid_response("submit response has no task id")}
+  end
+
+  @impl true
+  @spec decode_operation(LlmCall.wire_value(), Config.t()) ::
+          {:ok, Operation.t()} | {:error, Error.t()}
+  def decode_operation(%{"status" => status} = payload, %Config{} = config)
+      when is_binary(status) do
+    case status do
+      "queued" ->
+        in_progress_operation(payload, :queued, config)
+
+      "running" ->
+        in_progress_operation(payload, :in_progress, config)
+
+      "succeeded" ->
+        completed_operation(payload, config)
+
+      terminal when terminal in ["failed", "cancelled", "expired"] ->
+        {:ok, failed_operation(payload, terminal, config)}
+
+      _other ->
+        {:error, invalid_response("unrecognized task status #{inspect(status)}")}
+    end
+  end
+
+  def decode_operation(_term, _config) do
+    {:error, invalid_response("payload has no task status")}
+  end
+
+  @impl true
+  @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
+  def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{}) do
+    code = error["code"] || error["type"]
+
+    %Error{
+      kind: :provider,
+      message: message,
+      code: code,
+      status: nil,
+      retryable?: code in @retryable_codes,
+      raw: payload
+    }
+  end
+
+  def decode_error(_term, _config) do
+    %Error{
+      kind: :invalid_response,
+      message: "seedance_video: unrecognized error payload",
+      raw: nil
+    }
+  end
+
+  defp in_progress_operation(payload, status, config) do
+    with {:ok, id} <- fetch_id(payload) do
+      {:ok,
+       %Operation{
+         id: id,
+         status: status,
+         next: poll_request(id),
+         next_kind: :poll,
+         raw: capture_response(config, payload)
+       }}
+    end
+  end
+
+  defp fetch_id(%{"id" => id}) when is_binary(id) and id != "", do: {:ok, id}
+  defp fetch_id(_payload), do: {:error, invalid_response("task payload has no id")}
+
+  defp completed_operation(payload, config) do
+    case get_in(payload, ["content", "video_url"]) do
+      url when is_binary(url) and url != "" ->
+        {:ok,
+         %Operation{
+           id: payload["id"],
+           status: :completed,
+           result: %MediaResponse{
+             assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
+           },
+           raw: capture_response(config, payload)
+         }}
+
+      _absent ->
+        {:error, invalid_response("succeeded task has no video url")}
+    end
+  end
+
+  defp failed_operation(payload, terminal, config) do
+    error = if is_map(payload["error"]), do: payload["error"], else: %{}
+
+    %Operation{
+      id: payload["id"],
+      status: :failed,
+      error: %Error{
+        kind: :provider,
+        message: error["message"] || "task #{terminal}",
+        code: error["code"] || terminal,
+        raw: payload
+      },
+      raw: capture_response(config, payload)
+    }
+  end
+
+  defp poll_request(id) do
+    %EncodedRequest{
+      method: :get,
+      path: @path <> "/" <> id,
+      query: %{},
+      headers: @headers,
+      body: %{}
+    }
+  end
+
+  defp reference_parts(%MediaRequest{references: references}) do
+    references
+    |> Enum.with_index()
+    |> Enum.map(fn {reference, index} -> image_part(image_url(reference), frame_role(index)) end)
+  end
+
+  defp image_url(%Content.Image{source: {:url, url}}), do: url
+  defp image_url(%Content.Image{source: source}) when is_binary(source), do: source
+
+  defp image_url(%Content.Image{source: {:base64, data}, media_type: media_type}) do
+    "data:#{media_type};base64,#{data}"
+  end
+
+  # ModelArk needs an explicit role for the first/last-frame pair.
+  defp frame_role(0), do: "first_frame"
+  defp frame_role(_last), do: "last_frame"
+
+  defp image_part(url, role) do
+    %{"type" => "image_url", "image_url" => %{"url" => url}, "role" => role}
+  end
+
+  defp validate_modality(:video), do: :ok
+
+  defp validate_modality(modality) do
+    Helpers.error(@codec, "modality must be :video, got: #{inspect(modality)}")
+  end
+
+  defp validate_model(model) when is_binary(model) and model != "", do: :ok
+  defp validate_model(_model), do: Helpers.error(@codec, "model is required")
+
+  defp validate_prompt(prompt) when is_binary(prompt) and prompt != "", do: :ok
+  defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
+
+  defp validate_params(params) when is_map(params) do
+    present = for {key, value} <- params, not is_nil(value), do: key
+
+    with :ok <-
+           Helpers.first_error(present, fn key ->
+             if key in @param_keys,
+               do: :ok,
+               else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
+           end),
+         :ok <- validate_ratio(params[:aspect_ratio]),
+         :ok <- validate_duration(params[:duration_s]),
+         :ok <- validate_seed(params[:seed]) do
+      :ok
+    end
+  end
+
+  defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
+
+  defp validate_ratio(nil), do: :ok
+  defp validate_ratio(ratio) when ratio in @ratios, do: :ok
+
+  defp validate_ratio(_ratio),
+    do: Helpers.error(@codec, "params.aspect_ratio must be one of #{inspect(@ratios)}")
+
+  defp validate_duration(nil), do: :ok
+  defp validate_duration(duration) when duration in @durations, do: :ok
+
+  defp validate_duration(_duration),
+    do: Helpers.error(@codec, "params.duration_s must be between 4 and 15")
+
+  defp validate_seed(nil), do: :ok
+  defp validate_seed(seed) when is_integer(seed) and seed >= 0, do: :ok
+
+  defp validate_seed(_seed),
+    do: Helpers.error(@codec, "params.seed must be a non-negative integer")
+
+  defp validate_references(nil), do: :ok
+  defp validate_references([]), do: :ok
+
+  defp validate_references(references) when is_list(references) do
+    with :ok <- validate_reference_count(references) do
+      Helpers.first_error(references, &validate_reference/1)
+    end
+  end
+
+  defp validate_references(_references), do: Helpers.error(@codec, "references must be a list")
+
+  defp validate_reference_count(references) when length(references) <= @max_references, do: :ok
+
+  defp validate_reference_count(_references) do
+    Helpers.error(@codec, "at most #{@max_references} reference images are supported")
+  end
+
+  defp validate_reference(%Content.Image{source: {:url, url}}) when is_binary(url), do: :ok
+  defp validate_reference(%Content.Image{source: source}) when is_binary(source), do: :ok
+
+  defp validate_reference(%Content.Image{source: {:base64, _data}, media_type: nil}),
+    do: Helpers.error(@codec, "base64 reference requires media_type")
+
+  defp validate_reference(%Content.Image{source: {:base64, _data}}), do: :ok
+
+  defp validate_reference(%Content.Image{}),
+    do: Helpers.error(@codec, "reference image source is not supported")
+
+  defp validate_reference(_part), do: Helpers.error(@codec, "only image references are supported")
+
+  defp validate_provider_options(request, config) do
+    case provider_options(request, config) do
+      options when is_map(options) ->
+        Helpers.first_error(Map.keys(options), fn key ->
+          if Helpers.reserved_key?(key, @reserved_keys) do
+            Helpers.error(
+              @codec,
+              "provider option #{inspect(key)} would replace a canonical field"
+            )
+          else
+            :ok
+          end
+        end)
+
+      _options ->
+        Helpers.error(@codec, "provider_options.seedance must be a map")
+    end
+  end
+
+  defp provider_options(request, config) do
+    Config.provider_options(request, config) |> Map.get(:seedance, %{})
+  end
+
+  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
+  defp capture_response(_config, _term), do: nil
+
+  defp invalid_response(message) do
+    %Error{kind: :invalid_response, message: "seedance_video: " <> message}
+  end
+end
