@@ -108,6 +108,16 @@ defmodule LlmCall.MediaConformanceTest do
              )
   end
 
+  test "assert_capability_consistency/3 requires a declared flag to be accepted" do
+    assert_raise ExUnit.AssertionError, ~r/seed/, fn ->
+      MediaConformance.assert_capability_consistency(
+        LlmCall.TestCodec.FlagMedia,
+        %MediaRequest{modality: :image, model: "flag-1", prompt: "a cat"},
+        %Config{}
+      )
+    end
+  end
+
   test "assert_capability_consistency/3 catches a declaration validation does not honour" do
     assert_raise ExUnit.AssertionError, fn ->
       MediaConformance.assert_capability_consistency(

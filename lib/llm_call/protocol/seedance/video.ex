@@ -37,7 +37,9 @@ defmodule LlmCall.Protocol.Seedance.Video do
   @reserved_keys ~w(model prompt content instances parameters modality)
   @param_keys [:aspect_ratio, :duration_s, :seed]
   @ratios ["adaptive", "1:1", "4:3", "3:4", "16:9", "9:16", "21:9"]
-  @durations Enum.to_list(4..15)
+  # Union across Seedance models: 1.0 accepts 2-12 s, 1.5 pro 4-12 s, 2.0 4-15 s,
+  # 2.5 4-30 s. A model-specific limit surfaces as a provider error.
+  @durations Enum.to_list(2..30)
   @max_references 2
   @retryable_codes ~w(InternalServiceError RateLimitExceeded)
 
@@ -131,10 +133,10 @@ defmodule LlmCall.Protocol.Seedance.Video do
       when is_binary(status) do
     case status do
       "queued" ->
-        {:ok, poll_operation(payload, :queued, config)}
+        in_progress_operation(payload, :queued, config)
 
       "running" ->
-        {:ok, poll_operation(payload, :in_progress, config)}
+        in_progress_operation(payload, :in_progress, config)
 
       "succeeded" ->
         completed_operation(payload, config)
@@ -174,15 +176,21 @@ defmodule LlmCall.Protocol.Seedance.Video do
     }
   end
 
-  defp poll_operation(payload, status, config) do
-    %Operation{
-      id: payload["id"],
-      status: status,
-      next: poll_request(payload["id"]),
-      next_kind: :poll,
-      raw: capture_response(config, payload)
-    }
+  defp in_progress_operation(payload, status, config) do
+    with {:ok, id} <- fetch_id(payload) do
+      {:ok,
+       %Operation{
+         id: id,
+         status: status,
+         next: poll_request(id),
+         next_kind: :poll,
+         raw: capture_response(config, payload)
+       }}
+    end
   end
+
+  defp fetch_id(%{"id" => id}) when is_binary(id) and id != "", do: {:ok, id}
+  defp fetch_id(_payload), do: {:error, invalid_response("task payload has no id")}
 
   defp completed_operation(payload, config) do
     case get_in(payload, ["content", "video_url"]) do
@@ -203,7 +211,7 @@ defmodule LlmCall.Protocol.Seedance.Video do
   end
 
   defp failed_operation(payload, terminal, config) do
-    error = payload["error"] || %{}
+    error = if is_map(payload["error"]), do: payload["error"], else: %{}
 
     %Operation{
       id: payload["id"],
@@ -218,7 +226,7 @@ defmodule LlmCall.Protocol.Seedance.Video do
     }
   end
 
-  defp poll_request(id) when is_binary(id) do
+  defp poll_request(id) do
     %EncodedRequest{
       method: :get,
       path: @path <> "/" <> id,
@@ -228,22 +236,26 @@ defmodule LlmCall.Protocol.Seedance.Video do
     }
   end
 
-  defp poll_request(_id), do: nil
-
   defp reference_parts(%MediaRequest{references: references}) do
-    Enum.map(references, fn
-      %Content.Image{source: {:url, url}} ->
-        image_part(url)
-
-      %Content.Image{source: source} when is_binary(source) ->
-        image_part(source)
-
-      %Content.Image{source: {:base64, data}, media_type: media_type} ->
-        image_part("data:#{media_type};base64,#{data}")
-    end)
+    references
+    |> Enum.with_index()
+    |> Enum.map(fn {reference, index} -> image_part(image_url(reference), frame_role(index)) end)
   end
 
-  defp image_part(url), do: %{"type" => "image_url", "image_url" => %{"url" => url}}
+  defp image_url(%Content.Image{source: {:url, url}}), do: url
+  defp image_url(%Content.Image{source: source}) when is_binary(source), do: source
+
+  defp image_url(%Content.Image{source: {:base64, data}, media_type: media_type}) do
+    "data:#{media_type};base64,#{data}"
+  end
+
+  # ModelArk needs an explicit role for the first/last-frame pair.
+  defp frame_role(0), do: "first_frame"
+  defp frame_role(_last), do: "last_frame"
+
+  defp image_part(url, role) do
+    %{"type" => "image_url", "image_url" => %{"url" => url}, "role" => role}
+  end
 
   defp validate_modality(:video), do: :ok
 

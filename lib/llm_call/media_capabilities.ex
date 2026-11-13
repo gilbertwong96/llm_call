@@ -3,8 +3,8 @@ defmodule LlmCall.MediaCapabilities do
   The media surface a codec declares.
 
   List-valued fields enumerate accepted values: `sizes: []` means no `size` is
-  accepted. A request knob left `nil` means "provider default" and is always
-  accepted. Declarations are static per codec, because the core has no model
+  accepted, and `max_n: nil` means no `n` is accepted. A request knob left `nil`
+  means "provider default" and is always accepted. Declarations are static per codec, because the core has no model
   catalog; a model-specific limit the codec cannot know surfaces as a provider
   error.
   """

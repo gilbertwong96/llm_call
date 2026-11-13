@@ -67,10 +67,41 @@ defmodule LlmCall.Protocol.SeedanceVideoTest do
              %{"type" => "text", "text" => "a cat surfing"},
              %{
                "type" => "image_url",
-               "image_url" => %{"url" => "https://example.com/first.png"}
+               "image_url" => %{"url" => "https://example.com/first.png"},
+               "role" => "first_frame"
              },
-             %{"type" => "image_url", "image_url" => %{"url" => "data:image/png;base64,AAA"}}
+             %{
+               "type" => "image_url",
+               "image_url" => %{"url" => "data:image/png;base64,AAA"},
+               "role" => "last_frame"
+             }
            ]
+  end
+
+  test "a single reference is the first frame" do
+    body =
+      encode_body(
+        request(references: [%Content.Image{source: {:url, "https://example.com/first.png"}}])
+      )
+
+    assert [_, image] = body["content"]
+    assert image["role"] == "first_frame"
+  end
+
+  test "durations below and above the declared union are rejected" do
+    for duration <- [1, 31] do
+      assert {:error, %Error{kind: :validation}} =
+               Video.validate_request(request(params: %{duration_s: duration}), %Config{})
+    end
+
+    for duration <- [2, 30] do
+      assert :ok = Video.validate_request(request(params: %{duration_s: duration}), %Config{})
+    end
+  end
+
+  test "a status payload without a task id is an invalid response" do
+    assert {:error, %Error{kind: :invalid_response}} =
+             Video.decode_operation(%{"status" => "running"}, %Config{})
   end
 
   test "native knobs go through provider_options" do
@@ -95,8 +126,8 @@ defmodule LlmCall.Protocol.SeedanceVideoTest do
           request(params: %{n: 1}),
           request(params: %{negative_prompt: "x"}),
           request(params: %{aspect_ratio: "7:3"}),
-          request(params: %{duration_s: 30}),
-          request(params: %{duration_s: 3}),
+          request(params: %{duration_s: 31}),
+          request(params: %{duration_s: 1}),
           request(references: [%Content.Video{source: {:url, "u"}}]),
           request(references: [%Content.Image{source: {:base64, "AAA"}}]),
           request(references: List.duplicate(%Content.Image{source: {:url, "u"}}, 3)),

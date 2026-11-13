@@ -133,6 +133,9 @@ defmodule LlmCall.MediaConformance do
         assert operation.next_kind == :poll,
                "#{inspect(status)} operation must poll, got next_kind: #{inspect(operation.next_kind)}"
 
+        assert operation.error == nil,
+               "#{inspect(status)} operation must not carry an error"
+
         assert match?(%EncodedRequest{}, operation.next),
                "#{inspect(status)} operation must carry the next request"
 
@@ -143,6 +146,8 @@ defmodule LlmCall.MediaConformance do
         assert match?(%MediaResponse{}, operation.result),
                "a completed operation must carry a MediaResponse result"
 
+        assert operation.error == nil, "a completed operation must not carry an error"
+
         case operation.next_kind do
           :asset ->
             assert match?(%EncodedRequest{}, operation.next),
@@ -152,7 +157,8 @@ defmodule LlmCall.MediaConformance do
                    "an :asset fetch must name its media type"
 
           nil ->
-            :ok
+            assert match?([_ | _], operation.result.assets),
+                   "a completed operation with no next request must carry at least one asset"
 
           other ->
             flunk("unexpected next_kind on a completed operation: #{inspect(other)}")
@@ -218,7 +224,14 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  defp check_max_n(_codec, _request, _config, nil), do: :ok
+  defp check_max_n(codec, request, config, nil) do
+    result = codec.validate_request(with_param(request, :n, 1), config)
+
+    assert match?({:error, %Error{kind: :validation}}, result),
+           "#{inspect(codec)} declares max_n: nil (n unsupported) but accepts n: 1"
+
+    :ok
+  end
 
   defp check_max_n(codec, request, config, max_n) do
     assert :ok == codec.validate_request(with_param(request, :n, max_n), config),
@@ -232,7 +245,12 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  defp check_flag(_codec, _request, _config, _key, true, _value), do: :ok
+  defp check_flag(codec, request, config, key, true, value) do
+    assert :ok == codec.validate_request(with_param(request, key, value), config),
+           "#{inspect(codec)} declares #{key}: true but rejects #{key}: #{inspect(value)}"
+
+    :ok
+  end
 
   defp check_flag(codec, request, config, key, false, value) do
     result = codec.validate_request(with_param(request, key, value), config)

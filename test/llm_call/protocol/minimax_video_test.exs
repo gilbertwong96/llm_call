@@ -193,6 +193,31 @@ defmodule LlmCall.Protocol.MiniMaxVideoTest do
     end
   end
 
+  test "a status payload without a task id is an invalid response" do
+    assert {:error, %Error{kind: :invalid_response}} =
+             Video.decode_operation(%{"status" => "Processing"}, %Config{})
+  end
+
+  test "a non-map error value does not crash the failed-operation decoder" do
+    payload = %{"task_id" => "task_123", "status" => "Fail", "error" => "boom"}
+
+    assert {:ok, %Operation{status: :failed, error: %Error{kind: :provider}}} =
+             Video.decode_operation(payload, %Config{})
+  end
+
+  test "base_resp errors surface from the decoder a caller actually uses" do
+    assert {:error, %Error{kind: :provider, message: "Timeout"}} =
+             Video.decode_operation(Fx.query_error_response(), %Config{})
+
+    assert {:error, %Error{kind: :provider, message: "Insufficient balance"}} =
+             Video.decode_submit(Fx.submit_error_response(), %Config{})
+  end
+
+  test "n is rejected although max_n is nil" do
+    assert {:error, %Error{kind: :validation}} =
+             Video.validate_request(request(params: %{n: 1}), %Config{})
+  end
+
   test "Success without a file_id and unknown payloads are invalid responses" do
     assert {:error, %Error{kind: :invalid_response}} =
              Video.decode_operation(Fx.success_without_file_response(), %Config{})

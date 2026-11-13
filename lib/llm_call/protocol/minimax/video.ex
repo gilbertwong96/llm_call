@@ -131,7 +131,7 @@ defmodule LlmCall.Protocol.MiniMax.Video do
   @spec decode_operation(LlmCall.wire_value(), Config.t()) ::
           {:ok, Operation.t()} | {:error, Error.t()}
   def decode_operation(%{"status" => "Fail"} = payload, %Config{} = config) do
-    base_resp = payload["base_resp"] || %{}
+    base_resp = if is_map(payload["base_resp"]), do: payload["base_resp"], else: %{}
 
     {:ok,
      %Operation{
@@ -157,7 +157,7 @@ defmodule LlmCall.Protocol.MiniMax.Video do
           success_operation(payload, config)
 
         %{"status" => status} when status in ["Preparing", "Queueing", "Processing"] ->
-          {:ok, in_progress_operation(payload, config)}
+          in_progress_operation(payload, config)
 
         _other ->
           {:error, invalid_response("payload is neither a task status nor a file record")}
@@ -196,8 +196,9 @@ defmodule LlmCall.Protocol.MiniMax.Video do
   end
 
   defp in_progress_operation(payload, config) do
-    task_id = payload["task_id"]
-    in_progress_with(payload, query_request(task_id), config)
+    with {:ok, task_id} <- fetch_task_id(payload) do
+      {:ok, in_progress_with(payload, query_request(task_id), config)}
+    end
   end
 
   defp in_progress_with(payload, next, config) do

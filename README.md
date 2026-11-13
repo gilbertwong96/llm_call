@@ -99,7 +99,7 @@ Asynchronous video uses the same media API. A submit response carries an
   LlmCall.decode_media(LlmCall.Protocol.Seedance.Video, submit_body)
 
 # transport: execute op.next (a GET), then feed the decoded body back
-{:ok, %LlmCall.Operation{status: :running} = op} =
+{:ok, %LlmCall.Operation{status: :in_progress} = op} =
   LlmCall.decode_operation(LlmCall.Protocol.Seedance.Video, poll_body)
 ```
 

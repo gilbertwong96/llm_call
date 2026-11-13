@@ -1792,7 +1792,8 @@ consult `capabilities/2` so that a knob outside the declared surface is a
 List-valued capability fields enumerate accepted values:
 
 - `sizes: []` means the codec accepts **no** `size` value;
-- `max_n: nil` means no declared cap on `n`;
+- `max_n: nil` means the codec accepts **no** `n` value (the provider takes one
+  asset per request), while a non-nil `max_n` accepts `1..max_n`;
 - a `nil` request knob means "provider default" and is always accepted.
 
 Capabilities are static per codec. There is no model catalog
@@ -1911,7 +1912,7 @@ project actually uses; Sora and Veo are not implemented.
 - `LlmCall.Protocol.Seedance.Video` (BytePlus ModelArk) — submit
   `POST /api/v3/contents/generations/tasks` with
   `{model, content: [{type: "text", text: prompt}, {type: "image_url",
-  image_url: {url}}?], ratio?, duration?, seed?}`; `next` is
+  image_url: {url}, role}?], ratio?, duration?, seed?}`; `next` is
   `GET /api/v3/contents/generations/tasks/{id}` with `next_kind: :poll`.
   Statuses map as `queued` -> `:queued`, `running` -> `:in_progress`,
   `succeeded` -> `:completed` with
@@ -1919,8 +1920,10 @@ project actually uses; Sora and Veo are not implemented.
   `failed | cancelled | expired` -> `:failed`. `size`, `negative_prompt`, and `n`
   are validation errors; `resolution`, `watermark`, `generate_audio`,
   `camera_fixed`, and `service_tier` are native knobs reached through
-  `provider_options`. `references` accepts one or two images (first and last
-  frame).
+  `provider_options`. `references` accepts one or two images: the first is
+  `role: "first_frame"` and the second `role: "last_frame"`, because ModelArk
+  requires the roles to tell the pair apart. `durations_s` declares the union
+  across Seedance models (2-30 s); a model-specific limit is a provider error.
 - `LlmCall.Protocol.MiniMax.Video` (Hailuo, `v1`) — submit
   `POST /v1/video_generation` with
   `{model, prompt, duration?, first_frame_image?}` -> `{task_id}`; `next` is
