@@ -59,6 +59,32 @@ defmodule LlmCall.Protocol.GeminiPredictTest do
     end
   end
 
+  test "native parameters merge through provider_options" do
+    body =
+      encode_body(
+        request(
+          provider_options: %{gemini: %{"parameters" => %{"personGeneration" => "dont_allow"}}}
+        )
+      )
+
+    assert body["parameters"] == %{"personGeneration" => "dont_allow"}
+
+    body =
+      encode_body(
+        request(
+          params: %{n: 2},
+          provider_options: %{gemini: %{"parameters" => %{"personGeneration" => "dont_allow"}}}
+        )
+      )
+
+    assert body["parameters"] == %{"sampleCount" => 2, "personGeneration" => "dont_allow"}
+  end
+
+  test "nil knobs mean the provider default and are accepted" do
+    assert :ok = Predict.validate_request(request(params: %{size: nil, seed: nil}), %Config{})
+    assert :ok = Predict.validate_request(request(references: nil), %Config{})
+  end
+
   test "capabilities declare the image surface" do
     assert %LlmCall.MediaCapabilities{
              modalities: [:image],
@@ -89,6 +115,18 @@ defmodule LlmCall.Protocol.GeminiPredictTest do
              Predict.decode_submit(Fx.filtered_response(), %Config{})
   end
 
+  test "a partially filtered response keeps its usable assets" do
+    payload = %{
+      "predictions" => [
+        %{"raiFilteredReason" => "Blocked by safety filters"},
+        %{"bytesBase64Encoded" => "AAA", "mimeType" => "image/png"}
+      ]
+    }
+
+    assert {:ok, %MediaResponse{assets: [%Content.Image{source: {:base64, "AAA"}}]}} =
+             Predict.decode_submit(payload, %Config{})
+  end
+
   test "capture_raw and invalid payloads" do
     payload = Fx.base64_response()
 
@@ -100,6 +138,9 @@ defmodule LlmCall.Protocol.GeminiPredictTest do
 
     assert {:error, %Error{kind: :invalid_response}} =
              Predict.decode_submit(%{"predictions" => []}, %Config{})
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             Predict.decode_submit(%{"predictions" => [%{"mimeType" => "image/png"}]}, %Config{})
   end
 
   test "decode_error/2 normalizes the Google envelope" do

@@ -21,11 +21,25 @@ defmodule LlmCall.Protocol.OpenAIImagesTest do
     assert encoded.query == %{}
     assert encoded.headers == [{"content-type", "application/json"}]
 
-    assert encoded.body == %{
-             "model" => "gpt-image-1",
-             "prompt" => "a cat",
-             "response_format" => "b64_json"
-           }
+    assert encoded.body == %{"model" => "gpt-image-1", "prompt" => "a cat"}
+  end
+
+  test "response_format is only sent to models that accept it" do
+    refute Map.has_key?(encode_body(request()), "response_format")
+    assert encode_body(request(model: "dall-e-3"))["response_format"] == "b64_json"
+
+    assert encode_body(
+             request(
+               model: "dall-e-3",
+               provider_options: %{openai: %{"response_format" => "url"}}
+             )
+           )["response_format"] == "url"
+  end
+
+  test "nil knobs mean the provider default and are accepted" do
+    assert :ok = Images.validate_request(request(params: %{size: nil, n: nil}), %Config{})
+    assert :ok = Images.validate_request(request(references: nil), %Config{})
+    assert :ok = Images.validate_request(request(params: %{aspect_ratio: nil}), %Config{})
   end
 
   test "n and size map to native fields" do
@@ -118,6 +132,9 @@ defmodule LlmCall.Protocol.OpenAIImagesTest do
 
     assert {:error, %Error{kind: :invalid_response}} =
              Images.decode_submit(%{"nope" => 1}, %Config{})
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             Images.decode_submit(%{"data" => [%{}]}, %Config{})
   end
 
   test "decode_error/2 normalizes the provider envelope" do

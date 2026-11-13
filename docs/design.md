@@ -1800,10 +1800,14 @@ Capabilities are static per codec. There is no model catalog
 supports; a model-specific limit that a codec cannot know surfaces as a provider
 error, not a fabricated local guess.
 
-`params` keys outside the canonical set in §23.1 are validation errors. A codec
-rejects a non-nil knob it cannot express. `provider_options` is namespaced and
-merged like the completion side; a key that would replace `model`, `prompt`,
-`instances`, `parameters`, or `modality` is a validation error.
+`params` keys outside the canonical set in §23.1 are validation errors, ignoring
+keys whose value is `nil` (a `nil` knob is "provider default", not a request).
+A codec rejects a non-nil knob it cannot express. `provider_options` is namespaced
+and merged like the completion side; a key that would replace `model`, `prompt`,
+`instances`, or `modality` is a validation error. A protocol's own nested
+parameter object stays reachable: `parameters` is not reserved, because
+`Config.deep_merge/2` recurses into it, so a native Imagen knob such as
+`personGeneration` merges beside the canonical `sampleCount`.
 
 ### 23.4 Operation state machine
 
@@ -1882,14 +1886,20 @@ written against.
 Phase M1, synchronous image:
 
 - `LlmCall.Protocol.OpenAI.Images` — `POST /v1/images/generations`, body
-  `{model, prompt, n?, size?, response_format: "b64_json"}`. `references`,
+  `{model, prompt, n?, size?}`. `response_format: "b64_json"` is sent only for
+  `dall-e-*` models: `gpt-image-1` rejects the key and returns base64 anyway, and
+  `provider_options.openai` may override the value. `references`,
   `aspect_ratio`, `duration_s`, `negative_prompt`, and `seed` are validation
   errors. Response `data[]`: `b64_json` -> `{:base64, data}`, `url` -> `{:url, url}`.
   `revised_prompt` is the first non-nil value; the rest stay in `raw`.
 - `LlmCall.Protocol.Gemini.Predict` (Imagen) — `POST /v1beta/models/{model}:predict`,
   body `{instances: [{prompt}], parameters: {sampleCount?, aspectRatio?, negativePrompt?}}`.
-  `size`, `duration_s`, `seed`, and `references` are validation errors. Response
-  `predictions[].bytesBase64Encoded` plus `mimeType` -> base64 image.
+  `size`, `duration_s`, `seed`, and `references` are validation errors. Native
+  `parameters` knobs (`personGeneration`, `safetySetting`, `outputOptions`, ...)
+  merge through `provider_options`. Response `predictions[].bytesBase64Encoded`
+  plus `mimeType` -> base64 image; a prediction with `raiFilteredReason` and no
+  bytes is skipped while another prediction has bytes, and is a `:provider` error
+  when none do.
 
 Phase M2, asynchronous video:
 

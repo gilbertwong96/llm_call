@@ -28,7 +28,7 @@ defmodule LlmCall.Protocol.Gemini.Predict do
   @codec :gemini_predict
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model prompt instances parameters modality)
+  @reserved_keys ~w(model prompt instances modality)
   @param_keys [:n, :aspect_ratio, :negative_prompt]
   @aspect_ratios ["1:1", "3:4", "4:3", "9:16", "16:9"]
   @max_n 4
@@ -135,16 +135,17 @@ defmodule LlmCall.Protocol.Gemini.Predict do
   end
 
   defp decode_predictions(predictions, payload) do
-    case Enum.find(predictions, &filtered?/1) do
-      %{"raiFilteredReason" => reason} ->
-        {:error, %Error{kind: :provider, message: reason, raw: payload}}
+    usable = Enum.filter(predictions, &valid_prediction?/1)
 
-      nil ->
-        if Enum.all?(predictions, &valid_prediction?/1) do
-          {:ok, Enum.map(predictions, &decode_asset/1)}
-        else
-          {:error, invalid_response("prediction has no image bytes")}
-        end
+    cond do
+      usable != [] ->
+        {:ok, Enum.map(usable, &decode_asset/1)}
+
+      filtered? = Enum.find(predictions, &filtered?/1) ->
+        {:error, %Error{kind: :provider, message: filtered?["raiFilteredReason"], raw: payload}}
+
+      true ->
+        {:error, invalid_response("prediction has no image bytes")}
     end
   end
 
@@ -194,8 +195,10 @@ defmodule LlmCall.Protocol.Gemini.Predict do
   defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
 
   defp validate_params(params) when is_map(params) do
+    present = for {key, value} <- params, not is_nil(value), do: key
+
     with :ok <-
-           Helpers.first_error(Map.keys(params), fn key ->
+           Helpers.first_error(present, fn key ->
              if key in @param_keys,
                do: :ok,
                else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
@@ -220,6 +223,7 @@ defmodule LlmCall.Protocol.Gemini.Predict do
   defp validate_aspect_ratio(_ratio),
     do: Helpers.error(@codec, "params.aspect_ratio must be one of #{inspect(@aspect_ratios)}")
 
+  defp validate_references(nil), do: :ok
   defp validate_references([]), do: :ok
 
   defp validate_references(_references) do

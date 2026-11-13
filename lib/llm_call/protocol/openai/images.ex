@@ -88,11 +88,8 @@ defmodule LlmCall.Protocol.OpenAI.Images do
   def encode_submit(%MediaRequest{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
       body =
-        %{
-          "model" => request.model,
-          "prompt" => request.prompt,
-          "response_format" => "b64_json"
-        }
+        %{"model" => request.model, "prompt" => request.prompt}
+        |> put_response_format(request.model)
         |> Helpers.maybe_put("n", request.params[:n])
         |> Helpers.maybe_put("size", request.params[:size])
         |> Config.deep_merge(provider_options(request, config))
@@ -202,8 +199,10 @@ defmodule LlmCall.Protocol.OpenAI.Images do
   defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
 
   defp validate_params(params) when is_map(params) do
+    present = for {key, value} <- params, not is_nil(value), do: key
+
     with :ok <-
-           Helpers.first_error(Map.keys(params), fn key ->
+           Helpers.first_error(present, fn key ->
              if key in @param_keys,
                do: :ok,
                else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
@@ -228,6 +227,7 @@ defmodule LlmCall.Protocol.OpenAI.Images do
   defp validate_size(_size),
     do: Helpers.error(@codec, "params.size must be one of #{inspect(@sizes)}")
 
+  defp validate_references(nil), do: :ok
   defp validate_references([]), do: :ok
 
   defp validate_references(_references) do
@@ -256,6 +256,13 @@ defmodule LlmCall.Protocol.OpenAI.Images do
   defp provider_options(request, config) do
     Config.provider_options(request, config) |> Map.get(:openai, %{})
   end
+
+  # dall-e models accept response_format; gpt-image-1 does not and returns base64 anyway.
+  defp put_response_format(body, "dall-e-" <> _model) do
+    Map.put(body, "response_format", "b64_json")
+  end
+
+  defp put_response_format(body, _model), do: body
 
   defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
   defp capture_response(_config, _term), do: nil

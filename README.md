@@ -55,6 +55,8 @@ A completion can ask for image output; the generated parts arrive in the normal
 `Response.content`:
 
 ```elixir
+codec = LlmCall.Protocol.Gemini.GenerateContent
+
 request = %LlmCall.Request{
   model: "gemini-2.5-flash-image",
   modalities: [:text, :image],
