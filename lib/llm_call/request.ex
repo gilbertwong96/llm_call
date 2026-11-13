@@ -3,14 +3,16 @@ defmodule LlmCall.Request do
   A provider-neutral completion request.
 
   `system` stays here rather than becoming a message because providers place it
-  differently (leading message, top-level field, or instruction field).
+  differently (leading message, top-level field, or instruction field). It is
+  text-only: no protocol accepts a non-text system block, so a wider type would
+  promise what validation refuses.
 
   `provider_options` is keyed by provider namespace and is for features the
   canonical layer cannot express. `params` covers the sampling and length
   controls providers share.
   """
 
-  @type system :: nil | String.t() | [LlmCall.Content.part()]
+  @type system :: nil | String.t() | [LlmCall.Content.Text.t()]
 
   @type tool_choice ::
           :auto

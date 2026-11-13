@@ -3,10 +3,11 @@ defmodule LlmCall.ToolResult do
   The result of a tool call, ready to send back to the model.
 
   Adapters validate the identifier they need: some protocols require `call_id`,
-  others (`Gemini`) require `name`.
+  others (`Gemini`) require `name`. Content is text-only — no protocol carries a
+  non-text tool result — so a wider type would promise what validation refuses.
   """
 
-  @type content :: [LlmCall.Content.part()] | String.t()
+  @type content :: [LlmCall.Content.Text.t()] | String.t()
 
   @type t :: %__MODULE__{
           call_id: String.t() | nil,

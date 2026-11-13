@@ -7,9 +7,10 @@ defmodule LlmCall.Media.Request do
   tools. Flattening a completion request into `{prompt, n, size}` would be a hidden
   convention.
 
-  `references` are images or videos the generation is conditioned on. Only
-  content a JSON body can carry is allowed; a codec that would need a multipart
-  upload rejects them.
+  `references` are images or videos the generation is conditioned on. An
+  adapter may still refuse a source it cannot carry (a `{:base64, _}` image
+  without a media type, a video reference to an image-only endpoint); those are
+  validation errors, not silent drops.
   """
 
   @type modality :: :image | :video
@@ -27,7 +28,7 @@ defmodule LlmCall.Media.Request do
           modality: modality(),
           model: String.t(),
           prompt: String.t(),
-          references: [LlmCall.Content.part()],
+          references: [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
           params: params(),
           provider_options: map()
         }
