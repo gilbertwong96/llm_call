@@ -546,7 +546,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
       message: message,
       code: type,
       status: nil,
-      retryable?: type in @retryable_types,
+      retryable?: Helpers.retryable?(type, @retryable_types),
       raw: payload
     }
   end

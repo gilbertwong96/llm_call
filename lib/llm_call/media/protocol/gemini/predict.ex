@@ -96,7 +96,7 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
          revised_prompt: nil,
          usage: nil,
          operation: nil,
-         raw: capture_response(config, payload)
+         raw: Helpers.capture_response(config, payload)
        }}
     end
   end
@@ -115,7 +115,7 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
       message: message,
       code: status,
       status: nil,
-      retryable?: status in @retryable_statuses,
+      retryable?: Helpers.retryable?(status, @retryable_statuses),
       raw: payload
     }
   end
@@ -247,9 +247,6 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
     options = Config.provider_options(request, config)
     Map.get(options, :gemini) || Map.get(options, :google) || %{}
   end
-
-  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
-  defp capture_response(_config, _term), do: nil
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "gemini_predict: " <> message}

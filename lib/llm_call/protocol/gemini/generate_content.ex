@@ -625,7 +625,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
       message: message,
       code: status,
       status: nil,
-      retryable?: status in @retryable_statuses,
+      retryable?: Helpers.retryable?(status, @retryable_statuses),
       raw: payload
     }
   end

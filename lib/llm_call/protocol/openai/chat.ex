@@ -507,7 +507,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
       message: message,
       code: code,
       status: nil,
-      retryable?: code in @retryable_codes,
+      retryable?: Helpers.retryable?(code, @retryable_codes),
       raw: payload
     }
   end

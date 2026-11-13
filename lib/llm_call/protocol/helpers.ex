@@ -106,6 +106,17 @@ defmodule LlmCall.Protocol.Helpers do
   def capture_event(_config, _term), do: nil
 
   @doc """
+  The retry hint: true when the provider code is in the codec's retryable set.
+
+  Adapters keep their own set — providers name their codes differently — but
+  share this rule and its `nil` handling, so the hint means the same thing
+  everywhere.
+  """
+  @spec retryable?(String.t() | nil, [String.t()]) :: boolean()
+  def retryable?(code, codes) when is_binary(code), do: code in codes
+  def retryable?(nil, _codes), do: false
+
+  @doc """
   The provider payload to retain on a response or media response, or `nil`.
 
   `:response` and `:all` keep it; `:none` does not.

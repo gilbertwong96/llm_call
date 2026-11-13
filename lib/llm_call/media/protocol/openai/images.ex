@@ -110,7 +110,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
          revised_prompt: Enum.find(revised_prompts, &is_binary/1),
          usage: decode_usage(payload["usage"]),
          operation: nil,
-         raw: capture_response(config, payload)
+         raw: Helpers.capture_response(config, payload)
        }}
     end
   end
@@ -129,7 +129,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
       message: message,
       code: code,
       status: nil,
-      retryable?: code in @retryable_codes,
+      retryable?: Helpers.retryable?(code, @retryable_codes),
       raw: payload
     }
   end
@@ -256,9 +256,6 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   end
 
   defp put_response_format(body, _model), do: body
-
-  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
-  defp capture_response(_config, _term), do: nil
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "openai_images: " <> message}

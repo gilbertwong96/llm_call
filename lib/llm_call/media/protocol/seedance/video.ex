@@ -111,7 +111,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
          next: poll_request(id),
          next_kind: :poll
        },
-       raw: capture_response(config, payload)
+       raw: Helpers.capture_response(config, payload)
      }}
   end
 
@@ -156,7 +156,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
       message: message,
       code: code,
       status: nil,
-      retryable?: code in @retryable_codes,
+      retryable?: Helpers.retryable?(code, @retryable_codes),
       raw: payload
     }
   end
@@ -177,7 +177,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
          status: status,
          next: poll_request(id),
          next_kind: :poll,
-         raw: capture_response(config, payload)
+         raw: Helpers.capture_response(config, payload)
        }}
     end
   end
@@ -195,7 +195,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
            result: %MediaResponse{
              assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
            },
-           raw: capture_response(config, payload)
+           raw: Helpers.capture_response(config, payload)
          }}
 
       _absent ->
@@ -215,7 +215,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
         code: error["code"] || terminal,
         raw: payload
       },
-      raw: capture_response(config, payload)
+      raw: Helpers.capture_response(config, payload)
     }
   end
 
@@ -350,9 +350,6 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
   defp provider_options(request, config) do
     Config.provider_options(request, config) |> Map.get(:seedance, %{})
   end
-
-  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
-  defp capture_response(_config, _term), do: nil
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "seedance_video: " <> message}

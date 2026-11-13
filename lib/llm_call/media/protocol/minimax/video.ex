@@ -111,7 +111,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
            next: query_request(task_id),
            next_kind: :poll
          },
-         raw: capture_response(config, payload)
+         raw: Helpers.capture_response(config, payload)
        }}
     end
   end
@@ -136,7 +136,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
          code: to_string(base_resp["status_code"] || "Fail"),
          raw: payload
        },
-       raw: capture_response(config, payload)
+       raw: Helpers.capture_response(config, payload)
      }}
   end
 
@@ -200,7 +200,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
       status: :in_progress,
       next: next,
       next_kind: :poll,
-      raw: capture_response(config, payload)
+      raw: Helpers.capture_response(config, payload)
     }
   end
 
@@ -211,7 +211,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
       result: %MediaResponse{
         assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
       },
-      raw: capture_response(config, payload)
+      raw: Helpers.capture_response(config, payload)
     }
   end
 
@@ -228,7 +228,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
            kind: :provider,
            message: base_resp["status_msg"] || "provider error",
            code: to_string(code),
-           retryable?: to_string(code) in @retryable_codes,
+           retryable?: Helpers.retryable?(to_string(code), @retryable_codes),
            raw: payload
          }}
 
@@ -349,9 +349,6 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
   defp provider_options(request, config) do
     Config.provider_options(request, config) |> Map.get(:minimax, %{})
   end
-
-  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
-  defp capture_response(_config, _term), do: nil
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "minimax_video: " <> message}
