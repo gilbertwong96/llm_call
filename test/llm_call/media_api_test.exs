@@ -21,8 +21,18 @@ defmodule LlmCall.MediaApiTest do
   test "validate_media/3 and media_capabilities/3 delegate" do
     assert :ok = LlmCall.validate_media(FakeMedia, request())
 
-    assert %LlmCall.Media.Capabilities{modalities: [:image], max_n: 4, sizes: ["1024x1024"]} =
+    assert {:ok,
+            %LlmCall.Media.Capabilities{modalities: [:image], max_n: 4, sizes: ["1024x1024"]}} =
              LlmCall.media_capabilities(FakeMedia, request())
+  end
+
+  test "media dispatch rejects a completion codec instead of raising" do
+    for fun <- [:encode_media, :decode_media, :validate_media, :media_capabilities] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               apply(LlmCall, fun, [LlmCall.TestCodec.Fake, request()])
+
+      assert message =~ "does not support"
+    end
   end
 
   test "decode_media/3 decodes assets and honors capture_raw" do

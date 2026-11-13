@@ -41,11 +41,22 @@ defmodule LlmCall.ApiTest do
 
   test "validate_request/3 and capabilities/3 delegate" do
     assert :ok = LlmCall.validate_request(Fake, request())
-    assert %Capabilities{tools: true, streaming: true} = LlmCall.capabilities(Fake, request())
+
+    assert {:ok, %Capabilities{tools: true, streaming: true}} =
+             LlmCall.capabilities(Fake, request())
   end
 
   test "capabilities/3 works for a codec without a request model" do
-    assert %Capabilities{streaming: false} = LlmCall.capabilities(TextOnly, %Request{})
+    assert {:ok, %Capabilities{streaming: false}} = LlmCall.capabilities(TextOnly, %Request{})
+  end
+
+  test "completion dispatch rejects a media codec instead of raising" do
+    for fun <- [:encode, :decode_response, :validate_request, :capabilities] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               apply(LlmCall, fun, [LlmCall.TestCodec.FakeMedia, request()])
+
+      assert message =~ "does not support"
+    end
   end
 
   test "streaming round trip through the public API" do

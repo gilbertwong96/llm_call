@@ -47,14 +47,18 @@ defmodule LlmCall do
   @spec encode(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
   def encode(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
-    codec.encode_request(request, config)
+    with :ok <- require_callback(codec, :encode_request, 2) do
+      codec.encode_request(request, config)
+    end
   end
 
   @doc "Decodes one provider response term into a canonical response."
   @spec decode_response(module(), LlmCall.wire_value(), Config.t()) ::
           {:ok, LlmCall.Response.t()} | {:error, Error.t()}
   def decode_response(codec, term, config \\ %Config{}) do
-    codec.decode_response(term, config)
+    with :ok <- require_callback(codec, :decode_response, 2) do
+      codec.decode_response(term, config)
+    end
   end
 
   @doc "Normalizes a provider error payload."
@@ -66,13 +70,24 @@ defmodule LlmCall do
   @doc "Checks a request against the fields a codec can represent."
   @spec validate_request(module(), LlmCall.Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
-    codec.validate_request(request, config)
+    with :ok <- require_callback(codec, :encode_request, 2) do
+      codec.validate_request(request, config)
+    end
   end
 
-  @doc "Describes what a codec supports for the request's model."
-  @spec capabilities(module(), LlmCall.Request.t(), Config.t()) :: LlmCall.Capabilities.t()
+  @doc """
+  Describes what a completion codec supports.
+
+  Capabilities are protocol-level, not model-level; see
+  `LlmCall.Capabilities`. Returns a typed error when the module implements the
+  media behaviour instead.
+  """
+  @spec capabilities(module(), LlmCall.Request.t(), Config.t()) ::
+          {:ok, LlmCall.Capabilities.t()} | {:error, Error.t()}
   def capabilities(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
-    codec.capabilities(request, config)
+    with :ok <- require_callback(codec, :encode_request, 2) do
+      {:ok, codec.capabilities(request, config)}
+    end
   end
 
   @doc "Starts a stream, or returns a typed error when the codec has no streaming."
@@ -119,14 +134,18 @@ defmodule LlmCall do
   @spec encode_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
   def encode_media(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
-    codec.encode_submit(request, config)
+    with :ok <- require_callback(codec, :encode_submit, 2) do
+      codec.encode_submit(request, config)
+    end
   end
 
   @doc "Decodes a media generation response, sync assets or an operation."
   @spec decode_media(module(), LlmCall.wire_value(), Config.t()) ::
           {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
   def decode_media(codec, term, config \\ %Config{}) do
-    codec.decode_submit(term, config)
+    with :ok <- require_callback(codec, :decode_submit, 2) do
+      codec.decode_submit(term, config)
+    end
   end
 
   @doc """
@@ -147,14 +166,23 @@ defmodule LlmCall do
   @spec validate_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
   def validate_media(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
-    codec.validate_request(request, config)
+    with :ok <- require_callback(codec, :encode_submit, 2) do
+      codec.validate_request(request, config)
+    end
   end
 
-  @doc "Describes the media surface a codec declares."
+  @doc """
+  Describes the media surface a codec declares.
+
+  Returns a typed error when the module implements the completion behaviour
+  instead.
+  """
   @spec media_capabilities(module(), LlmCall.Media.Request.t(), Config.t()) ::
-          LlmCall.Media.Capabilities.t()
+          {:ok, LlmCall.Media.Capabilities.t()} | {:error, Error.t()}
   def media_capabilities(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
-    codec.capabilities(request, config)
+    with :ok <- require_callback(codec, :encode_submit, 2) do
+      {:ok, codec.capabilities(request, config)}
+    end
   end
 
   defp require_owner(codec, %StreamState{codec: codec}), do: :ok
