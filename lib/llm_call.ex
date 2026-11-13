@@ -111,6 +111,52 @@ defmodule LlmCall do
     end
   end
 
+  @doc """
+  Encodes a media generation request, or starts a long-running job.
+
+  The codec validates first; a knob it cannot express is a typed error.
+  """
+  @spec encode_media(module(), LlmCall.MediaRequest.t(), Config.t()) ::
+          {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
+  def encode_media(codec, %LlmCall.MediaRequest{} = request, config \\ %Config{}) do
+    codec.encode_submit(request, config)
+  end
+
+  @doc "Decodes a media generation response, sync assets or an operation."
+  @spec decode_media(module(), LlmCall.wire_value(), Config.t()) ::
+          {:ok, LlmCall.MediaResponse.t()} | {:error, Error.t()}
+  def decode_media(codec, term, config \\ %Config{}) do
+    codec.decode_submit(term, config)
+  end
+
+  @doc """
+  Decodes the next state of a long-running job.
+
+  Returns a typed `:validation` error when the codec has no
+  `decode_operation/2`.
+  """
+  @spec decode_operation(module(), LlmCall.wire_value(), Config.t()) ::
+          {:ok, LlmCall.Operation.t()} | {:error, Error.t()}
+  def decode_operation(codec, term, config \\ %Config{}) do
+    with :ok <- require_callback(codec, :decode_operation, 2) do
+      codec.decode_operation(term, config)
+    end
+  end
+
+  @doc "Checks a media request against the fields a codec can represent."
+  @spec validate_media(module(), LlmCall.MediaRequest.t(), Config.t()) ::
+          :ok | {:error, Error.t()}
+  def validate_media(codec, %LlmCall.MediaRequest{} = request, config \\ %Config{}) do
+    codec.validate_request(request, config)
+  end
+
+  @doc "Describes the media surface a codec declares."
+  @spec media_capabilities(module(), LlmCall.MediaRequest.t(), Config.t()) ::
+          LlmCall.MediaCapabilities.t()
+  def media_capabilities(codec, %LlmCall.MediaRequest{} = request, config \\ %Config{}) do
+    codec.capabilities(request, config)
+  end
+
   defp require_owner(codec, %StreamState{codec: codec}), do: :ok
 
   defp require_owner(codec, %StreamState{codec: owner}) do
@@ -127,7 +173,11 @@ defmodule LlmCall do
     if function_exported?(codec, function, arity) do
       :ok
     else
-      {:error, %Error{kind: :validation, message: "#{inspect(codec)} does not support streaming"}}
+      {:error,
+       %Error{
+         kind: :validation,
+         message: "#{inspect(codec)} does not support #{function}/#{arity}"
+       }}
     end
   end
 end

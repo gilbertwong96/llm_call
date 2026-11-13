@@ -1,0 +1,87 @@
+defmodule LlmCall.TestCodec.AsyncMedia do
+  @moduledoc false
+  @behaviour LlmCall.MediaCodec
+
+  alias LlmCall.{
+    Codec,
+    Config,
+    Content,
+    EncodedRequest,
+    Error,
+    MediaCapabilities,
+    MediaRequest,
+    MediaResponse,
+    Operation
+  }
+
+  @poll %EncodedRequest{method: :get, path: "/fake/jobs/1"}
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :async_media, protocol: :async_media, version: nil, ir_version: 1}
+
+  @impl true
+  def capabilities(_request, _config), do: %MediaCapabilities{modalities: [:video], async: true}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_submit(_request, _config),
+    do: {:ok, %EncodedRequest{method: :post, path: "/fake/jobs"}}
+
+  @impl true
+  def decode_submit(_payload, _config) do
+    {:ok,
+     %MediaResponse{
+       assets: [],
+       operation: %Operation{id: "job_1", status: :queued, next: @poll, next_kind: :poll}
+     }}
+  end
+
+  @impl true
+  def decode_operation(%{"status" => "in_progress"} = payload, config) do
+    {:ok,
+     %Operation{
+       id: "job_1",
+       status: :in_progress,
+       progress: 40,
+       next: @poll,
+       next_kind: :poll,
+       raw: if(config.capture_raw == :none, do: nil, else: payload)
+     }}
+  end
+
+  def decode_operation(%{"status" => "completed", "url" => url} = payload, config) do
+    {:ok,
+     %Operation{
+       id: "job_1",
+       status: :completed,
+       result: %MediaResponse{
+         assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
+       },
+       raw: if(config.capture_raw == :none, do: nil, else: payload)
+     }}
+  end
+
+  def decode_operation(%{"status" => "completed", "asset_path" => path} = payload, config) do
+    {:ok,
+     %Operation{
+       id: "job_1",
+       status: :completed,
+       result: %MediaResponse{assets: []},
+       next: %EncodedRequest{method: :get, path: path},
+       next_kind: :asset,
+       next_media_type: "video/mp4",
+       raw: if(config.capture_raw == :none, do: nil, else: payload)
+     }}
+  end
+
+  def decode_operation(%{"status" => "failed", "message" => message}, _config) do
+    {:ok,
+     %Operation{id: "job_1", status: :failed, error: %Error{kind: :provider, message: message}}}
+  end
+
+  @impl true
+  def decode_error(_term, _config), do: %Error{kind: :provider, message: "async_media error"}
+end

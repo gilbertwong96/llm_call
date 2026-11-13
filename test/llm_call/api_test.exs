@@ -89,7 +89,8 @@ defmodule LlmCall.ApiTest do
     assert {:error, %Error{kind: :validation, message: message}} =
              LlmCall.init_stream(TextOnly, request())
 
-    assert message =~ "streaming"
+    assert message =~ "does not support"
+    assert message =~ "init_stream/2"
 
     {:ok, state} = LlmCall.init_stream(Fake, request())
     assert {:ok, [%StreamEvent{type: :message_stop}], _} = LlmCall.finish_stream(Fake, state)
