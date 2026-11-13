@@ -118,6 +118,17 @@ defmodule LlmCall.MediaConformanceTest do
     end
   end
 
+  test "an in-core fake keeps a passing conformance path" do
+    request = %MediaRequest{modality: :video, model: "async-1", prompt: "a cat"}
+
+    assert :ok =
+             MediaConformance.assert_capability_consistency(
+               LlmCall.TestCodec.AsyncMedia,
+               request,
+               %Config{}
+             )
+  end
+
   test "assert_capability_consistency/3 catches a declaration validation does not honour" do
     assert_raise ExUnit.AssertionError, fn ->
       MediaConformance.assert_capability_consistency(

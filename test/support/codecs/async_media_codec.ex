@@ -10,6 +10,7 @@ defmodule LlmCall.TestCodec.AsyncMedia do
     EncodedRequest,
     Error,
     MediaCapabilities,
+    MediaRequest,
     MediaResponse,
     Operation
   }
@@ -24,7 +25,29 @@ defmodule LlmCall.TestCodec.AsyncMedia do
   def capabilities(_request, _config), do: %MediaCapabilities{modalities: [:video], async: true}
 
   @impl true
-  def validate_request(_request, _config), do: :ok
+  def validate_request(%MediaRequest{} = request, _config) do
+    params = request.params
+
+    cond do
+      request.modality != :video ->
+        {:error, %Error{kind: :validation, message: "async_media: modality"}}
+
+      Map.has_key?(params, :n) ->
+        {:error, %Error{kind: :validation, message: "async_media: n"}}
+
+      Map.has_key?(params, :seed) ->
+        {:error, %Error{kind: :validation, message: "async_media: seed"}}
+
+      Map.has_key?(params, :negative_prompt) ->
+        {:error, %Error{kind: :validation, message: "async_media: negative_prompt"}}
+
+      request.references != [] ->
+        {:error, %Error{kind: :validation, message: "async_media: references"}}
+
+      true ->
+        :ok
+    end
+  end
 
   @impl true
   def encode_submit(_request, _config),
