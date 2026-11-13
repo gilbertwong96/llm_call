@@ -94,7 +94,12 @@ defmodule LlmCall do
     end
   end
 
-  @doc "Flushes whatever the protocol does not emit itself when the stream ends."
+  @doc """
+  Flushes whatever the protocol does not emit itself when the stream ends.
+
+  Gemini has no stream terminator, so its accumulated usage and `:message_stop`
+  arrive only here. Calling it more than once is safe.
+  """
   @spec finish_stream(module(), StreamState.t(), Config.t()) ::
           {:ok, [LlmCall.StreamEvent.t()], StreamState.t()} | {:error, Error.t()}
   def finish_stream(codec, %StreamState{} = state, config \\ %Config{}) do

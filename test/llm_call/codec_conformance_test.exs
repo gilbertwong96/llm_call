@@ -36,4 +36,26 @@ defmodule LlmCall.CodecConformanceTest do
       assert :ok = Conformance.assert_stream_state_ownership(codec, TextOnly)
     end
   end
+
+  test "a codec that is not loaded fails with a clear assertion" do
+    assert_raise ExUnit.AssertionError, ~r/not loaded/, fn ->
+      Conformance.assert_capabilities(
+        LlmCall.TestCodec.DoesNotExist,
+        request("gpt-4o", true),
+        %Config{}
+      )
+    end
+  end
+
+  test "conformance assertions catch a violating codec" do
+    codec = LlmCall.Protocol.OpenAI.Chat
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_path(codec, request("gpt-4o", false), "/wrong")
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_capture_raw(codec, %{"choices" => []})
+    end
+  end
 end

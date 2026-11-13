@@ -621,4 +621,20 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
                List.last(events).delta
     end
   end
+
+  describe "deferred minors" do
+    test "an empty system part list sends no systemInstruction" do
+      refute Map.has_key?(encode(text_request(system: [])).body, "systemInstruction")
+    end
+
+    test "model ids that would break the request path are rejected" do
+      for model <- ["models/gemini-2.5-pro", "gemini-2.5-pro:generateContent", "tunedModels/x"] do
+        assert {:error, %Error{kind: :validation}} =
+                 GenerateContent.validate_request(text_request(model: model), %Config{})
+
+        assert {:error, %Error{kind: :validation}} =
+                 GenerateContent.encode_request(text_request(model: model), %Config{})
+      end
+    end
+  end
 end

@@ -21,7 +21,6 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     ReasoningCapabilities,
     Request,
     Response,
-    StreamEvent,
     StreamState,
     ToolCall,
     ToolResult,
@@ -29,9 +28,12 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     Usage
   }
 
+  alias LlmCall.Protocol.Helpers
   alias LlmCall.StreamDelta
 
   @behaviour LlmCall.Codec
+
+  @codec :anthropic_messages
 
   @api_version "2023-06-01"
   @path "/v1/messages"
@@ -87,22 +89,20 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     %{}
     |> Map.put("model", request.model)
     |> Map.put("messages", Enum.map(request.messages, &encode_message/1))
-    |> maybe_put("system", encode_system(request.system))
-    |> maybe_put("tools", encode_tools(request.tools))
-    |> maybe_put("tool_choice", encode_tool_choice(request.tool_choice, request.tools))
-    |> maybe_put("thinking", encode_reasoning(request.reasoning))
+    |> Helpers.maybe_put("system", encode_system(request.system))
+    |> Helpers.maybe_put("tools", encode_tools(request.tools))
+    |> Helpers.maybe_put("tool_choice", encode_tool_choice(request.tool_choice, request.tools))
+    |> Helpers.maybe_put("thinking", encode_reasoning(request.reasoning))
     |> Map.merge(encode_params(request.params))
     |> Map.merge(provider_options(request, config))
   end
 
   defp encode_system(nil), do: nil
+  defp encode_system([]), do: nil
   defp encode_system(text) when is_binary(text), do: text
 
   defp encode_system(parts) when is_list(parts) do
-    Enum.map(parts, fn
-      %Content.Text{text: text} -> %{"type" => "text", "text" => text}
-      %Content.Raw{data: %{} = data} -> data
-    end)
+    Enum.map(parts, fn %Content.Text{text: text} -> %{"type" => "text", "text" => text} end)
   end
 
   defp encode_message(%Message{role: role, content: content}) do
@@ -121,7 +121,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp encode_part(%Content.File{source: source, media_type: media_type, filename: filename}) do
     %{"type" => "document", "source" => encode_source(source, media_type)}
-    |> maybe_put("title", filename)
+    |> Helpers.maybe_put("title", filename)
   end
 
   defp encode_part(%ToolCall{} = call) do
@@ -139,7 +139,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
       "tool_use_id" => result.call_id,
       "content" => tool_result_content(result.content)
     }
-    |> maybe_put("is_error", result.is_error || nil)
+    |> Helpers.maybe_put("is_error", result.is_error || nil)
   end
 
   defp encode_part(%Content.Raw{data: %{} = data}), do: data
@@ -177,7 +177,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
         "name" => spec.name,
         "input_schema" => spec.parameters || %{"type" => "object", "properties" => %{}}
       }
-      |> maybe_put("description", spec.description)
+      |> Helpers.maybe_put("description", spec.description)
       |> Config.deep_merge(tool_options(spec))
     end)
   end
@@ -229,45 +229,50 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp validate_model(model) when is_binary(model) and model != "", do: :ok
-  defp validate_model(_model), do: error("model is required")
+  defp validate_model(_model), do: Helpers.error(@codec, "model is required")
 
-  defp validate_messages([]), do: error("at least one message is required")
+  defp validate_messages([]), do: Helpers.error(@codec, "at least one message is required")
 
   defp validate_messages(messages) when is_list(messages) do
-    first_error(messages, fn
+    Helpers.first_error(messages, fn
       %Message{role: role, content: []} when role in [:user, :assistant] ->
-        error("message requires at least one content part")
+        Helpers.error(@codec, "message requires at least one content part")
 
       %Message{role: role, content: content}
       when role in [:user, :assistant] and is_list(content) ->
         :ok
 
       %Message{role: role} when role in [:user, :assistant] ->
-        error("message content must be a list")
+        Helpers.error(@codec, "message content must be a list")
 
       %Message{} ->
-        error("message role must be :user or :assistant")
+        Helpers.error(@codec, "message role must be :user or :assistant")
 
       _other ->
-        error("messages must be LlmCall.Message structs")
+        Helpers.error(@codec, "messages must be LlmCall.Message structs")
     end)
   end
 
-  defp validate_messages(_messages), do: error("messages must be a list")
+  defp validate_messages(_messages), do: Helpers.error(@codec, "messages must be a list")
 
   defp validate_params(params) when is_map(params) do
-    with :ok <- first_error(Map.keys(params), &validate_param_key/1) do
+    with :ok <- Helpers.first_error(Map.keys(params), &validate_param_key/1) do
       case params[:max_tokens] do
-        value when is_integer(value) and value > 0 -> :ok
-        _other -> error("params.max_tokens is required and must be a positive integer")
+        value when is_integer(value) and value > 0 ->
+          :ok
+
+        _other ->
+          Helpers.error(@codec, "params.max_tokens is required and must be a positive integer")
       end
     end
   end
 
-  defp validate_params(_params), do: error("params must be a map")
+  defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
 
   defp validate_param_key(key) do
-    if key in @param_keys, do: :ok, else: error("params key #{inspect(key)} is not supported")
+    if key in @param_keys,
+      do: :ok,
+      else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
   end
 
   defp validate_reasoning(nil), do: :ok
@@ -275,20 +280,29 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_reasoning(%Reasoning{} = reasoning) do
     with :ok <- validate_effort(reasoning.effort),
          :ok <- validate_budget(reasoning.budget_tokens),
-         :ok <- reject(reasoning.summary, "reasoning summary is not supported"),
+         :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported"),
          :ok <- reject_budget_with_effort(reasoning),
-         :ok <- validate_options(reasoning.provider_options, "reasoning.provider_options") do
+         :ok <-
+           Helpers.validate_options(
+             reasoning.provider_options,
+             @codec,
+             "reasoning.provider_options"
+           ) do
       :ok
     end
   end
 
-  defp validate_reasoning(_reasoning), do: error("reasoning must be a LlmCall.Reasoning struct")
+  defp validate_reasoning(_reasoning),
+    do: Helpers.error(@codec, "reasoning must be a LlmCall.Reasoning struct")
 
   defp validate_effort(nil), do: :ok
   defp validate_effort(:none), do: :ok
 
   defp validate_effort(effort) do
-    error("reasoning effort #{inspect(effort)} is not supported; use budget_tokens")
+    Helpers.error(
+      @codec,
+      "reasoning effort #{inspect(effort)} is not supported; use budget_tokens"
+    )
   end
 
   defp validate_budget(nil), do: :ok
@@ -296,11 +310,12 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_budget(budget) when is_integer(budget) and budget > 0,
     do: :ok
 
-  defp validate_budget(_budget), do: error("reasoning budget_tokens must be a positive integer")
+  defp validate_budget(_budget),
+    do: Helpers.error(@codec, "reasoning budget_tokens must be a positive integer")
 
   defp reject_budget_with_effort(%Reasoning{budget_tokens: budget, effort: effort})
        when not is_nil(budget) and not is_nil(effort) do
-    error("reasoning budget_tokens and effort cannot be combined")
+    Helpers.error(@codec, "reasoning budget_tokens and effort cannot be combined")
   end
 
   defp reject_budget_with_effort(%Reasoning{}), do: :ok
@@ -308,110 +323,131 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_output(:text), do: :ok
 
   defp validate_output(output) do
-    error("output #{inspect(output)} is not supported")
+    Helpers.error(@codec, "output #{inspect(output)} is not supported")
   end
 
   defp validate_tools(tools, tool_choice) when is_list(tools) do
-    with :ok <- first_error(tools, &validate_tool_spec/1),
+    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1),
          :ok <- validate_tool_choice(tool_choice, tools) do
       :ok
     end
   end
 
-  defp validate_tools(_tools, _tool_choice), do: error("tools must be a list")
+  defp validate_tools(_tools, _tool_choice), do: Helpers.error(@codec, "tools must be a list")
 
-  defp validate_tool_spec(%ToolSpec{kind: :builtin}), do: error("builtin tools are not supported")
+  defp validate_tool_spec(%ToolSpec{kind: :builtin}),
+    do: Helpers.error(@codec, "builtin tools are not supported")
 
   defp validate_tool_spec(%ToolSpec{name: name} = spec) when is_binary(name) and name != "" do
-    with :ok <- reject(spec.strict, "tool strict mode is not supported"),
-         :ok <- validate_options(spec.provider_options, "tool provider_options") do
+    with :ok <- Helpers.reject(spec.strict, @codec, "tool strict mode is not supported"),
+         :ok <- Helpers.validate_options(spec.provider_options, @codec, "tool provider_options") do
       :ok
     end
   end
 
-  defp validate_tool_spec(%ToolSpec{}), do: error("function tool requires a name")
-  defp validate_tool_spec(_spec), do: error("tools must be LlmCall.ToolSpec structs")
+  defp validate_tool_spec(%ToolSpec{}), do: Helpers.error(@codec, "function tool requires a name")
 
-  defp validate_options(options, _label) when is_map(options), do: :ok
-  defp validate_options(_options, label), do: error("#{label} must be a map")
+  defp validate_tool_spec(_spec),
+    do: Helpers.error(@codec, "tools must be LlmCall.ToolSpec structs")
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
-  defp validate_tool_choice(:required, []), do: error("tool_choice requires at least one tool")
+
+  defp validate_tool_choice(:required, []),
+    do: Helpers.error(@codec, "tool_choice requires at least one tool")
+
   defp validate_tool_choice(:required, _tools), do: :ok
 
   defp validate_tool_choice({:allowed, _names}, _tools),
-    do: error("tool_choice {:allowed, names} is not supported")
+    do: Helpers.error(@codec, "tool_choice {:allowed, names} is not supported")
 
   defp validate_tool_choice({:tool, name}, []) when is_binary(name),
-    do: error("tool_choice requires at least one tool")
+    do: Helpers.error(@codec, "tool_choice requires at least one tool")
 
   defp validate_tool_choice({:tool, name}, _tools) when is_binary(name) and name != "", do: :ok
 
   defp validate_tool_choice({:tool, _name}, _tools),
-    do: error("tool_choice tool name is required")
+    do: Helpers.error(@codec, "tool_choice tool name is required")
 
   defp validate_tool_choice(choice, _tools),
-    do: error("tool_choice #{inspect(choice)} is not supported")
+    do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
   defp validate_system(nil), do: :ok
   defp validate_system(text) when is_binary(text), do: :ok
-  defp validate_system(parts) when is_list(parts), do: first_error(parts, &validate_system_part/1)
-  defp validate_system(_system), do: error("system must be a string or a list of content parts")
+
+  defp validate_system(parts) when is_list(parts),
+    do: Helpers.first_error(parts, &validate_system_part/1)
+
+  defp validate_system(_system),
+    do: Helpers.error(@codec, "system must be a string or a list of content parts")
 
   defp validate_system_part(%Content.Text{text: text}) when is_binary(text), do: :ok
-  defp validate_system_part(%Content.Text{}), do: error("system text part requires text")
-  defp validate_system_part(%Content.Raw{data: %{}}), do: :ok
-  defp validate_system_part(_part), do: error("system only supports text parts")
+
+  defp validate_system_part(%Content.Text{}),
+    do: Helpers.error(@codec, "system text part requires text")
+
+  defp validate_system_part(_part), do: Helpers.error(@codec, "system only supports text parts")
 
   defp validate_parts(messages) do
-    first_error(messages, fn %Message{role: role, content: content} ->
-      first_error(content, &validate_part(role, &1))
+    Helpers.first_error(messages, fn %Message{role: role, content: content} ->
+      Helpers.first_error(content, &validate_part(role, &1))
     end)
   end
 
-  defp validate_part(:user, %ToolCall{}), do: error("tool calls belong to assistant messages")
+  defp validate_part(:user, %ToolCall{}),
+    do: Helpers.error(@codec, "tool calls belong to assistant messages")
 
   defp validate_part(:user, %Content.Thinking{}),
-    do: error("thinking blocks belong to assistant messages")
+    do: Helpers.error(@codec, "thinking blocks belong to assistant messages")
 
   defp validate_part(:assistant, %ToolResult{}),
-    do: error("tool results belong to user messages")
+    do: Helpers.error(@codec, "tool results belong to user messages")
 
   defp validate_part(_role, %Content.Text{}), do: :ok
 
   defp validate_part(_role, %Content.Thinking{signature: nil}) do
-    error("thinking content requires a signature")
+    Helpers.error(@codec, "thinking content requires a signature")
   end
 
   defp validate_part(_role, %Content.Thinking{}), do: :ok
 
   defp validate_part(_role, %Content.Image{source: {:file_id, _file_id}}),
-    do: error("image source {:file_id, id} is not supported")
+    do: Helpers.error(@codec, "image source {:file_id, id} is not supported")
 
   defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
-    do: error("base64 image requires media_type")
+    do: Helpers.error(@codec, "base64 image requires media_type")
 
   defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
   defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
   defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
-  defp validate_part(_role, %Content.Image{}), do: error("image source is not supported")
+
+  defp validate_part(_role, %Content.Image{}),
+    do: Helpers.error(@codec, "image source is not supported")
 
   defp validate_part(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
-    do: error("base64 document requires media_type")
+    do: Helpers.error(@codec, "base64 document requires media_type")
 
   defp validate_part(_role, %Content.File{}), do: :ok
   defp validate_part(_role, %Content.Raw{data: %{}}), do: :ok
-  defp validate_part(_role, %Content.Raw{}), do: error("raw content requires a map payload")
-  defp validate_part(_role, %ToolCall{id: nil}), do: error("tool call requires an id")
-  defp validate_part(_role, %ToolCall{name: nil}), do: error("tool call requires a name")
+
+  defp validate_part(_role, %Content.Raw{}),
+    do: Helpers.error(@codec, "raw content requires a map payload")
+
+  defp validate_part(_role, %ToolCall{id: nil}),
+    do: Helpers.error(@codec, "tool call requires an id")
+
+  defp validate_part(_role, %ToolCall{name: nil}),
+    do: Helpers.error(@codec, "tool call requires a name")
+
   defp validate_part(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
-  defp validate_part(_role, %ToolResult{call_id: nil}), do: error("tool result requires call_id")
+
+  defp validate_part(_role, %ToolResult{call_id: nil}),
+    do: Helpers.error(@codec, "tool result requires call_id")
 
   defp validate_part(_role, %ToolResult{content: content}),
     do: validate_tool_result_content(content)
 
-  defp validate_part(_role, _part), do: error("unsupported content part")
+  defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
 
   defp validate_tool_call_arguments(%ToolCall{arguments: arguments}) when is_map(arguments),
     do: :ok
@@ -421,60 +457,43 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_tool_call_arguments(%ToolCall{raw_arguments: raw}) do
     case :json.decode(raw) do
       %{} -> :ok
-      _not_a_map -> error("tool call raw_arguments must decode to an object")
+      _not_a_map -> Helpers.error(@codec, "tool call raw_arguments must decode to an object")
     end
   rescue
-    _decode_error -> error("tool call raw_arguments must decode to an object")
+    _decode_error -> Helpers.error(@codec, "tool call raw_arguments must decode to an object")
   end
 
   defp validate_tool_result_content(content) when is_binary(content), do: :ok
 
   defp validate_tool_result_content(content) when is_list(content),
-    do: first_error(content, &validate_tool_result_part/1)
+    do: Helpers.first_error(content, &validate_tool_result_part/1)
 
   defp validate_tool_result_content(_content),
-    do: error("tool result content must be a string or content parts")
+    do: Helpers.error(@codec, "tool result content must be a string or content parts")
 
   defp validate_tool_result_part(%Content.Text{}), do: :ok
-  defp validate_tool_result_part(_part), do: error("tool result only supports text content")
+
+  defp validate_tool_result_part(_part),
+    do: Helpers.error(@codec, "tool result only supports text content")
 
   defp validate_provider_options(request, config) do
     case Map.get(Config.provider_options(request, config), :anthropic, %{}) do
       options when is_map(options) ->
-        first_error(Map.keys(options), fn key ->
-          if reserved_key?(key) do
-            error("provider option #{inspect(key)} would replace a canonical field")
+        Helpers.first_error(Map.keys(options), fn key ->
+          if Helpers.reserved_key?(key, @reserved_keys) do
+            Helpers.error(
+              @codec,
+              "provider option #{inspect(key)} would replace a canonical field"
+            )
           else
             :ok
           end
         end)
 
       _options ->
-        error("provider_options.anthropic must be a map")
+        Helpers.error(@codec, "provider_options.anthropic must be a map")
     end
   end
-
-  defp reserved_key?(key) do
-    key |> to_string() |> String.downcase() |> then(&(&1 in @reserved_keys))
-  end
-
-  defp reject(nil, _message), do: :ok
-  defp reject(_value, message), do: error(message)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp first_error(items, fun) do
-    Enum.reduce_while(items, :ok, fn item, :ok ->
-      case fun.(item) do
-        :ok -> {:cont, :ok}
-        {:error, _error} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp error(message),
-    do: {:error, %Error{kind: :validation, message: "anthropic_messages: " <> message}}
 
   @impl true
   def decode_response(term, %Config{} = config) when is_map(term) do
@@ -486,7 +505,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
          content: Enum.map(blocks, &decode_block/1),
          stop_reason: stop_reason(term["stop_reason"]),
          usage: decode_usage(term["usage"]),
-         raw: capture_response(config, term)
+         raw: Helpers.capture_response(config, term)
        }}
     end
   end
@@ -646,7 +665,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
         usage: merge_usage(data.usage, message["usage"])
     }
 
-    {[event(:message_start, nil, nil, term, config)], data}
+    {[Helpers.event(:message_start, nil, nil, term, config)], data}
   end
 
   defp stream_events(%{"type" => "content_block_start"} = term, config, data) do
@@ -662,11 +681,11 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
           index: index
         }
 
-        {[event(:tool_call_start, index, delta, term, config)],
+        {[Helpers.event(:tool_call_start, index, delta, term, config)],
          record_block(data, index, :tool_use)}
 
       type ->
-        {[event(:content_start, index, nil, term, config)],
+        {[Helpers.event(:content_start, index, nil, term, config)],
          record_block(data, index, block_type(type))}
     end
   end
@@ -682,11 +701,11 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
       :tool_use ->
         delta = %StreamDelta.ToolCall{index: index}
 
-        {[event(:tool_call_stop, index, delta, term, config)],
+        {[Helpers.event(:tool_call_stop, index, delta, term, config)],
          %{data | pending_tools: List.delete(data.pending_tools, index)}}
 
       _other ->
-        {[event(:content_stop, index, nil, term, config)], data}
+        {[Helpers.event(:content_stop, index, nil, term, config)], data}
     end
   end
 
@@ -701,17 +720,17 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
       end
 
     delta = %StreamDelta.MessageDelta{stop_reason: reason, usage: data.usage}
-    {[event(:message_delta, nil, delta, term, config)], data}
+    {[Helpers.event(:message_delta, nil, delta, term, config)], data}
   end
 
   defp stream_events(%{"type" => "message_stop"} = term, config, data) do
-    {[event(:message_stop, nil, nil, term, config)], %{data | finished?: true}}
+    {[Helpers.event(:message_stop, nil, nil, term, config)], %{data | finished?: true}}
   end
 
   defp stream_events(%{"type" => "ping"}, _config, data), do: {[], data}
 
   defp stream_events(term, config, data) do
-    {[event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], data}
+    {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], data}
   end
 
   defp block_delta(term, config, data) do
@@ -720,23 +739,25 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
     case delta["type"] do
       "text_delta" ->
-        {[event(:text_delta, index, %StreamDelta.Text{text: delta["text"]}, term, config)], data}
+        {[
+           Helpers.event(:text_delta, index, %StreamDelta.Text{text: delta["text"]}, term, config)
+         ], data}
 
       "input_json_delta" ->
         tool_delta = %StreamDelta.ToolCall{arguments: delta["partial_json"], index: index}
-        {[event(:tool_call_delta, index, tool_delta, term, config)], data}
+        {[Helpers.event(:tool_call_delta, index, tool_delta, term, config)], data}
 
       "thinking_delta" ->
         thinking = %StreamDelta.Thinking{text: delta["thinking"], signature: nil}
-        {[event(:thinking_delta, index, thinking, term, config)], data}
+        {[Helpers.event(:thinking_delta, index, thinking, term, config)], data}
 
       "signature_delta" ->
         thinking = %StreamDelta.Thinking{text: "", signature: delta["signature"]}
-        {[event(:thinking_delta, index, thinking, term, config)], data}
+        {[Helpers.event(:thinking_delta, index, thinking, term, config)], data}
 
       _other ->
         raw = %StreamDelta.Raw{data: %{"data" => delta}}
-        {[event(:message_delta, nil, raw, term, config)], data}
+        {[Helpers.event(:message_delta, nil, raw, term, config)], data}
     end
   end
 
@@ -753,14 +774,4 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp block_type("text"), do: :text
   defp block_type("thinking"), do: :thinking
   defp block_type(_type), do: :other
-
-  defp event(type, index, delta, term, config) do
-    %StreamEvent{type: type, index: index, delta: delta, raw: capture_event(config, term)}
-  end
-
-  defp capture_event(%Config{capture_raw: :all}, term) when is_map(term), do: term
-  defp capture_event(_config, _term), do: nil
-
-  defp capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
-  defp capture_response(_config, _term), do: nil
 end

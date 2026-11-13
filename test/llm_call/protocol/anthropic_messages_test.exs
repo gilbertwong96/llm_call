@@ -588,4 +588,20 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
                Messages.validate_request(text_request(messages: messages), %Config{})
     end
   end
+
+  describe "deferred minors" do
+    test "an empty system part list sends no system field" do
+      refute Map.has_key?(encode(text_request(system: [])).body, "system")
+    end
+
+    test "raw blocks are rejected in the system field" do
+      system = [%Content.Raw{type: "text", data: %{"type" => "text", "text" => "x"}}]
+
+      assert {:error, %Error{kind: :validation}} =
+               Messages.validate_request(text_request(system: system), %Config{})
+
+      assert {:error, %Error{kind: :validation}} =
+               Messages.encode_request(text_request(system: system), %Config{})
+    end
+  end
 end

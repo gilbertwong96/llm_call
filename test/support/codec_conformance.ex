@@ -38,6 +38,7 @@ defmodule LlmCall.Codec.Conformance do
 
   @spec assert_capabilities(module(), LlmCall.Request.t(), Config.t()) :: :ok
   def assert_capabilities(codec, request, config) do
+    assert Code.ensure_loaded?(codec), "#{inspect(codec)} is not loaded"
     capabilities = codec.capabilities(request, config)
 
     assert %Capabilities{streaming: streaming} = capabilities,
@@ -62,8 +63,12 @@ defmodule LlmCall.Codec.Conformance do
 
   @spec assert_path(module(), LlmCall.Request.t(), String.t()) :: :ok
   def assert_path(codec, request, expected_path) do
-    assert {:ok, %EncodedRequest{} = encoded} = codec.encode_request(request, %Config{}),
-           "#{inspect(codec)}.encode_request/2 must return {:ok, %LlmCall.EncodedRequest{}}"
+    result = codec.encode_request(request, %Config{})
+
+    assert match?({:ok, %EncodedRequest{}}, result),
+           "#{inspect(codec)}.encode_request/2 must return {:ok, %LlmCall.EncodedRequest{}}, got: #{inspect(result)}"
+
+    {:ok, %EncodedRequest{} = encoded} = result
 
     assert encoded.method == :post
     assert encoded.path == expected_path
@@ -83,14 +88,19 @@ defmodule LlmCall.Codec.Conformance do
 
   @spec assert_capture_raw(module(), LlmCall.wire_value()) :: :ok
   def assert_capture_raw(codec, provider_payload) do
-    assert {:ok, %{raw: nil}} =
-             codec.decode_response(provider_payload, %Config{capture_raw: :none}),
-           "#{inspect(codec)} must not retain raw with capture_raw: :none"
+    for {capture, expected} <- [none: nil, response: provider_payload, all: provider_payload] do
+      case codec.decode_response(provider_payload, %Config{capture_raw: capture}) do
+        {:ok, %{raw: raw}} ->
+          assert raw == expected,
+                 "#{inspect(codec)} raw must be #{inspect(expected)} with capture_raw: #{inspect(capture)}, " <>
+                   "got: #{inspect(raw)}"
 
-    for capture <- [:response, :all] do
-      assert {:ok, %{raw: ^provider_payload}} =
-               codec.decode_response(provider_payload, %Config{capture_raw: capture}),
-             "#{inspect(codec)} must retain the payload with capture_raw: #{inspect(capture)}"
+        other ->
+          flunk(
+            "#{inspect(codec)}.decode_response/2 must succeed with capture_raw: #{inspect(capture)}, " <>
+              "got: #{inspect(other)}"
+          )
+      end
     end
 
     :ok

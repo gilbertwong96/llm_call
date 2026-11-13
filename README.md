@@ -41,7 +41,13 @@ assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
     {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
     {:ok, acc, calls ++ new_calls}
   end)
+
+# When the transport reports the end of the stream:
+{:ok, closing_events, state} = LlmCall.finish_stream(codec, state, config)
 ```
+
+`LlmCall.finish_stream/3` is required for Gemini: it sends no stream
+terminator, so accumulated usage and `:message_stop` arrive only there.
 
 ## Protocol adapters
 

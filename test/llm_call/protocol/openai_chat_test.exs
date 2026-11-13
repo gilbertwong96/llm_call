@@ -627,4 +627,12 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
              |> Map.fetch!("strict_mode") == true
     end
   end
+
+  describe "deferred minors" do
+    test "an empty system part list sends no system message" do
+      body = encode(text_request(system: [])).body
+      refute Map.has_key?(body, "system")
+      assert [%{"role" => "user"}] = body["messages"]
+    end
+  end
 end
