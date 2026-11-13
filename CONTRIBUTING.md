@@ -19,21 +19,23 @@ Three questions, in order:
    other providers copy? Then it is a candidate for a core *reference adapter*.
    Adding one requires the same justification as adding an IR field: it teaches
    the IR something the current set cannot express.
-3. **Otherwise it is a package.** In this repository under `packages/`, or in your
-   own repository.
+3. **Otherwise it is vendored here or lives outside.** Vendored adapters go under
+   `LlmCall.Media.Protocol.*` (media) and are listed in `LlmCall.Media`; anything
+   else is your own module or a third-party package.
 
-Reference adapters in core are OpenAI Chat, Anthropic Messages, and Gemini
-GenerateContent. Everything else — OpenAI Responses, Bedrock, Cohere, Ollama,
-Mistral, Sora, Veo — is a package.
+Reference adapters are OpenAI Chat, Anthropic Messages, and Gemini
+GenerateContent. Vendored media adapters are OpenAI Images, Gemini Imagen,
+Seedance, and MiniMax. Everything else — OpenAI Responses, Bedrock, Cohere,
+Ollama, Mistral, Sora, Veo — is written outside this repository.
 
-## Package rules
+## Namespace rules
 
-- **Namespace.** A package owns its top-level namespace
-  (`LlmCallMedia.Protocol.*` for the package here). Never define
-  `LlmCall.Protocol.*`: a future core module could shadow it.
-- **Dependency direction.** One way only: package depends on `llm_call`. Core
-  never depends on a package.
-- **No canonical struct changes** from a package. If the IR is wrong, that is a
+- **Vendored adapters** live under `LlmCall.Media.Protocol.*` and are documented
+  as vendored: they ship with the library but are not part of the stable API
+  surface, because a provider API can change independently of the IR.
+- **Out-of-tree adapters** use their own top-level namespace; never define
+  `LlmCall.Protocol.*` or `LlmCall.Media.Protocol.*`, which core owns.
+- **No canonical struct changes** from an adapter. If the IR is wrong, that is a
   core discussion.
 
 ## The quality bar
@@ -77,9 +79,10 @@ Every adapter must:
 Run the suite you touched:
 
 ```bash
-mix test                                        # core
-cd packages/llm_call_media && mix test          # media adapters
+mix test
 ```
+
+The vendored media adapters run the media conformance suite in the same run.
 
 Formatting and warnings are part of the bar:
 
