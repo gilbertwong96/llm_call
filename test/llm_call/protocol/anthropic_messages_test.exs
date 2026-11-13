@@ -621,7 +621,7 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
     end
 
     test "capabilities declare text output only" do
-      assert Messages.capabilities(text_request(), %Config{}).output_modalities == [:text]
+      assert Messages.capabilities(text_request(), %Config{}).modalities == [:text]
     end
   end
 end

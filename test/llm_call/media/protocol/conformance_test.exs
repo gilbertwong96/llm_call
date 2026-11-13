@@ -36,6 +36,22 @@ defmodule LlmCall.Media.Protocol.ConformanceTest do
     end
   end
 
+  test "a codec that does not declare a modality rejects it" do
+    request = %LlmCall.Media.Request{
+      modality: :image,
+      model: "seedance-1-5-pro-251215",
+      prompt: "a cat"
+    }
+
+    assert_raise ExUnit.AssertionError, ~r/modality/, fn ->
+      LlmCall.MediaConformance.assert_capabilities(
+        LlmCall.Media.Protocol.Seedance.Video,
+        request,
+        %Config{}
+      )
+    end
+  end
+
   test "every asynchronous media codec satisfies the operation contract" do
     for {codec, model, submit, poll, path} <- [
           {LlmCall.Media.Protocol.Seedance.Video, "seedance-1-5-pro-251215",

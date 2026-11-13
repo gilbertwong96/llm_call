@@ -652,7 +652,7 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
     end
 
     test "capabilities declare text output only" do
-      assert Chat.capabilities(text_request(), %Config{}).output_modalities == [:text]
+      assert Chat.capabilities(text_request(), %Config{}).modalities == [:text]
     end
   end
 end

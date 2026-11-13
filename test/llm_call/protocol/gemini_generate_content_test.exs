@@ -681,7 +681,7 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
     end
 
     test "capabilities declare text and image output" do
-      assert GenerateContent.capabilities(text_request(), %Config{}).output_modalities ==
+      assert GenerateContent.capabilities(text_request(), %Config{}).modalities ==
                [:text, :image]
     end
   end

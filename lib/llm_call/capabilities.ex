@@ -4,6 +4,10 @@ defmodule LlmCall.Capabilities do
 
   Capabilities are explicit so unsupported canonical fields can be rejected
   before a transport sends anything, instead of being dropped silently.
+
+  They are **protocol-level**: `capabilities/2` takes the request for signature
+  symmetry but does not inspect the model. A model-specific limit surfaces as a
+  provider error, not a fabricated local guess.
   """
 
   @type t :: %__MODULE__{
@@ -11,7 +15,7 @@ defmodule LlmCall.Capabilities do
           parallel_tool_calls: boolean(),
           tool_choice: boolean(),
           structured_output: :none | :json_object | :json_schema,
-          output_modalities: [LlmCall.modality()],
+          modalities: [LlmCall.modality()],
           image_input: boolean(),
           file_input: boolean(),
           reasoning: LlmCall.ReasoningCapabilities.t() | nil,
@@ -25,7 +29,7 @@ defmodule LlmCall.Capabilities do
             parallel_tool_calls: false,
             tool_choice: false,
             structured_output: :none,
-            output_modalities: [:text],
+            modalities: [:text],
             image_input: false,
             file_input: false,
             reasoning: nil,

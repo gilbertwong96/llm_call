@@ -645,7 +645,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :json_schema,
-      output_modalities: [:text, :image],
+      modalities: [:text, :image],
       image_input: true,
       file_input: true,
       reasoning: %ReasoningCapabilities{

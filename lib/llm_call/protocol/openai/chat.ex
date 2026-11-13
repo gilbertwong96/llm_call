@@ -523,7 +523,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :json_schema,
-      output_modalities: [:text],
+      modalities: [:text],
       image_input: true,
       file_input: false,
       reasoning: %ReasoningCapabilities{

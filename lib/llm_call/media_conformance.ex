@@ -40,7 +40,8 @@ defmodule LlmCall.MediaConformance do
   def assert_capabilities(codec, request, config) do
     assert Code.ensure_loaded?(codec), "#{inspect(codec)} is not loaded"
 
-    assert %MediaCapabilities{async: async} = codec.capabilities(request, config),
+    assert %MediaCapabilities{async: async, modalities: modalities} =
+             codec.capabilities(request, config),
            "#{inspect(codec)}.capabilities/2 must return %LlmCall.Media.Capabilities{}"
 
     if async do
@@ -50,6 +51,9 @@ defmodule LlmCall.MediaConformance do
       refute function_exported?(codec, :decode_operation, 2),
              "#{inspect(codec)} declares async: false but exports decode_operation/2"
     end
+
+    assert request.modality in modalities,
+           "#{inspect(codec)} does not declare modality #{inspect(request.modality)}"
 
     :ok
   end

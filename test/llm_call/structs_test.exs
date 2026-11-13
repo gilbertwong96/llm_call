@@ -108,7 +108,8 @@ defmodule LlmCall.StructsTest do
 
   test "media-related defaults" do
     assert %Request{modalities: [:text]} = %Request{}
-    assert %Capabilities{output_modalities: [:text]} = %Capabilities{}
+    assert %Capabilities{modalities: [:text]} = %Capabilities{}
+    assert %LlmCall.Media.Capabilities{modalities: []} = %LlmCall.Media.Capabilities{}
     assert %EncodedRequest{method: :get} = %EncodedRequest{method: :get}
 
     video = %Content.Video{source: {:url, "https://example.com/a.mp4"}, media_type: "video/mp4"}

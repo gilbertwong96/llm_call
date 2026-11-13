@@ -566,7 +566,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :none,
-      output_modalities: [:text],
+      modalities: [:text],
       image_input: true,
       file_input: true,
       reasoning: %ReasoningCapabilities{

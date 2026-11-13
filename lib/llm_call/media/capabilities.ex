@@ -10,7 +10,7 @@ defmodule LlmCall.Media.Capabilities do
   """
 
   @type t :: %__MODULE__{
-          modalities: [:image] | [:video],
+          modalities: [LlmCall.Media.Request.modality()],
           async: boolean(),
           max_n: pos_integer() | nil,
           sizes: [String.t()],
