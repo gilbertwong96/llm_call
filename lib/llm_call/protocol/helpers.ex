@@ -112,9 +112,21 @@ defmodule LlmCall.Protocol.Helpers do
   share this rule and its `nil` handling, so the hint means the same thing
   everywhere.
   """
-  @spec retryable?(String.t() | nil, [String.t()]) :: boolean()
+  @spec retryable?(term(), [String.t()]) :: boolean()
   def retryable?(code, codes) when is_binary(code), do: code in codes
-  def retryable?(nil, _codes), do: false
+  def retryable?(_code, _codes), do: false
+
+  @doc """
+  Normalizes a provider's error code to a string or `nil`.
+
+  Providers type this field inconsistently (a string for OpenAI and Google, an
+  integer for MiniMax); `LlmCall.Error.code` is always a string so callers can
+  compare it without type juggling.
+  """
+  @spec code(term()) :: String.t() | nil
+  def code(value) when is_binary(value), do: value
+  def code(value) when is_integer(value), do: Integer.to_string(value)
+  def code(_value), do: nil
 
   @doc """
   The provider payload to retain on a response or media response, or `nil`.

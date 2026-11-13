@@ -108,7 +108,7 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
   def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{}) do
-    status = error["status"]
+    status = Helpers.code(error["status"])
 
     %Error{
       kind: :provider,

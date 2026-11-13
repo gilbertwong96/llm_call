@@ -425,6 +425,11 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
              } = Chat.decode_error(payload, %Config{})
 
       assert %Error{kind: :invalid_response, raw: nil} = Chat.decode_error("boom", %Config{})
+
+      numeric = %{"error" => %{"message" => "slow down", "code" => 429}}
+
+      assert %Error{kind: :provider, code: "429", retryable?: false} =
+               Chat.decode_error(numeric, %Config{})
     end
 
     test "capabilities/2 declares the OpenAI Chat surface" do

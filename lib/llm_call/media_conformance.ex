@@ -231,8 +231,10 @@ defmodule LlmCall.MediaConformance do
   end
 
   defp check_max_n(codec, request, config, max_n) do
-    assert :ok == codec.validate_request(with_param(request, :n, max_n), config),
-           "#{inspect(codec)} declares max_n #{max_n} but rejects n: #{max_n}"
+    for n <- 1..max_n do
+      assert :ok == codec.validate_request(with_param(request, :n, n), config),
+             "#{inspect(codec)} declares max_n #{max_n} but rejects n: #{n}"
+    end
 
     result = codec.validate_request(with_param(request, :n, max_n + 1), config)
 
@@ -279,9 +281,9 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
-  defp references(count) do
-    for _ <- 1..count, do: %Content.Image{source: {:url, "https://example.com/ref.png"}}
-  end
+  defp references(count), do: List.duplicate(reference(), count)
+
+  defp reference, do: %Content.Image{source: {:url, "https://example.com/ref.png"}}
 
   defp with_param(%MediaRequest{} = request, key, value) do
     %{request | params: Map.put(request.params, key, value)}

@@ -539,7 +539,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   @impl true
   def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
-    type = error["type"]
+    type = Helpers.code(error["type"])
 
     %Error{
       kind: :provider,

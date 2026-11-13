@@ -1,3 +1,81 @@
+defmodule LlmCall.TestCodec.SloppyMaxN do
+  @moduledoc "Declares `max_n: 1` but accepts any `n`, so conformance must catch it."
+
+  @behaviour LlmCall.Media.Codec
+
+  alias LlmCall.{Codec, Config, Error, Media.Capabilities, Media.Request}
+
+  @impl true
+  def info, do: %Codec.Info{name: :sloppy_max_n, protocol: :sloppy_max_n, ir_version: 1}
+
+  @impl true
+  def capabilities(_request, _config),
+    do: %Capabilities{modalities: [:video], async: true, max_n: 1}
+
+  @impl true
+  def validate_request(%Request{}, %Config{}), do: :ok
+
+  @impl true
+  def encode_submit(_request, _config), do: {:ok, %LlmCall.EncodedRequest{path: "/sloppy"}}
+
+  @impl true
+  def decode_submit(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "sloppy_max_n"}}
+
+  @impl true
+  def decode_operation(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "sloppy_max_n"}}
+
+  @impl true
+  def decode_error(_term, _config), do: %Error{kind: :provider, message: "sloppy_max_n"}
+end
+
+defmodule LlmCall.TestCodec.SloppyRefs do
+  @moduledoc "Declares `max_references: 1` but accepts any references, so conformance must catch it."
+
+  @behaviour LlmCall.Media.Codec
+
+  alias LlmCall.{Codec, Config, Error, Media.Capabilities, Media.Request}
+
+  @impl true
+  def info, do: %Codec.Info{name: :sloppy_refs, protocol: :sloppy_refs, ir_version: 1}
+
+  @impl true
+  def capabilities(_request, _config),
+    do: %Capabilities{modalities: [:video], async: true, max_references: 1}
+
+  @impl true
+  def validate_request(%Request{params: params}, %Config{}) do
+    cond do
+      Map.has_key?(params, :n) ->
+        {:error, %Error{kind: :validation, message: "sloppy_refs: n"}}
+
+      Map.has_key?(params, :seed) ->
+        {:error, %Error{kind: :validation, message: "sloppy_refs: seed"}}
+
+      Map.has_key?(params, :negative_prompt) ->
+        {:error, %Error{kind: :validation, message: "sloppy_refs: neg"}}
+
+      true ->
+        :ok
+    end
+  end
+
+  @impl true
+  def encode_submit(_request, _config), do: {:ok, %LlmCall.EncodedRequest{path: "/sloppy"}}
+
+  @impl true
+  def decode_submit(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "sloppy_refs"}}
+
+  @impl true
+  def decode_operation(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "sloppy_refs"}}
+
+  @impl true
+  def decode_error(_term, _config), do: %Error{kind: :provider, message: "sloppy_refs"}
+end
+
 defmodule LlmCall.MediaConformanceTest do
   use ExUnit.Case, async: true
 
@@ -73,6 +151,26 @@ defmodule LlmCall.MediaConformanceTest do
           }
         ] do
       assert_raise ExUnit.AssertionError, fn -> MediaConformance.assert_operation(operation) end
+    end
+  end
+
+  test "assert_capability_consistency/3 catches a declared n or reference cap" do
+    request = %MediaRequest{modality: :video, model: "sloppy", prompt: "a cat"}
+
+    assert_raise ExUnit.AssertionError, ~r/max_n/, fn ->
+      MediaConformance.assert_capability_consistency(
+        LlmCall.TestCodec.SloppyMaxN,
+        request,
+        %Config{}
+      )
+    end
+
+    assert_raise ExUnit.AssertionError, ~r/max_references/, fn ->
+      MediaConformance.assert_capability_consistency(
+        LlmCall.TestCodec.SloppyRefs,
+        request,
+        %Config{}
+      )
     end
   end
 

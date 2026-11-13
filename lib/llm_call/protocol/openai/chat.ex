@@ -500,7 +500,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   @impl true
   def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
-    code = error["code"] || error["type"]
+    code = Helpers.code(error["code"] || error["type"])
 
     %Error{
       kind: :provider,

@@ -133,7 +133,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
        error: %Error{
          kind: :provider,
          message: base_resp["status_msg"] || "task failed",
-         code: to_string(base_resp["status_code"] || "Fail"),
+         code: Helpers.code(base_resp["status_code"] || "Fail"),
          raw: payload
        },
        raw: Helpers.capture_response(config, payload)
@@ -227,8 +227,8 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
          %Error{
            kind: :provider,
            message: base_resp["status_msg"] || "provider error",
-           code: to_string(code),
-           retryable?: Helpers.retryable?(to_string(code), @retryable_codes),
+           code: Helpers.code(code),
+           retryable?: Helpers.retryable?(Helpers.code(code), @retryable_codes),
            raw: payload
          }}
 

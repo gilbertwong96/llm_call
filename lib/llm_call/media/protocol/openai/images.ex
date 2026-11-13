@@ -122,7 +122,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
   def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{}) do
-    code = error["code"] || error["type"]
+    code = Helpers.code(error["code"] || error["type"])
 
     %Error{
       kind: :provider,

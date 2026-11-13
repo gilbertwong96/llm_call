@@ -618,7 +618,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   @impl true
   def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
-    status = error["status"]
+    status = Helpers.code(error["status"])
 
     %Error{
       kind: :provider,
