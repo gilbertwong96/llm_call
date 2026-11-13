@@ -80,10 +80,10 @@ media = %LlmCall.MediaRequest{
   params: %{n: 2, size: "1024x1024"}
 }
 
-{:ok, encoded} = LlmCall.encode_media(LlmCall.Protocol.OpenAI.Images, media)
+{:ok, encoded} = LlmCall.encode_media(LlmCallMedia.Protocol.OpenAI.Images, media)
 # ...
 {:ok, %LlmCall.MediaResponse{assets: assets}} =
-  LlmCall.decode_media(LlmCall.Protocol.OpenAI.Images, decoded_body)
+  LlmCall.decode_media(LlmCallMedia.Protocol.OpenAI.Images, decoded_body)
 ```
 
 `LlmCall.media_capabilities/3` reports what a codec accepts for each media knob,
@@ -96,11 +96,11 @@ Asynchronous video uses the same media API. A submit response carries an
 
 ```elixir
 {:ok, %LlmCall.MediaResponse{operation: op}} =
-  LlmCall.decode_media(LlmCall.Protocol.Seedance.Video, submit_body)
+  LlmCall.decode_media(LlmCallMedia.Protocol.Seedance.Video, submit_body)
 
 # transport: execute op.next (a GET), then feed the decoded body back
 {:ok, %LlmCall.Operation{status: :in_progress} = op} =
-  LlmCall.decode_operation(LlmCall.Protocol.Seedance.Video, poll_body)
+  LlmCall.decode_operation(LlmCallMedia.Protocol.Seedance.Video, poll_body)
 ```
 
 The core never polls, waits, or downloads. `next_kind: :poll` means "execute
@@ -108,22 +108,30 @@ The core never polls, waits, or downloads. `next_kind: :poll` means "execute
 the body is the media bytes and the caller stores them. A job ends when
 `status: :completed` carries assets, or `:failed` carries an error.
 
-Implemented async codecs:
-
-| Codec | Flow |
-| --- | --- |
-| `LlmCall.Protocol.Seedance.Video` | submit -> poll the task -> `content.video_url` |
-| `LlmCall.Protocol.MiniMax.Video` | submit -> poll the task -> on `Success` poll `/v1/files/retrieve` -> `file.download_url` |
+Video adapters are packages; see [`packages/llm_call_media`](packages/llm_call_media)
+for Seedance and MiniMax.
 
 ## Protocol adapters
+
+Core ships three **reference adapters** — the dialect families the IR is written
+against:
 
 | Protocol | Module |
 | --- | --- |
 | OpenAI Chat Completions | `LlmCall.Protocol.OpenAI.Chat` |
 | Anthropic Messages | `LlmCall.Protocol.Anthropic.Messages` |
 | Gemini GenerateContent | `LlmCall.Protocol.Gemini.GenerateContent` |
-| OpenAI Images (generation) | `LlmCall.Protocol.OpenAI.Images` |
-| Gemini Imagen (generation) | `LlmCall.Protocol.Gemini.Predict` |
+
+Everything else is a package:
+
+| Package | Adapters |
+| --- | --- |
+| [`llm_call_media`](packages/llm_call_media) | OpenAI Images, Gemini Imagen `predict`, Seedance, MiniMax Hailuo |
+
+Core does not promise provider coverage. An adapter is a module implementing
+`LlmCall.Codec` or `LlmCall.MediaCodec` plus honest fixtures; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and the
+[adapter ecosystem design](docs/superpowers/specs/2026-11-12-adapter-ecosystem-design.md).
 
 Codec selection is explicit; there is no provider registry. OpenAI-compatible
 endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI surface, ...) use the
@@ -140,5 +148,6 @@ wire format requires an actual JSON string.
 See [`docs/design.md`](docs/design.md) for the canonical IR, the codec contract,
 the streaming model, and the failure and compatibility policy.
 
-Third-party codecs can check themselves against
-`LlmCall.Codec.Conformance` (test support, not a runtime dependency).
+Adapters check themselves with `LlmCall.Codec.Conformance` or
+`LlmCall.MediaConformance` (test support published from `lib/`, not a runtime
+dependency).
