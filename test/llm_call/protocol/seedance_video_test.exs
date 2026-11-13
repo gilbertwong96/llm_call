@@ -1,0 +1,204 @@
+defmodule LlmCall.Protocol.SeedanceVideoTest do
+  use ExUnit.Case, async: true
+
+  alias LlmCall.Protocol.Seedance.Video
+  alias LlmCall.{Config, Content, Error, MediaRequest, MediaResponse, Operation}
+  alias LlmCall.Fixtures.SeedanceVideo, as: Fx
+
+  defp request(overrides \\ []) do
+    struct(
+      %MediaRequest{modality: :video, model: "seedance-1-5-pro-251215", prompt: "a cat surfing"},
+      overrides
+    )
+  end
+
+  test "info and capabilities" do
+    assert %LlmCall.Codec.Info{name: :seedance_video, protocol: :seedance_video, ir_version: 1} =
+             Video.info()
+
+    assert %LlmCall.MediaCapabilities{
+             modalities: [:video],
+             async: true,
+             max_n: nil,
+             sizes: [],
+             aspect_ratios: ratios,
+             durations_s: durations,
+             references: true,
+             seed: true,
+             negative_prompt: false
+           } = Video.capabilities(request(), %Config{})
+
+    assert "16:9" in ratios
+    assert "adaptive" in ratios
+    assert 5 in durations
+    assert 12 in durations
+  end
+
+  test "encodes the text part, ratio, duration and seed" do
+    assert {:ok, encoded} = Video.encode_submit(request(), %Config{})
+    assert encoded.method == :post
+    assert encoded.path == "/api/v3/contents/generations/tasks"
+    assert encoded.query == %{}
+    assert encoded.headers == [{"content-type", "application/json"}]
+
+    assert encoded.body == %{
+             "model" => "seedance-1-5-pro-251215",
+             "content" => [%{"type" => "text", "text" => "a cat surfing"}]
+           }
+
+    body = encode_body(request(params: %{aspect_ratio: "9:16", duration_s: 10, seed: 42}))
+    assert body["ratio"] == "9:16"
+    assert body["duration"] == 10
+    assert body["seed"] == 42
+  end
+
+  test "references become image_url content parts" do
+    body =
+      encode_body(
+        request(
+          references: [
+            %Content.Image{source: {:url, "https://example.com/first.png"}},
+            %Content.Image{source: {:base64, "AAA"}, media_type: "image/png"}
+          ]
+        )
+      )
+
+    assert body["content"] == [
+             %{"type" => "text", "text" => "a cat surfing"},
+             %{
+               "type" => "image_url",
+               "image_url" => %{"url" => "https://example.com/first.png"}
+             },
+             %{"type" => "image_url", "image_url" => %{"url" => "data:image/png;base64,AAA"}}
+           ]
+  end
+
+  test "native knobs go through provider_options" do
+    body =
+      encode_body(
+        request(
+          provider_options: %{
+            seedance: %{"resolution" => "1080p", "watermark" => false, "generate_audio" => true}
+          }
+        )
+      )
+
+    assert body["resolution"] == "1080p"
+    assert body["watermark"] == false
+    assert body["generate_audio"] == true
+  end
+
+  test "unsupported knobs and references are validation errors" do
+    for request <- [
+          request(modality: :image),
+          request(params: %{size: "1280x720"}),
+          request(params: %{n: 1}),
+          request(params: %{negative_prompt: "x"}),
+          request(params: %{aspect_ratio: "7:3"}),
+          request(params: %{duration_s: 30}),
+          request(params: %{duration_s: 3}),
+          request(references: [%Content.Video{source: {:url, "u"}}]),
+          request(references: [%Content.Image{source: {:base64, "AAA"}}]),
+          request(references: List.duplicate(%Content.Image{source: {:url, "u"}}, 3)),
+          request(provider_options: %{seedance: %{"content" => []}}),
+          %MediaRequest{modality: :video, model: "seedance"},
+          %MediaRequest{modality: :video, prompt: "x"}
+        ] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Video.validate_request(request, %Config{})
+
+      assert is_binary(message)
+      assert {:error, %Error{kind: :validation}} = Video.encode_submit(request, %Config{})
+    end
+  end
+
+  test "a submit response becomes a queued operation polling the task" do
+    assert {:ok, %MediaResponse{assets: [], operation: operation}} =
+             Video.decode_submit(Fx.submit_response(), %Config{})
+
+    assert %Operation{
+             id: "cgt-2026-abc",
+             status: :queued,
+             next_kind: :poll,
+             next: %{method: :get, path: "/api/v3/contents/generations/tasks/cgt-2026-abc"}
+           } = operation
+
+    assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+  end
+
+  test "polling maps queued, running, succeeded and terminal failures" do
+    for {payload, status} <- [
+          {Fx.queued_response(), :queued},
+          {Fx.running_response(), :in_progress}
+        ] do
+      assert {:ok, %Operation{status: ^status, next_kind: :poll} = operation} =
+               Video.decode_operation(payload, %Config{})
+
+      assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+    end
+
+    assert {:ok,
+            %Operation{
+              status: :completed,
+              next: nil,
+              result: %MediaResponse{
+                assets: [
+                  %Content.Video{
+                    source: {:url, "https://files.example/v.mp4"},
+                    media_type: "video/mp4"
+                  }
+                ]
+              }
+            } = done} = Video.decode_operation(Fx.succeeded_response(), %Config{})
+
+    assert :ok = LlmCall.MediaConformance.assert_operation(done)
+
+    for payload <- [Fx.failed_response(), Fx.cancelled_response(), Fx.expired_response()] do
+      assert {:ok,
+              %Operation{status: :failed, next: nil, result: nil, error: %Error{kind: :provider}} =
+                failed} = Video.decode_operation(payload, %Config{})
+
+      assert :ok = LlmCall.MediaConformance.assert_operation(failed)
+    end
+  end
+
+  test "a succeeded task without a video url is an invalid response" do
+    assert {:error, %Error{kind: :invalid_response}} =
+             Video.decode_operation(Fx.succeeded_without_url_response(), %Config{})
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             Video.decode_operation(%{"id" => "cgt-1", "status" => "weird"}, %Config{})
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             Video.decode_operation(%{"nope" => 1}, %Config{})
+  end
+
+  test "capture_raw applies to submit and poll payloads" do
+    submit = Fx.submit_response()
+    poll = Fx.running_response()
+
+    assert {:ok, %MediaResponse{raw: ^submit}} =
+             Video.decode_submit(submit, %Config{capture_raw: :all})
+
+    assert {:ok, %Operation{raw: ^poll}} =
+             Video.decode_operation(poll, %Config{capture_raw: :response})
+
+    assert {:ok, %Operation{raw: nil}} = Video.decode_operation(poll, %Config{})
+  end
+
+  test "decode_error/2 normalizes the ModelArk envelope" do
+    assert %Error{
+             kind: :provider,
+             message: "Invalid parameter",
+             code: "InvalidParameter",
+             retryable?: false
+           } = Video.decode_error(Fx.error_payload(), %Config{})
+
+    assert %Error{kind: :invalid_response} = Video.decode_error("boom", %Config{})
+  end
+
+  defp encode_body(request) do
+    assert {:ok, encoded} = Video.encode_submit(request, %Config{})
+    encoded.body
+  end
+end
