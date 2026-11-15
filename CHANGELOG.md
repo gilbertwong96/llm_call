@@ -1,0 +1,30 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+First release, not yet published to Hex.
+
+### Added
+
+- Canonical wire IR: `Request`, `Message`, `Content`, `ToolSpec`, `ToolCall`,
+  `ToolResult`, `Reasoning`, `Response`, `Usage`, `Error`, `Capabilities`,
+  `Config`, `EncodedRequest`.
+- `LlmCall.Codec` behaviour and the public dispatch API, with typed errors for
+  every unsupported field.
+- Reference adapters: OpenAI Chat Completions, Anthropic Messages, Gemini
+  GenerateContent.
+- Streaming primitives (`StreamEvent`, `StreamDelta`, `StreamState`) and the pure
+  `StreamAssembler`.
+- Media IR: `LlmCall.Media.{Request,Response,Capabilities,Codec}`,
+  `LlmCall.Operation`, and the `encode_media/3` … `decode_operation/3` API for
+  synchronous and long-running generation.
+- Vendored media adapters: OpenAI Images, Gemini Imagen `predict`, Seedance
+  (BytePlus ModelArk), MiniMax Hailuo.
+- Conformance suites published from `lib/`: `LlmCall.Codec.Conformance` and
+  `LlmCall.MediaConformance`.
+- Documentation: `docs/design.md` (canonical spec), `CONTRIBUTING.md` (adapter
+  bar), and the dated decision records under `docs/superpowers/specs/`.
