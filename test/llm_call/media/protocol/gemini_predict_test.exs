@@ -1,11 +1,11 @@
 defmodule LlmCall.Media.Protocol.GeminiPredictTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.Media.Protocol.Gemini.Predict
   alias LlmCall.{Config, Content, Error}
+  alias LlmCall.Media.Fixtures.GeminiPredict, as: Fx
+  alias LlmCall.Media.Protocol.Gemini.Predict
   alias LlmCall.Media.Request, as: MediaRequest
   alias LlmCall.Media.Response, as: MediaResponse
-  alias LlmCall.Media.Fixtures.GeminiPredict, as: Fx
 
   defp request(overrides \\ []) do
     struct(

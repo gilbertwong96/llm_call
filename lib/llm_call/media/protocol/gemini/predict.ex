@@ -57,9 +57,8 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
          :ok <- validate_model(request.model),
          :ok <- validate_prompt(request.prompt),
          :ok <- validate_params(request.params),
-         :ok <- validate_references(request.references),
-         :ok <- validate_provider_options(request, config) do
-      :ok
+         :ok <- validate_references(request.references) do
+      validate_provider_options(request, config)
     end
   end
 
@@ -175,31 +174,15 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
     Helpers.error(@codec, "modality must be :image, got: #{inspect(modality)}")
   end
 
-  defp validate_model(model) when is_binary(model) and model != "" do
-    if String.contains?(model, ["/", ":"]) do
-      Helpers.error(@codec, "model must be a bare model id without \"/\" or \":\"")
-    else
-      :ok
-    end
-  end
-
-  defp validate_model(_model), do: Helpers.error(@codec, "model is required")
+  defp validate_model(model), do: Helpers.validate_model_id(model, @codec)
 
   defp validate_prompt(prompt) when is_binary(prompt) and prompt != "", do: :ok
   defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
 
   defp validate_params(params) when is_map(params) do
-    present = for {key, value} <- params, not is_nil(value), do: key
-
-    with :ok <-
-           Helpers.first_error(present, fn key ->
-             if key in @param_keys,
-               do: :ok,
-               else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
-           end),
-         :ok <- validate_n(params[:n]),
-         :ok <- validate_aspect_ratio(params[:aspect_ratio]) do
-      :ok
+    with :ok <- Helpers.validate_param_keys(params, @param_keys, @codec),
+         :ok <- validate_n(params[:n]) do
+      validate_aspect_ratio(params[:aspect_ratio])
     end
   end
 
@@ -227,16 +210,7 @@ defmodule LlmCall.Media.Protocol.Gemini.Predict do
   defp validate_provider_options(request, config) do
     case provider_options(request, config) do
       options when is_map(options) ->
-        Helpers.first_error(Map.keys(options), fn key ->
-          if Helpers.reserved_key?(key, @reserved_keys) do
-            Helpers.error(
-              @codec,
-              "provider option #{inspect(key)} would replace a canonical field"
-            )
-          else
-            :ok
-          end
-        end)
+        Helpers.validate_option_keys(options, @reserved_keys, @codec)
 
       _options ->
         Helpers.error(@codec, "provider_options.gemini must be a map")

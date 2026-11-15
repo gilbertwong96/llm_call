@@ -69,9 +69,8 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
          :ok <- validate_model(request.model),
          :ok <- validate_prompt(request.prompt),
          :ok <- validate_params(request.params),
-         :ok <- validate_references(request.references),
-         :ok <- validate_provider_options(request, config) do
-      :ok
+         :ok <- validate_references(request.references) do
+      validate_provider_options(request, config)
     end
   end
 
@@ -87,14 +86,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
         |> Helpers.maybe_put("size", request.params[:size])
         |> Config.deep_merge(provider_options(request, config))
 
-      {:ok,
-       %EncodedRequest{
-         method: :post,
-         path: @path,
-         query: %{},
-         headers: @headers,
-         body: body
-       }}
+      {:ok, Helpers.post(@path, @headers, body)}
     end
   end
 
@@ -121,25 +113,8 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
 
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
-  def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{}) do
-    code = Helpers.code(error["code"] || error["type"])
-
-    %Error{
-      kind: :provider,
-      message: message,
-      code: code,
-      status: nil,
-      retryable?: Helpers.retryable?(code, @retryable_codes),
-      raw: payload
-    }
-  end
-
-  def decode_error(_term, _config) do
-    %Error{
-      kind: :invalid_response,
-      message: "openai_images: unrecognized error payload",
-      raw: nil
-    }
+  def decode_error(payload, _config) do
+    Helpers.decode_provider_error(payload, @codec, ["code", "type"], @retryable_codes)
   end
 
   defp decode_items(items) do
@@ -192,17 +167,9 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
 
   defp validate_params(params) when is_map(params) do
-    present = for {key, value} <- params, not is_nil(value), do: key
-
-    with :ok <-
-           Helpers.first_error(present, fn key ->
-             if key in @param_keys,
-               do: :ok,
-               else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
-           end),
-         :ok <- validate_n(params[:n]),
-         :ok <- validate_size(params[:size]) do
-      :ok
+    with :ok <- Helpers.validate_param_keys(params, @param_keys, @codec),
+         :ok <- validate_n(params[:n]) do
+      validate_size(params[:size])
     end
   end
 
@@ -230,16 +197,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   defp validate_provider_options(request, config) do
     case provider_options(request, config) do
       options when is_map(options) ->
-        Helpers.first_error(Map.keys(options), fn key ->
-          if Helpers.reserved_key?(key, @reserved_keys) do
-            Helpers.error(
-              @codec,
-              "provider option #{inspect(key)} would replace a canonical field"
-            )
-          else
-            :ok
-          end
-        end)
+        Helpers.validate_option_keys(options, @reserved_keys, @codec)
 
       _options ->
         Helpers.error(@codec, "provider_options.openai must be a map")

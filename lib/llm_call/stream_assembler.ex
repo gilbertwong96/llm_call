@@ -14,8 +14,7 @@ defmodule LlmCall.StreamAssembler do
   `arguments_error`; it never arrives with invented arguments.
   """
 
-  alias LlmCall.{StreamEvent, ToolCall}
-  alias LlmCall.StreamDelta
+  alias LlmCall.{StreamDelta, StreamEvent, ToolCall}
 
   @type decoder :: (String.t() -> {:ok, map()} | {:error, String.t()}) | nil
 

@@ -85,9 +85,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
          :ok <- validate_output(request.output),
          :ok <- validate_tools(request.tools, request.tool_choice),
          :ok <- validate_system(request.system),
-         :ok <- validate_parts(request.messages),
-         :ok <- validate_provider_options(request, config) do
-      :ok
+         :ok <- validate_parts(request.messages) do
+      validate_provider_options(request, config)
     end
   end
 
@@ -181,16 +180,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp tool_result_text(content) when is_binary(content), do: content
   defp tool_result_text(parts) when is_list(parts), do: Enum.map_join(parts, "\n", & &1.text)
 
-  defp decode_raw_arguments(%ToolCall{raw_arguments: raw}) when is_binary(raw) do
-    case :json.decode(raw) do
-      %{} = decoded -> decoded
-      _not_a_map -> nil
-    end
-  rescue
-    _decode_error -> nil
-  end
-
-  defp decode_raw_arguments(_call), do: nil
+  defp decode_raw_arguments(%ToolCall{raw_arguments: raw}),
+    do: Helpers.decode_raw_arguments(raw)
 
   defp encode_tools([]), do: nil
 
@@ -275,7 +266,6 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   end
 
   defp reasoning_options(%Reasoning{provider_options: options}) when is_map(options), do: options
-  defp reasoning_options(_reasoning), do: %{}
 
   defp provider_options(request, config) do
     options = Config.provider_options(request, config)
@@ -311,15 +301,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp validate_streaming_modalities(%Request{}), do: :ok
 
-  defp validate_model(model) when is_binary(model) and model != "" do
-    if String.contains?(model, ["/", ":"]) do
-      Helpers.error(@codec, "model must be a bare model id without \"/\" or \":\"")
-    else
-      :ok
-    end
-  end
-
-  defp validate_model(_model), do: Helpers.error(@codec, "model is required")
+  defp validate_model(model), do: Helpers.validate_model_id(model, @codec)
 
   defp validate_messages([]), do: Helpers.error(@codec, "at least one message is required")
 
@@ -346,11 +328,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp validate_messages(_messages), do: Helpers.error(@codec, "messages must be a list")
 
   defp validate_params(params) when is_map(params) do
-    Helpers.first_error(Map.keys(params), fn key ->
-      if key in @param_keys,
-        do: :ok,
-        else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
-    end)
+    Helpers.validate_param_keys(params, @param_keys, @codec)
   end
 
   defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
@@ -361,14 +339,12 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     with :ok <- validate_effort(reasoning.effort),
          :ok <- validate_budget(reasoning.budget_tokens),
          :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported"),
-         :ok <- reject_effort_with_budget(reasoning),
-         :ok <-
-           Helpers.validate_options(
-             reasoning.provider_options,
-             @codec,
-             "reasoning.provider_options"
-           ) do
-      :ok
+         :ok <- reject_effort_with_budget(reasoning) do
+      Helpers.validate_options(
+        reasoning.provider_options,
+        @codec,
+        "reasoning.provider_options"
+      )
     end
   end
 
@@ -406,9 +382,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
 
   defp validate_tools(tools, tool_choice) when is_list(tools) do
-    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1),
-         :ok <- validate_tool_choice(tool_choice, tools) do
-      :ok
+    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1) do
+      validate_tool_choice(tool_choice, tools)
     end
   end
 
@@ -418,9 +393,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     do: Helpers.error(@codec, "builtin tools are not supported")
 
   defp validate_tool_spec(%ToolSpec{name: name} = spec) when is_binary(name) and name != "" do
-    with :ok <- Helpers.reject(spec.strict, @codec, "tool strict mode is not supported"),
-         :ok <- Helpers.validate_options(spec.provider_options, @codec, "tool provider_options") do
-      :ok
+    with :ok <- Helpers.reject(spec.strict, @codec, "tool strict mode is not supported") do
+      Helpers.validate_options(spec.provider_options, @codec, "tool provider_options")
     end
   end
 
@@ -559,15 +533,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
         Helpers.error(@codec, "provider_options.google must be a map")
 
       true ->
-        Helpers.first_error(Map.keys(gemini || google || %{}), &validate_provider_option_key/1)
-    end
-  end
-
-  defp validate_provider_option_key(key) do
-    if Helpers.reserved_key?(key, @reserved_keys) do
-      Helpers.error(@codec, "provider option #{inspect(key)} would replace a canonical field")
-    else
-      :ok
+        Helpers.validate_option_keys(gemini || google || %{}, @reserved_keys, @codec)
     end
   end
 
@@ -617,25 +583,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   end
 
   @impl true
-  def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
-    status = Helpers.code(error["status"])
-
-    %Error{
-      kind: :provider,
-      message: message,
-      code: status,
-      status: nil,
-      retryable?: Helpers.retryable?(status, @retryable_statuses),
-      raw: payload
-    }
-  end
-
-  def decode_error(_term, _config) do
-    %Error{
-      kind: :invalid_response,
-      message: "gemini_generate_content: unrecognized error payload",
-      raw: nil
-    }
+  def decode_error(payload, _config) do
+    Helpers.decode_provider_error(payload, @codec, ["status"], @retryable_statuses)
   end
 
   @impl true
@@ -849,16 +798,13 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
         {part_events ++ finish_events, data}
 
       _absent_or_empty ->
-        cond do
-          blocked?(term) ->
-            delta = %StreamDelta.MessageDelta{stop_reason: :content_filter, usage: nil}
+        if blocked?(term) do
+          delta = %StreamDelta.MessageDelta{stop_reason: :content_filter, usage: nil}
 
-            {[Helpers.event(:message_delta, nil, delta, term, config)],
-             %{data | stop_reason: :content_filter}}
-
-          true ->
-            {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)],
-             data}
+          {[Helpers.event(:message_delta, nil, delta, term, config)],
+           %{data | stop_reason: :content_filter}}
+        else
+          {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], data}
         end
     end
   end

@@ -1,11 +1,11 @@
 defmodule LlmCall.Media.Protocol.OpenAIImagesTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.Media.Protocol.OpenAI.Images
   alias LlmCall.{Config, Content, Error}
+  alias LlmCall.Media.Fixtures.OpenAIImages, as: Fx
+  alias LlmCall.Media.Protocol.OpenAI.Images
   alias LlmCall.Media.Request, as: MediaRequest
   alias LlmCall.Media.Response, as: MediaResponse
-  alias LlmCall.Media.Fixtures.OpenAIImages, as: Fx
 
   defp request(overrides \\ []) do
     struct(%MediaRequest{modality: :image, model: "gpt-image-1", prompt: "a cat"}, overrides)

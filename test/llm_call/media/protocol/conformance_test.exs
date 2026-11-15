@@ -8,11 +8,11 @@ defmodule LlmCall.Media.Protocol.ConformanceTest do
 
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Config}
+  alias LlmCall.Config
+  alias LlmCall.Media.Fixtures.{GeminiPredict, MiniMaxVideo, OpenAIImages, SeedanceVideo}
   alias LlmCall.Media.Request, as: MediaRequest
   alias LlmCall.Media.Response, as: MediaResponse
   alias LlmCall.MediaConformance
-  alias LlmCall.Media.Fixtures.{GeminiPredict, MiniMaxVideo, OpenAIImages, SeedanceVideo}
 
   defp request(modality, model) do
     %MediaRequest{modality: modality, model: model, prompt: "a cat"}

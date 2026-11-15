@@ -80,9 +80,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
          :ok <- validate_output(request.output),
          :ok <- validate_tools(request.tools, request.tool_choice),
          :ok <- validate_system(request.system),
-         :ok <- validate_parts(request.messages),
-         :ok <- validate_provider_options(request, config) do
-      :ok
+         :ok <- validate_parts(request.messages) do
+      validate_provider_options(request, config)
     end
   end
 
@@ -159,16 +158,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp tool_result_content(content) when is_binary(content), do: content
   defp tool_result_content(parts) when is_list(parts), do: Enum.map(parts, &encode_part/1)
 
-  defp decode_raw_arguments(%ToolCall{raw_arguments: raw}) when is_binary(raw) do
-    case :json.decode(raw) do
-      %{} = decoded -> decoded
-      _not_a_map -> nil
-    end
-  rescue
-    _decode_error -> nil
-  end
-
-  defp decode_raw_arguments(_call), do: nil
+  defp decode_raw_arguments(%ToolCall{raw_arguments: raw}),
+    do: Helpers.decode_raw_arguments(raw)
 
   defp encode_tools([]), do: nil
 
@@ -214,7 +205,6 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp reasoning_options(%Reasoning{provider_options: options}) when is_map(options), do: options
-  defp reasoning_options(_reasoning), do: %{}
 
   defp encode_params(params) do
     params
@@ -279,23 +269,17 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_messages(_messages), do: Helpers.error(@codec, "messages must be a list")
 
   defp validate_params(params) when is_map(params) do
-    with :ok <- Helpers.first_error(Map.keys(params), &validate_param_key/1) do
-      case params[:max_tokens] do
-        value when is_integer(value) and value > 0 ->
-          :ok
-
-        _other ->
-          Helpers.error(@codec, "params.max_tokens is required and must be a positive integer")
-      end
+    with :ok <- Helpers.validate_param_keys(params, @param_keys, @codec) do
+      validate_max_tokens(params[:max_tokens])
     end
   end
 
   defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
 
-  defp validate_param_key(key) do
-    if key in @param_keys,
-      do: :ok,
-      else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
+  defp validate_max_tokens(value) when is_integer(value) and value > 0, do: :ok
+
+  defp validate_max_tokens(_value) do
+    Helpers.error(@codec, "params.max_tokens is required and must be a positive integer")
   end
 
   defp validate_reasoning(nil), do: :ok
@@ -304,14 +288,12 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     with :ok <- validate_effort(reasoning.effort),
          :ok <- validate_budget(reasoning.budget_tokens),
          :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported"),
-         :ok <- reject_budget_with_effort(reasoning),
-         :ok <-
-           Helpers.validate_options(
-             reasoning.provider_options,
-             @codec,
-             "reasoning.provider_options"
-           ) do
-      :ok
+         :ok <- reject_budget_with_effort(reasoning) do
+      Helpers.validate_options(
+        reasoning.provider_options,
+        @codec,
+        "reasoning.provider_options"
+      )
     end
   end
 
@@ -350,9 +332,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp validate_tools(tools, tool_choice) when is_list(tools) do
-    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1),
-         :ok <- validate_tool_choice(tool_choice, tools) do
-      :ok
+    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1) do
+      validate_tool_choice(tool_choice, tools)
     end
   end
 
@@ -362,9 +343,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     do: Helpers.error(@codec, "builtin tools are not supported")
 
   defp validate_tool_spec(%ToolSpec{name: name} = spec) when is_binary(name) and name != "" do
-    with :ok <- Helpers.reject(spec.strict, @codec, "tool strict mode is not supported"),
-         :ok <- Helpers.validate_options(spec.provider_options, @codec, "tool provider_options") do
-      :ok
+    with :ok <- Helpers.reject(spec.strict, @codec, "tool strict mode is not supported") do
+      Helpers.validate_options(spec.provider_options, @codec, "tool provider_options")
     end
   end
 
@@ -502,16 +482,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_provider_options(request, config) do
     case Map.get(Config.provider_options(request, config), :anthropic, %{}) do
       options when is_map(options) ->
-        Helpers.first_error(Map.keys(options), fn key ->
-          if Helpers.reserved_key?(key, @reserved_keys) do
-            Helpers.error(
-              @codec,
-              "provider option #{inspect(key)} would replace a canonical field"
-            )
-          else
-            :ok
-          end
-        end)
+        Helpers.validate_option_keys(options, @reserved_keys, @codec)
 
       _options ->
         Helpers.error(@codec, "provider_options.anthropic must be a map")
@@ -538,25 +509,8 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   @impl true
-  def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
-    type = Helpers.code(error["type"])
-
-    %Error{
-      kind: :provider,
-      message: message,
-      code: type,
-      status: nil,
-      retryable?: Helpers.retryable?(type, @retryable_types),
-      raw: payload
-    }
-  end
-
-  def decode_error(_term, _config) do
-    %Error{
-      kind: :invalid_response,
-      message: "anthropic_messages: unrecognized error payload",
-      raw: nil
-    }
+  def decode_error(payload, _config) do
+    Helpers.decode_provider_error(payload, @codec, ["type"], @retryable_types)
   end
 
   @impl true

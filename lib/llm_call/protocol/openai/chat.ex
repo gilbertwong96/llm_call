@@ -12,15 +12,15 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   """
 
   alias LlmCall.{
+    Capabilities,
     Config,
     Content,
     EncodedRequest,
     Error,
     Message,
     Reasoning,
-    Request,
-    Capabilities,
     ReasoningCapabilities,
+    Request,
     Response,
     StreamState,
     ToolCall,
@@ -82,9 +82,8 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
          :ok <- validate_reasoning(request.reasoning),
          :ok <- validate_tools(request.tools, request.tool_choice),
          :ok <- validate_system(request.system),
-         :ok <- validate_parts(request.messages),
-         :ok <- validate_provider_options(request, config) do
-      :ok
+         :ok <- validate_parts(request.messages) do
+      validate_provider_options(request, config)
     end
   end
 
@@ -285,11 +284,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   defp validate_params(params) when is_map(params) do
-    Helpers.first_error(Map.keys(params), fn key ->
-      if key in @param_keys,
-        do: :ok,
-        else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
-    end)
+    Helpers.validate_param_keys(params, @param_keys, @codec)
   end
 
   defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
@@ -303,9 +298,8 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
              reasoning.budget_tokens,
              @codec,
              "reasoning budget_tokens is not supported"
-           ),
-         :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported") do
-      :ok
+           ) do
+      Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported")
     end
   end
 
@@ -321,9 +315,8 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   defp validate_tools(tools, tool_choice) when is_list(tools) do
-    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1),
-         :ok <- validate_tool_choice(tool_choice, tools) do
-      :ok
+    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1) do
+      validate_tool_choice(tool_choice, tools)
     end
   end
 
@@ -461,16 +454,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   defp validate_provider_options(request, config) do
     case Map.get(Config.provider_options(request, config), :openai, %{}) do
       options when is_map(options) ->
-        Helpers.first_error(Map.keys(options), fn key ->
-          if Helpers.reserved_key?(key, @reserved_keys) do
-            Helpers.error(
-              @codec,
-              "provider option #{inspect(key)} would replace a canonical field"
-            )
-          else
-            :ok
-          end
-        end)
+        Helpers.validate_option_keys(options, @reserved_keys, @codec)
 
       _options ->
         Helpers.error(@codec, "provider_options.openai must be a map")
@@ -499,21 +483,8 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   @impl true
-  def decode_error(%{"error" => %{"message" => message} = error} = payload, _config) do
-    code = Helpers.code(error["code"] || error["type"])
-
-    %Error{
-      kind: :provider,
-      message: message,
-      code: code,
-      status: nil,
-      retryable?: Helpers.retryable?(code, @retryable_codes),
-      raw: payload
-    }
-  end
-
-  def decode_error(_term, _config) do
-    %Error{kind: :invalid_response, message: "openai_chat: unrecognized error payload", raw: nil}
+  def decode_error(payload, _config) do
+    Helpers.decode_provider_error(payload, @codec, ["code", "type"], @retryable_codes)
   end
 
   @impl true
@@ -597,42 +568,41 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   defp message_content(message) do
-    thinking =
-      case message["reasoning_content"] do
-        text when is_binary(text) and text != "" ->
-          [%Content.Thinking{text: text, signature: nil}]
+    thinking_content(message) ++
+      text_content(message) ++
+      Enum.map(message["tool_calls"] || [], &decode_tool_call/1) ++
+      refusal_content(message) ++
+      unknown_content(message)
+  end
 
-        _other ->
-          []
-      end
+  defp thinking_content(%{"reasoning_content" => text})
+       when is_binary(text) and text != "" do
+    [%Content.Thinking{text: text, signature: nil}]
+  end
 
-    text =
-      case message["content"] do
-        text when is_binary(text) and text != "" ->
-          [%Content.Text{text: text}]
+  defp thinking_content(_message), do: []
 
-        value when not is_nil(value) and not is_binary(value) ->
-          [%Content.Raw{type: "content", data: %{"content" => value}}]
+  defp text_content(%{"content" => text}) when is_binary(text) and text != "" do
+    [%Content.Text{text: text}]
+  end
 
-        _other ->
-          []
-      end
+  defp text_content(%{"content" => value}) when not is_nil(value) and not is_binary(value) do
+    [%Content.Raw{type: "content", data: %{"content" => value}}]
+  end
 
-    calls = Enum.map(message["tool_calls"] || [], &decode_tool_call/1)
+  defp text_content(_message), do: []
 
-    refusal =
-      case message["refusal"] do
-        text when is_binary(text) -> [%Content.Raw{type: "refusal", data: %{"refusal" => text}}]
-        _other -> []
-      end
+  defp refusal_content(%{"refusal" => text}) when is_binary(text) do
+    [%Content.Raw{type: "refusal", data: %{"refusal" => text}}]
+  end
 
-    unknown =
-      for {key, value} <- message,
-          key not in @known_message_keys,
-          not is_nil(value),
-          do: %Content.Raw{type: key, data: %{key => value}}
+  defp refusal_content(_message), do: []
 
-    thinking ++ text ++ calls ++ refusal ++ unknown
+  defp unknown_content(message) do
+    for {key, value} <- message,
+        key not in @known_message_keys,
+        not is_nil(value),
+        do: %Content.Raw{type: key, data: %{key => value}}
   end
 
   defp decode_tool_call(entry) do

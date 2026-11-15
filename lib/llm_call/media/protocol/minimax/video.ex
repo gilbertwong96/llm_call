@@ -68,9 +68,8 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
          :ok <- validate_model(request.model),
          :ok <- validate_prompt(request.prompt),
          :ok <- validate_params(request.params),
-         :ok <- validate_references(request.references),
-         :ok <- validate_provider_options(request, config) do
-      :ok
+         :ok <- validate_references(request.references) do
+      validate_provider_options(request, config)
     end
   end
 
@@ -85,14 +84,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
         |> Helpers.maybe_put("first_frame_image", first_frame_image(request.references))
         |> Config.deep_merge(provider_options(request, config))
 
-      {:ok,
-       %EncodedRequest{
-         method: :post,
-         path: @submit_path,
-         query: %{},
-         headers: @headers,
-         body: body
-       }}
+      {:ok, Helpers.post(@submit_path, @headers, body)}
     end
   end
 
@@ -282,16 +274,8 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
   defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
 
   defp validate_params(params) when is_map(params) do
-    present = for {key, value} <- params, not is_nil(value), do: key
-
-    with :ok <-
-           Helpers.first_error(present, fn key ->
-             if key in @param_keys,
-               do: :ok,
-               else: Helpers.error(@codec, "params key #{inspect(key)} is not supported")
-           end),
-         :ok <- validate_duration(params[:duration_s]) do
-      :ok
+    with :ok <- Helpers.validate_param_keys(params, @param_keys, @codec) do
+      validate_duration(params[:duration_s])
     end
   end
 
@@ -330,16 +314,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
   defp validate_provider_options(request, config) do
     case provider_options(request, config) do
       options when is_map(options) ->
-        Helpers.first_error(Map.keys(options), fn key ->
-          if Helpers.reserved_key?(key, @reserved_keys) do
-            Helpers.error(
-              @codec,
-              "provider option #{inspect(key)} would replace a canonical field"
-            )
-          else
-            :ok
-          end
-        end)
+        Helpers.validate_option_keys(options, @reserved_keys, @codec)
 
       _options ->
         Helpers.error(@codec, "provider_options.minimax must be a map")

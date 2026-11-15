@@ -2,8 +2,7 @@ defmodule LlmCall.StreamAssemblerTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.StreamAssembler
-  alias LlmCall.{StreamEvent, StreamState, ToolCall}
-  alias LlmCall.StreamDelta
+  alias LlmCall.{StreamDelta, StreamEvent, StreamState, ToolCall}
 
   defp decoder(input) do
     case :json.decode(input) do

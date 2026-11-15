@@ -7,7 +7,15 @@ defmodule LlmCall.StreamState do
   and build a new state with `new/2`.
   """
 
-  @opaque t :: %__MODULE__{codec: module(), data: term()}
+  @typedoc """
+  A codec's stream state, tagged with the codec that owns it.
+
+  This is a public struct type rather than `@opaque`: the behaviour hands the
+  struct to a codec in another module, and an opaque type cannot be destructured
+  across that boundary (Dialyzer rejects it). It is still a typed struct, never a
+  bare `term()`; `data` remains deliberately untyped.
+  """
+  @type t :: %__MODULE__{codec: module(), data: term()}
 
   defstruct [:codec, :data]
 

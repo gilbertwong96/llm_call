@@ -117,6 +117,119 @@ defmodule LlmCall.Protocol.Helpers do
   def retryable?(_code, _codes), do: false
 
   @doc """
+  Normalizes a provider error envelope.
+
+  `code_keys` names the fields that may carry the provider's machine code, in
+  priority order (OpenAI and Seedance use `code` then `type`, Anthropic `type`,
+  Google `status`). `retryable_codes` is the codec's own retryable set.
+  """
+  @spec decode_provider_error(term(), codec(), [String.t()], [String.t()]) :: Error.t()
+  def decode_provider_error(
+        %{"error" => %{"message" => message} = error} = payload,
+        _codec,
+        code_keys,
+        retryable_codes
+      ) do
+    code = code_keys |> Enum.map(&error[&1]) |> Enum.find(&(not is_nil(&1))) |> code()
+
+    %Error{
+      kind: :provider,
+      message: message,
+      code: code,
+      status: nil,
+      retryable?: retryable?(code, retryable_codes),
+      raw: payload
+    }
+  end
+
+  def decode_provider_error(_term, codec, _code_keys, _retryable_codes) do
+    %Error{kind: :invalid_response, message: "#{codec}: unrecognized error payload", raw: nil}
+  end
+
+  @doc """
+  Validates a Gemini-style bare model id.
+
+  The model is interpolated into a request path, so a `/` or `:` would build a
+  different endpoint than the caller asked for.
+  """
+  @spec validate_model_id(LlmCall.model() | nil, codec()) :: :ok | {:error, Error.t()}
+  def validate_model_id(model, codec) when is_binary(model) and model != "" do
+    if String.contains?(model, ["/", ":"]) do
+      error(codec, "model must be a bare model id without \"/\" or \":\"")
+    else
+      :ok
+    end
+  end
+
+  def validate_model_id(_model, codec), do: error(codec, "model is required")
+
+  @doc """
+  Decodes a provider's raw argument string into a map, or `nil` when it is not an
+  object.
+
+  Providers that hand arguments over as a JSON string (Anthropic, some Gemini
+  shapes) share this so a malformed fragment never becomes `%{}`.
+  """
+  @spec decode_raw_arguments(String.t() | nil) :: map() | nil
+  def decode_raw_arguments(raw) when is_binary(raw) do
+    case :json.decode(raw) do
+      %{} = decoded -> decoded
+      _not_a_map -> nil
+    end
+  rescue
+    _decode_error -> nil
+  end
+
+  def decode_raw_arguments(nil), do: nil
+
+  @doc """
+  Builds a `POST` encoded request with no query parameters.
+  """
+  @spec post(String.t(), [{String.t(), String.t()}], map()) :: LlmCall.EncodedRequest.t()
+  def post(path, headers, body) do
+    %LlmCall.EncodedRequest{
+      method: :post,
+      path: path,
+      query: %{},
+      headers: headers,
+      body: body
+    }
+  end
+
+  @doc """
+  Validates that a `params` map only contains supported keys.
+
+  A `nil` value means "provider default" and is ignored; an unsupported key with
+  a value is a validation error, never a silent drop.
+  """
+  @spec validate_param_keys(map(), [atom()], codec()) :: :ok | {:error, Error.t()}
+  def validate_param_keys(params, allowed_keys, codec) do
+    params
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Enum.map(fn {key, _value} -> key end)
+    |> first_error(fn key ->
+      if key in allowed_keys,
+        do: :ok,
+        else: error(codec, "params key #{inspect(key)} is not supported")
+    end)
+  end
+
+  @doc """
+  Validates that a provider-options namespace only contains keys a codec can
+  forward without replacing a canonical field.
+  """
+  @spec validate_option_keys(map(), [String.t()], codec()) :: :ok | {:error, Error.t()}
+  def validate_option_keys(options, reserved_keys, codec) do
+    options
+    |> Map.keys()
+    |> first_error(fn key ->
+      if reserved_key?(key, reserved_keys),
+        do: error(codec, "provider option #{inspect(key)} would replace a canonical field"),
+        else: :ok
+    end)
+  end
+
+  @doc """
   Normalizes a provider's error code to a string or `nil`.
 
   Providers type this field inconsistently (a string for OpenAI and Google, an
