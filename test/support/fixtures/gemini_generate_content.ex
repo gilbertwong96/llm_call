@@ -1,4 +1,4 @@
-defmodule LlmCall.Fixtures.GeminiGenerateContent do
+defmodule LlmDialect.Fixtures.GeminiGenerateContent do
   @moduledoc """
   Gemini GenerateContent payloads shaped like the provider's responses.
   """

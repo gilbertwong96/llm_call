@@ -1,10 +1,10 @@
-defmodule LlmCall.TestCodec.TextOnly do
+defmodule LlmDialect.TestCodec.TextOnly do
   @moduledoc """
   Completion codec fake without streaming callbacks, used to check the typed 'does not support' error.
   """
-  @behaviour LlmCall.Codec
+  @behaviour LlmDialect.Codec
 
-  alias LlmCall.{Capabilities, Codec, EncodedRequest, Error, Response}
+  alias LlmDialect.{Capabilities, Codec, EncodedRequest, Error, Response}
 
   @impl true
   def info, do: %Codec.Info{name: :text_only, protocol: :text_only, version: nil, ir_version: 1}
@@ -18,7 +18,7 @@ defmodule LlmCall.TestCodec.TextOnly do
 
   @impl true
   def decode_response(%{"text" => text}, _config),
-    do: {:ok, %Response{content: [%LlmCall.Content.Text{text: text}]}}
+    do: {:ok, %Response{content: [%LlmDialect.Content.Text{text: text}]}}
 
   def decode_response(_term, _config),
     do: {:error, %Error{kind: :invalid_response, message: "text_only: bad payload"}}

@@ -1,14 +1,14 @@
-defmodule LlmCall.TestCodec.FlagMedia do
+defmodule LlmDialect.TestCodec.FlagMedia do
   @moduledoc """
   Media codec fake that declares `seed: true` and rejects every seed, so the flag check must catch it.
   """
   # Declares seed: true but rejects every seed, so the capability-consistency
   # check must catch the mismatch.
-  @behaviour LlmCall.Media.Codec
+  @behaviour LlmDialect.Media.Codec
 
-  alias LlmCall.{Codec, Error}
-  alias LlmCall.Media.Capabilities, as: MediaCapabilities
-  alias LlmCall.Media.Request, as: MediaRequest
+  alias LlmDialect.{Codec, Error}
+  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
+  alias LlmDialect.Media.Request, as: MediaRequest
 
   @impl true
   def info, do: %Codec.Info{name: :flag_media, protocol: :flag_media, ir_version: 1}
@@ -31,7 +31,7 @@ defmodule LlmCall.TestCodec.FlagMedia do
   end
 
   @impl true
-  def encode_submit(_request, _config), do: {:ok, %LlmCall.EncodedRequest{path: "/flag"}}
+  def encode_submit(_request, _config), do: {:ok, %LlmDialect.EncodedRequest{path: "/flag"}}
 
   @impl true
   def decode_submit(_term, _config),

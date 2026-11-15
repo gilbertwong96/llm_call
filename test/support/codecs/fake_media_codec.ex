@@ -1,13 +1,13 @@
-defmodule LlmCall.TestCodec.FakeMedia do
+defmodule LlmDialect.TestCodec.FakeMedia do
   @moduledoc """
   Media codec fake that deliberately ignores its declared capabilities, so the capability-consistency check must catch it.
   """
-  @behaviour LlmCall.Media.Codec
+  @behaviour LlmDialect.Media.Codec
 
-  alias LlmCall.{Codec, Content, EncodedRequest, Error}
-  alias LlmCall.Media.Capabilities, as: MediaCapabilities
-  alias LlmCall.Media.Request, as: MediaRequest
-  alias LlmCall.Media.Response, as: MediaResponse
+  alias LlmDialect.{Codec, Content, EncodedRequest, Error}
+  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
+  alias LlmDialect.Media.Request, as: MediaRequest
+  alias LlmDialect.Media.Response, as: MediaResponse
 
   @impl true
   def info, do: %Codec.Info{name: :fake_media, protocol: :fake_media, version: nil, ir_version: 1}

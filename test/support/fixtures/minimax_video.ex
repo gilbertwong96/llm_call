@@ -1,4 +1,4 @@
-defmodule LlmCall.Media.Fixtures.MiniMaxVideo do
+defmodule LlmDialect.Media.Fixtures.MiniMaxVideo do
   @moduledoc """
   MiniMax Hailuo payloads, including the `base_resp` error envelopes.
   """

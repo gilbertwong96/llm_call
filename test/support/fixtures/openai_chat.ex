@@ -1,4 +1,4 @@
-defmodule LlmCall.Fixtures.OpenAIChat do
+defmodule LlmDialect.Fixtures.OpenAIChat do
   @moduledoc """
   OpenAI Chat payloads shaped like the provider's responses and stream chunks.
   """

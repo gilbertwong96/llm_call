@@ -1,13 +1,13 @@
-defmodule LlmCall.TestCodec.AsyncMedia do
+defmodule LlmDialect.TestCodec.AsyncMedia do
   @moduledoc """
   Asynchronous media codec fake. Honours its own capability declarations and drives the `Operation` state machine through every state.
   """
-  @behaviour LlmCall.Media.Codec
+  @behaviour LlmDialect.Media.Codec
 
-  alias LlmCall.{Codec, Content, EncodedRequest, Error, Operation}
-  alias LlmCall.Media.Capabilities, as: MediaCapabilities
-  alias LlmCall.Media.Request, as: MediaRequest
-  alias LlmCall.Media.Response, as: MediaResponse
+  alias LlmDialect.{Codec, Content, EncodedRequest, Error, Operation}
+  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
+  alias LlmDialect.Media.Request, as: MediaRequest
+  alias LlmDialect.Media.Response, as: MediaResponse
 
   @poll %EncodedRequest{method: :get, path: "/fake/jobs/1"}
 

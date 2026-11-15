@@ -1,12 +1,12 @@
-defmodule LlmCall.MixProject do
+defmodule LlmDialect.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/gilbertwong/llm_call"
+  @source_url "https://github.com/gilbertwong/llm_dialect"
 
   def project do
     [
-      app: :llm_call,
+      app: :llm_dialect,
       version: @version,
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),

@@ -13,18 +13,18 @@ First release, not yet published to Hex.
 - Canonical wire IR: `Request`, `Message`, `Content`, `ToolSpec`, `ToolCall`,
   `ToolResult`, `Reasoning`, `Response`, `Usage`, `Error`, `Capabilities`,
   `Config`, `EncodedRequest`.
-- `LlmCall.Codec` behaviour and the public dispatch API, with typed errors for
+- `LlmDialect.Codec` behaviour and the public dispatch API, with typed errors for
   every unsupported field.
 - Reference adapters: OpenAI Chat Completions, Anthropic Messages, Gemini
   GenerateContent.
 - Streaming primitives (`StreamEvent`, `StreamDelta`, `StreamState`) and the pure
   `StreamAssembler`.
-- Media IR: `LlmCall.Media.{Request,Response,Capabilities,Codec}`,
-  `LlmCall.Operation`, and the `encode_media/3` … `decode_operation/3` API for
+- Media IR: `LlmDialect.Media.{Request,Response,Capabilities,Codec}`,
+  `LlmDialect.Operation`, and the `encode_media/3` … `decode_operation/3` API for
   synchronous and long-running generation.
 - Vendored media adapters: OpenAI Images, Gemini Imagen `predict`, Seedance
   (BytePlus ModelArk), MiniMax Hailuo.
-- Conformance suites published from `lib/`: `LlmCall.Codec.Conformance` and
-  `LlmCall.MediaConformance`.
+- Conformance suites published from `lib/`: `LlmDialect.Codec.Conformance` and
+  `LlmDialect.MediaConformance`.
 - Documentation: `docs/design.md` (canonical spec), `CONTRIBUTING.md` (adapter
   bar), and the dated decision records under `docs/superpowers/specs/`.
