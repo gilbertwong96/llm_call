@@ -80,20 +80,19 @@ Every adapter must:
 
 ## Tests
 
-Run the suite you touched:
+Run the full quality gate before finishing:
 
 ```bash
-mix test
+mix ci
 ```
 
-The vendored media adapters run the media conformance suite in the same run.
+It compiles with warnings as errors, checks formatting, runs the suite,
+`credo --strict`, Dialyzer, ExDNA, and Reach. The vendored media adapters run
+the media conformance suite in the same `mix test`.
 
-Formatting and warnings are part of the bar:
-
-```bash
-mix format --check-formatted
-mix compile --force --warnings-as-errors
-```
+`mix ci` uses a clone-budget ratchet (see `mix.exs`): the protocol adapters are
+deliberately parallel, so the budget is the current count — a new clone fails the
+build, and lowering it means extracting another shared validator.
 
 ## Documentation
 
