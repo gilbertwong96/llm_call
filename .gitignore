@@ -22,7 +22,7 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-llm_call-*.tar
+llm_dialect-*.tar
 
 
 # Scratch workspace for the executing-plans/subagent-driven-development skills.
