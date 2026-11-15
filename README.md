@@ -4,7 +4,21 @@ A wire-protocol codec for LLM APIs.
 
 `LlmCall` turns a provider-neutral request into the body, path, and protocol
 headers a provider expects, and turns a provider response term into a
-provider-neutral response. It owns no HTTP client, authentication, model
+provider-neutral response.
+
+## Installation
+
+Add `llm_call` to your dependencies. It has no runtime dependencies.
+
+```elixir
+def deps do
+  [
+    {:llm_call, "~> 0.1.0"}
+  ]
+end
+```
+
+Requires Elixir 1.17+ on OTP 27+ (the `:json` module ships with OTP 27). It owns no HTTP client, authentication, model
 registry, tool execution, retries, or agent loop — a codec returns
 JSON-compatible Elixir terms, and your transport does the rest.
 
