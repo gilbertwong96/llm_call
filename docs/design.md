@@ -119,7 +119,7 @@ Neither project should depend on the other in its core.
 |------------------|--------------------------------------------------------------------------|
 | LangChain Elixir | Chains, conversation flow, tool execution, callbacks                     |
 | ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools |
-| `LlmDialect`        | Protocol codec and canonical wire IR                                     |
+| `LlmDialect`     | Protocol codec and canonical wire IR                                     |
 
 `LlmDialect` can be used underneath those systems. It should not grow into another
 full client: HTTP, auth, model metadata, and tool execution belong elsewhere.
@@ -222,20 +222,20 @@ create a reusable foundation.
              canonical request / response
                                |
                     +----------v-----------+
-                    |       LlmDialect        |
+                    |      LlmDialect      |
                     |  canonical wire IR   |
                     +----------+-----------+
                                |
                     +----------v-----------+
-                    |  LlmDialect.Protocol.*  |
+                    | LlmDialect.Protocol.*|
                     |  encode/decode       |
                     +----------+-----------+
                                |
                   encoded request / events
                                |
                     +----------v-----------+
-                    |   caller transport  |
-                    | Req / Finch / custom|
+                    |   caller transport   |
+                    | Req / Finch / custom |
                     +----------+-----------+
                                |
                          HTTP / JSON
@@ -1383,7 +1383,7 @@ Dependency direction:
 
 ```text
 llm_dialect              no tool_call dependency
-tool_call             no llm_dialect dependency
+tool_call                no llm_dialect dependency
 llm_dialect_tool_call    depends on both
 ```
 
