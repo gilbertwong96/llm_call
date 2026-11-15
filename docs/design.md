@@ -614,7 +614,7 @@ fabricated local guess.
 }
 ```
 
-`LlmCall.Codec.validate_request/2` can reject unsupported combinations
+`validate_request/2` on a codec can reject unsupported combinations
 before a transport sends anything. No silent field dropping.
 
 ### 8.11 Canonical type specifications
@@ -1895,7 +1895,7 @@ A codec rejects a non-nil knob it cannot express. `provider_options` is namespac
 and merged like the completion side; a key that would replace `model`, `prompt`,
 `instances`, or `modality` is a validation error. A protocol's own nested
 parameter object stays reachable: `parameters` is not reserved, because
-`Config.deep_merge/2` recurses into it, so a native Imagen knob such as
+`LlmCall.Config.deep_merge/2` recurses into it, so a native Imagen knob such as
 `personGeneration` merges beside the canonical `sampleCount`.
 
 ### 23.4 Operation state machine
