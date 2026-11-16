@@ -14,37 +14,14 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   `alt=sse` to the query; the transport still owns SSE framing.
   """
 
-  alias LlmDialect.{
-    Capabilities,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    Message,
-    Reasoning,
-    ReasoningCapabilities,
-    Request,
-    Response,
-    StreamState,
-    ToolCall,
-    ToolResult,
-    ToolSpec,
-    Usage
-  }
-
-  alias LlmDialect.Protocol.Helpers
-  alias LlmDialect.StreamDelta
-
-  @behaviour LlmDialect.Codec
-
-  @codec :gemini_generate_content
-
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
   @reserved_keys ~w(model messages system contents tools stream)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
+
+  use LlmDialect.Protocol.Adapter, codec: :gemini_generate_content, encode: false
 
   @impl true
   @spec info() :: LlmDialect.Codec.Info.t()
@@ -83,8 +60,15 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
          :ok <- validate_params(request.params),
          :ok <- validate_reasoning(request.reasoning),
          :ok <- validate_output(request.output),
-         :ok <- validate_tools(request.tools, request.tool_choice),
-         :ok <- validate_system(request.system),
+         :ok <-
+           Helpers.validate_tools(
+             request.tools,
+             request.tool_choice,
+             @codec,
+             &validate_tool_spec/1,
+             &validate_tool_choice/2
+           ),
+         :ok <- Helpers.validate_system(request.system, @codec),
          :ok <- validate_parts(request.messages) do
       validate_provider_options(request, config)
     end
@@ -336,16 +320,6 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp validate_output(output),
     do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
 
-  defp validate_tools(tools, tool_choice),
-    do:
-      Helpers.validate_tools(
-        tools,
-        tool_choice,
-        @codec,
-        &validate_tool_spec/1,
-        &validate_tool_choice/2
-      )
-
   defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, options: true)
 
   defp validate_tool_choice(:auto, _tools), do: :ok
@@ -364,8 +338,6 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
-
-  defp validate_system(system), do: Helpers.validate_system(system, @codec)
 
   defp validate_parts(messages) do
     Helpers.first_error(messages, fn %Message{role: role, content: content} ->

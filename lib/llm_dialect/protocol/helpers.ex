@@ -13,7 +13,7 @@ defmodule LlmDialect.Protocol.Helpers do
   validation message is prefixed with the codec that rejected the request.
   """
 
-  alias LlmDialect.{Config, Content, Error, Message, StreamEvent, ToolCall, ToolSpec}
+  alias LlmDialect.{Config, Content, Error, Message, StreamEvent, ToolCall, ToolResult, ToolSpec}
 
   @type codec :: atom()
 
@@ -372,6 +372,42 @@ defmodule LlmDialect.Protocol.Helpers do
   def validate_n(_n, :unsupported, codec), do: error(codec, "params.n is not supported")
   def validate_n(n, max_n, _codec) when is_integer(n) and n > 0 and n <= max_n, do: :ok
   def validate_n(_n, max_n, codec), do: error(codec, "params.n must be between 1 and #{max_n}")
+
+  @doc """
+  Validates that a content part may appear in that role.
+
+  Tool calls and thinking belong to assistant turns, tool results to user turns;
+  everything else is the protocol's business.
+  """
+  @spec validate_role(Message.role(), LlmDialect.Content.part(), codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_role(:user, %ToolCall{}, codec),
+    do: error(codec, "tool calls belong to assistant messages")
+
+  def validate_role(:user, %Content.Thinking{}, codec),
+    do: error(codec, "thinking content belongs to assistant messages")
+
+  def validate_role(:assistant, %ToolResult{}, codec),
+    do: error(codec, "tool results belong to user messages")
+
+  def validate_role(_role, _part, _codec), do: :ok
+
+  @doc """
+  Validates then encodes a completion request as a `POST` with no query.
+  """
+  @spec encode_completion(
+          LlmDialect.Request.t(),
+          Config.t(),
+          String.t(),
+          [{String.t(), String.t()}],
+          (LlmDialect.Request.t(), Config.t() -> :ok | {:error, Error.t()}),
+          (LlmDialect.Request.t(), Config.t() -> map())
+        ) :: {:ok, LlmDialect.EncodedRequest.t()} | {:error, Error.t()}
+  def encode_completion(request, config, path, headers, validate_fun, body_fun) do
+    with :ok <- validate_fun.(request, config) do
+      {:ok, post(path, headers, body_fun.(request, config))}
+    end
+  end
 
   @doc """
   Validates the requested output modalities.

@@ -11,31 +11,6 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   because OpenAI requires them directly after the assistant tool call.
   """
 
-  alias LlmDialect.{
-    Capabilities,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    Message,
-    Reasoning,
-    ReasoningCapabilities,
-    Request,
-    Response,
-    StreamState,
-    ToolCall,
-    ToolResult,
-    ToolSpec,
-    Usage
-  }
-
-  alias LlmDialect.Protocol.Helpers
-  alias LlmDialect.StreamDelta
-
-  @behaviour LlmDialect.Codec
-
-  @codec :openai_chat
-
   @path "/v1/chat/completions"
   @headers [{"content-type", "application/json"}]
   @reserved_keys ~w(model messages system contents tools stream)
@@ -44,6 +19,8 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
   @known_message_keys ["role", "content", "tool_calls", "reasoning_content", "refusal"]
   @known_delta_keys ["content", "reasoning_content", "tool_calls"]
+
+  use LlmDialect.Protocol.Adapter, codec: :openai_chat
 
   @impl true
   @spec info() :: LlmDialect.Codec.Info.t()
@@ -57,15 +34,6 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   end
 
   @impl true
-  @spec encode_request(Request.t(), Config.t()) ::
-          {:ok, EncodedRequest.t()} | {:error, Error.t()}
-  def encode_request(%Request{} = request, %Config{} = config) do
-    with :ok <- validate_request(request, config) do
-      {:ok, Helpers.post(@path, @headers, body(request, config))}
-    end
-  end
-
-  @impl true
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
@@ -73,8 +41,15 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
          :ok <- validate_reasoning(request.reasoning),
-         :ok <- validate_tools(request.tools, request.tool_choice),
-         :ok <- validate_system(request.system),
+         :ok <-
+           Helpers.validate_tools(
+             request.tools,
+             request.tool_choice,
+             @codec,
+             &validate_tool_spec/1,
+             &validate_tool_choice/2
+           ),
+         :ok <- Helpers.validate_system(request.system, @codec),
          :ok <- validate_parts(request.messages) do
       validate_provider_options(request, config)
     end
@@ -272,16 +247,6 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     Helpers.error(@codec, "reasoning effort #{inspect(effort)} is not supported")
   end
 
-  defp validate_tools(tools, tool_choice),
-    do:
-      Helpers.validate_tools(
-        tools,
-        tool_choice,
-        @codec,
-        &validate_tool_spec/1,
-        &validate_tool_choice/2
-      )
-
   defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, strict: true)
 
   defp validate_tool_choice(:auto, _tools), do: :ok
@@ -310,8 +275,6 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   defp validate_tool_choice_value(choice),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
-
-  defp validate_system(system), do: Helpers.validate_system(system, @codec)
 
   defp validate_parts(messages) do
     Helpers.first_error(messages, fn %Message{role: role, content: content} ->

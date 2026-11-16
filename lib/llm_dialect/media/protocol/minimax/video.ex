@@ -2,6 +2,7 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   @moduledoc """
   MiniMax Hailuo video generation (`v1`).
 
+
   Three calls, expressed with the `Operation` state machine:
 
   1. submit `POST /v1/video_generation` -> `task_id`;
@@ -19,16 +20,8 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   is not implemented.
   """
 
-  alias LlmDialect.{Codec, Config, Content, EncodedRequest, Error, Operation}
-  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
-  alias LlmDialect.Media.Request, as: MediaRequest
-  alias LlmDialect.Media.Response, as: MediaResponse
+  use LlmDialect.Media.Adapter, codec: :minimax_video, modality: :video
 
-  alias LlmDialect.Protocol.Helpers
-
-  @behaviour LlmDialect.Media.Codec
-
-  @codec :minimax_video
   @api_version "v1"
   @submit_path "/v1/video_generation"
   @query_path "/v1/query/video_generation"
@@ -46,9 +39,9 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   end
 
   @impl true
-  @spec capabilities(MediaRequest.t(), Config.t()) :: MediaCapabilities.t()
-  def capabilities(%MediaRequest{}, %Config{}) do
-    %MediaCapabilities{
+  @spec capabilities(Request.t(), Config.t()) :: Capabilities.t()
+  def capabilities(%Request{}, %Config{}) do
+    %Capabilities{
       modalities: [:video],
       async: true,
       max_n: :unsupported,
@@ -62,24 +55,9 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   end
 
   @impl true
-  @spec validate_request(MediaRequest.t(), Config.t()) :: :ok | {:error, Error.t()}
-  def validate_request(%MediaRequest{} = request, %Config{} = config) do
-    Helpers.validate_media_request(
-      request,
-      config,
-      @codec,
-      :video,
-      &Helpers.validate_model/2,
-      &validate_params/1,
-      &validate_references/1,
-      &validate_provider_options/2
-    )
-  end
-
-  @impl true
-  @spec encode_submit(MediaRequest.t(), Config.t()) ::
+  @spec encode_submit(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
-  def encode_submit(%MediaRequest{} = request, %Config{} = config) do
+  def encode_submit(%Request{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
       body =
         %{"model" => request.model, "prompt" => request.prompt}
@@ -93,12 +71,12 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
 
   @impl true
   @spec decode_submit(LlmDialect.wire_value(), Config.t()) ::
-          {:ok, MediaResponse.t()} | {:error, Error.t()}
+          {:ok, Response.t()} | {:error, Error.t()}
   def decode_submit(payload, %Config{} = config) when is_map(payload) do
     with :ok <- check_base_resp(payload),
          {:ok, task_id} <- fetch_task_id(payload) do
       {:ok,
-       %MediaResponse{
+       %Response{
          assets: [],
          operation: %Operation{
            id: task_id,
@@ -203,7 +181,7 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
     %Operation{
       id: nil,
       status: :completed,
-      result: %MediaResponse{
+      result: %Response{
         assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
       },
       raw: Helpers.capture_response(config, payload)

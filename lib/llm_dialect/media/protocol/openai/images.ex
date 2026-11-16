@@ -2,6 +2,7 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
   @moduledoc """
   OpenAI image generation (`POST /v1/images/generations`).
 
+
   Dedicated image endpoints take a prompt and media parameters, so this codec
   implements `LlmDialect.Media.Codec` rather than the completion behaviour.
 
@@ -13,16 +14,8 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
   catalog, so a size a specific model rejects surfaces as a provider error.
   """
 
-  alias LlmDialect.{Codec, Config, Content, EncodedRequest, Error, Usage}
-  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
-  alias LlmDialect.Media.Request, as: MediaRequest
-  alias LlmDialect.Media.Response, as: MediaResponse
+  use LlmDialect.Media.Adapter, codec: :openai_images, modality: :image
 
-  alias LlmDialect.Protocol.Helpers
-
-  @behaviour LlmDialect.Media.Codec
-
-  @codec :openai_images
   @path "/v1/images/generations"
   @headers [{"content-type", "application/json"}]
   @reserved_keys ~w(model prompt instances parameters modality)
@@ -47,9 +40,9 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
   end
 
   @impl true
-  @spec capabilities(MediaRequest.t(), Config.t()) :: MediaCapabilities.t()
-  def capabilities(%MediaRequest{}, %Config{}) do
-    %MediaCapabilities{
+  @spec capabilities(Request.t(), Config.t()) :: Capabilities.t()
+  def capabilities(%Request{}, %Config{}) do
+    %Capabilities{
       modalities: [:image],
       async: false,
       max_n: @max_n,
@@ -63,24 +56,9 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
   end
 
   @impl true
-  @spec validate_request(MediaRequest.t(), Config.t()) :: :ok | {:error, Error.t()}
-  def validate_request(%MediaRequest{} = request, %Config{} = config) do
-    Helpers.validate_media_request(
-      request,
-      config,
-      @codec,
-      :image,
-      &Helpers.validate_model/2,
-      &validate_params/1,
-      &validate_references/1,
-      &validate_provider_options/2
-    )
-  end
-
-  @impl true
-  @spec encode_submit(MediaRequest.t(), Config.t()) ::
+  @spec encode_submit(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
-  def encode_submit(%MediaRequest{} = request, %Config{} = config) do
+  def encode_submit(%Request{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
       body =
         %{"model" => request.model, "prompt" => request.prompt}
@@ -95,12 +73,12 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
 
   @impl true
   @spec decode_submit(LlmDialect.wire_value(), Config.t()) ::
-          {:ok, MediaResponse.t()} | {:error, Error.t()}
+          {:ok, Response.t()} | {:error, Error.t()}
   def decode_submit(%{"data" => [_ | _] = items} = payload, %Config{} = config)
       when is_list(items) do
     with {:ok, assets, revised_prompts} <- decode_items(items) do
       {:ok,
-       %MediaResponse{
+       %Response{
          assets: assets,
          revised_prompt: Enum.find(revised_prompts, &is_binary/1),
          usage: decode_usage(payload["usage"]),

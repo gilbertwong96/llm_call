@@ -2,6 +2,7 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
   @moduledoc """
   Seedance video generation (BytePlus ModelArk content generation tasks).
 
+
   Submit `POST /api/v3/contents/generations/tasks`, then poll
   `GET /api/v3/contents/generations/tasks/{id}`. The prompt and any reference
   images are `content` parts; `ratio`, `duration`, and `seed` are top-level.
@@ -14,16 +15,8 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
   catalog, so a model-specific limit surfaces as a provider error.
   """
 
-  alias LlmDialect.{Codec, Config, Content, EncodedRequest, Error, Operation}
-  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
-  alias LlmDialect.Media.Request, as: MediaRequest
-  alias LlmDialect.Media.Response, as: MediaResponse
+  use LlmDialect.Media.Adapter, codec: :seedance_video, modality: :video
 
-  alias LlmDialect.Protocol.Helpers
-
-  @behaviour LlmDialect.Media.Codec
-
-  @codec :seedance_video
   @api_version "v3"
   @path "/api/v3/contents/generations/tasks"
   @headers [{"content-type", "application/json"}]
@@ -43,9 +36,9 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
   end
 
   @impl true
-  @spec capabilities(MediaRequest.t(), Config.t()) :: MediaCapabilities.t()
-  def capabilities(%MediaRequest{}, %Config{}) do
-    %MediaCapabilities{
+  @spec capabilities(Request.t(), Config.t()) :: Capabilities.t()
+  def capabilities(%Request{}, %Config{}) do
+    %Capabilities{
       modalities: [:video],
       async: true,
       max_n: :unsupported,
@@ -59,24 +52,9 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
   end
 
   @impl true
-  @spec validate_request(MediaRequest.t(), Config.t()) :: :ok | {:error, Error.t()}
-  def validate_request(%MediaRequest{} = request, %Config{} = config) do
-    Helpers.validate_media_request(
-      request,
-      config,
-      @codec,
-      :video,
-      &Helpers.validate_model/2,
-      &validate_params/1,
-      &validate_references/1,
-      &validate_provider_options/2
-    )
-  end
-
-  @impl true
-  @spec encode_submit(MediaRequest.t(), Config.t()) ::
+  @spec encode_submit(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
-  def encode_submit(%MediaRequest{} = request, %Config{} = config) do
+  def encode_submit(%Request{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
       body =
         %{
@@ -94,11 +72,11 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
 
   @impl true
   @spec decode_submit(LlmDialect.wire_value(), Config.t()) ::
-          {:ok, MediaResponse.t()} | {:error, Error.t()}
+          {:ok, Response.t()} | {:error, Error.t()}
   def decode_submit(%{"id" => id} = payload, %Config{} = config)
       when is_binary(id) and id != "" do
     {:ok,
-     %MediaResponse{
+     %Response{
        assets: [],
        operation: %Operation{
          id: id,
@@ -170,7 +148,7 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
          %Operation{
            id: payload["id"],
            status: :completed,
-           result: %MediaResponse{
+           result: %Response{
              assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
            },
            raw: Helpers.capture_response(config, payload)
@@ -207,7 +185,7 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
     }
   end
 
-  defp reference_parts(%MediaRequest{references: references}) do
+  defp reference_parts(%Request{references: references}) do
     references
     |> Enum.with_index()
     |> Enum.map(fn {reference, index} -> image_part(image_url(reference), frame_role(index)) end)

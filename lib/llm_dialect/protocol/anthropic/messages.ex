@@ -9,38 +9,14 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   `call_id` on a tool result is the Anthropic `tool_use_id`.
   """
 
-  alias LlmDialect.{
-    Capabilities,
-    Codec,
-    Config,
-    Content,
-    EncodedRequest,
-    Error,
-    Message,
-    Reasoning,
-    ReasoningCapabilities,
-    Request,
-    Response,
-    StreamState,
-    ToolCall,
-    ToolResult,
-    ToolSpec,
-    Usage
-  }
-
-  alias LlmDialect.Protocol.Helpers
-  alias LlmDialect.StreamDelta
-
-  @behaviour LlmDialect.Codec
-
-  @codec :anthropic_messages
-
   @api_version "2023-06-01"
   @path "/v1/messages"
   @headers [{"content-type", "application/json"}, {"anthropic-version", @api_version}]
   @reserved_keys ~w(model messages system contents tools stream)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
+
+  use LlmDialect.Protocol.Adapter, codec: :anthropic_messages
 
   @impl true
   @spec info() :: Codec.Info.t()
@@ -54,15 +30,6 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   end
 
   @impl true
-  @spec encode_request(Request.t(), Config.t()) ::
-          {:ok, EncodedRequest.t()} | {:error, Error.t()}
-  def encode_request(%Request{} = request, %Config{} = config) do
-    with :ok <- validate_request(request, config) do
-      {:ok, Helpers.post(@path, @headers, body(request, config))}
-    end
-  end
-
-  @impl true
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
@@ -71,8 +38,15 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
          :ok <- validate_params(request.params),
          :ok <- validate_reasoning(request.reasoning),
          :ok <- validate_output(request.output),
-         :ok <- validate_tools(request.tools, request.tool_choice),
-         :ok <- validate_system(request.system),
+         :ok <-
+           Helpers.validate_tools(
+             request.tools,
+             request.tool_choice,
+             @codec,
+             &validate_tool_spec/1,
+             &validate_tool_choice/2
+           ),
+         :ok <- Helpers.validate_system(request.system, @codec),
          :ok <- validate_parts(request.messages) do
       validate_provider_options(request, config)
     end
@@ -279,16 +253,6 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     Helpers.error(@codec, "output #{inspect(output)} is not supported")
   end
 
-  defp validate_tools(tools, tool_choice),
-    do:
-      Helpers.validate_tools(
-        tools,
-        tool_choice,
-        @codec,
-        &validate_tool_spec/1,
-        &validate_tool_choice/2
-      )
-
   defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, options: true)
 
   defp validate_tool_choice(:auto, _tools), do: :ok
@@ -312,8 +276,6 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
 
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
-
-  defp validate_system(system), do: Helpers.validate_system(system, @codec)
 
   defp validate_parts(messages) do
     Helpers.first_error(messages, fn %Message{role: role, content: content} ->

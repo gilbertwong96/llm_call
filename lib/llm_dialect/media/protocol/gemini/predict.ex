@@ -2,6 +2,7 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   @moduledoc """
   Gemini Imagen image generation (`POST /v1beta/models/{model}:predict`).
 
+
   Instances carry the prompt; media controls live under `parameters`. `size`,
   `seed`, and `duration_s` are rejected because this endpoint does not expose
   them, and `references` are rejected because the JSON body cannot carry an
@@ -10,16 +11,11 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   `model` must be a bare model id: it is interpolated into the request path.
   """
 
-  alias LlmDialect.{Codec, Config, Content, EncodedRequest, Error}
-  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
-  alias LlmDialect.Media.Request, as: MediaRequest
-  alias LlmDialect.Media.Response, as: MediaResponse
+  use LlmDialect.Media.Adapter,
+    codec: :gemini_predict,
+    modality: :image,
+    model_fun: &Helpers.validate_model_id/2
 
-  alias LlmDialect.Protocol.Helpers
-
-  @behaviour LlmDialect.Media.Codec
-
-  @codec :gemini_predict
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
   @reserved_keys ~w(model prompt instances modality)
@@ -35,9 +31,9 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   end
 
   @impl true
-  @spec capabilities(MediaRequest.t(), Config.t()) :: MediaCapabilities.t()
-  def capabilities(%MediaRequest{}, %Config{}) do
-    %MediaCapabilities{
+  @spec capabilities(Request.t(), Config.t()) :: Capabilities.t()
+  def capabilities(%Request{}, %Config{}) do
+    %Capabilities{
       modalities: [:image],
       async: false,
       max_n: @max_n,
@@ -51,24 +47,9 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   end
 
   @impl true
-  @spec validate_request(MediaRequest.t(), Config.t()) :: :ok | {:error, Error.t()}
-  def validate_request(%MediaRequest{} = request, %Config{} = config) do
-    Helpers.validate_media_request(
-      request,
-      config,
-      @codec,
-      :image,
-      &Helpers.validate_model_id/2,
-      &validate_params/1,
-      &validate_references/1,
-      &validate_provider_options/2
-    )
-  end
-
-  @impl true
-  @spec encode_submit(MediaRequest.t(), Config.t()) ::
+  @spec encode_submit(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
-  def encode_submit(%MediaRequest{} = request, %Config{} = config) do
+  def encode_submit(%Request{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
       body =
         %{"instances" => [%{"prompt" => request.prompt}]}
@@ -88,12 +69,12 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
 
   @impl true
   @spec decode_submit(LlmDialect.wire_value(), Config.t()) ::
-          {:ok, MediaResponse.t()} | {:error, Error.t()}
+          {:ok, Response.t()} | {:error, Error.t()}
   def decode_submit(%{"predictions" => [_ | _] = predictions} = payload, %Config{} = config)
       when is_list(predictions) do
     with {:ok, assets} <- decode_predictions(predictions, payload) do
       {:ok,
-       %MediaResponse{
+       %Response{
          assets: assets,
          revised_prompt: nil,
          usage: nil,
