@@ -15,26 +15,12 @@ defmodule LlmDialect.Codec.Conformance do
 
   import ExUnit.Assertions
 
-  alias LlmDialect.{Capabilities, Codec, Config, EncodedRequest, StreamEvent, StreamState}
+  alias LlmDialect.{Capabilities, Config, EncodedRequest, StreamEvent, StreamState}
   alias LlmDialect.StreamDelta
 
-  @credential_headers ["authorization", "x-api-key", "api-key"]
-
+  @doc "Asserts well-formed `info/0` metadata (see `LlmDialect.Conformance`)."
   @spec assert_info(module()) :: :ok
-  def assert_info(codec) do
-    info = codec.info()
-
-    assert %Codec.Info{name: name, protocol: protocol, version: version, ir_version: 1} = info,
-           "#{inspect(codec)}.info/0 must return %LlmDialect.Codec.Info{} with ir_version 1"
-
-    assert is_atom(name), "#{inspect(codec)}.info/0 name must be an atom"
-    assert is_atom(protocol), "#{inspect(codec)}.info/0 protocol must be an atom"
-
-    assert is_nil(version) or is_binary(version),
-           "#{inspect(codec)}.info/0 version must be a string or nil"
-
-    :ok
-  end
+  def assert_info(codec), do: LlmDialect.Conformance.assert_info(codec)
 
   @spec assert_capabilities(module(), LlmDialect.Request.t(), Config.t()) :: :ok
   def assert_capabilities(codec, request, config) do
@@ -78,7 +64,7 @@ defmodule LlmDialect.Codec.Conformance do
 
     names = Enum.map(encoded.headers, fn {name, _value} -> String.downcase(name) end)
 
-    for forbidden <- @credential_headers do
+    for forbidden <- LlmDialect.Conformance.credential_headers() do
       refute forbidden in names,
              "#{inspect(codec)} encoded request contains a credential header #{inspect(forbidden)}"
     end

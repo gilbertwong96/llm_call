@@ -64,13 +64,16 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   @impl true
   @spec validate_request(MediaRequest.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%MediaRequest{} = request, %Config{} = config) do
-    with :ok <- validate_modality(request.modality),
-         :ok <- validate_model(request.model),
-         :ok <- validate_prompt(request.prompt),
-         :ok <- validate_params(request.params),
-         :ok <- validate_references(request.references) do
-      validate_provider_options(request, config)
-    end
+    Helpers.validate_media_request(
+      request,
+      config,
+      @codec,
+      :video,
+      &Helpers.validate_model/2,
+      &validate_params/1,
+      &validate_references/1,
+      &validate_provider_options/2
+    )
   end
 
   @impl true
@@ -260,18 +263,6 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
        ]) do
     "data:#{media_type};base64,#{data}"
   end
-
-  defp validate_modality(:video), do: :ok
-
-  defp validate_modality(modality) do
-    Helpers.error(@codec, "modality must be :video, got: #{inspect(modality)}")
-  end
-
-  defp validate_model(model) when is_binary(model) and model != "", do: :ok
-  defp validate_model(_model), do: Helpers.error(@codec, "model is required")
-
-  defp validate_prompt(prompt) when is_binary(prompt) and prompt != "", do: :ok
-  defp validate_prompt(_prompt), do: Helpers.error(@codec, "prompt is required")
 
   defp validate_params(params) when is_map(params) do
     with :ok <- Helpers.validate_param_keys(params, @param_keys, @codec) do

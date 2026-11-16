@@ -77,7 +77,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
-         :ok <- validate_modalities(request.modalities),
+         :ok <- Helpers.validate_modalities(request.modalities, [:text, :image], @codec),
          :ok <- validate_streaming_modalities(request),
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
@@ -272,25 +272,6 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
     Map.get(options, :gemini) || Map.get(options, :google) || %{}
   end
 
-  defp validate_modalities(modalities) when is_list(modalities) and modalities != [] do
-    cond do
-      Enum.any?(modalities, &(&1 not in [:text, :image, :video])) ->
-        Helpers.error(@codec, "modality must be :text, :image or :video")
-
-      length(Enum.uniq(modalities)) != length(modalities) ->
-        Helpers.error(@codec, "modalities must not repeat a value")
-
-      :video in modalities ->
-        Helpers.error(@codec, "video output requires the long-running predict path")
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_modalities(_modalities),
-    do: Helpers.error(@codec, "modalities must be a non-empty list")
-
   defp validate_streaming_modalities(%Request{stream: true, modalities: modalities}) do
     if :image in modalities do
       Helpers.error(@codec, "image output cannot be streamed")
@@ -303,35 +284,9 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   defp validate_model(model), do: Helpers.validate_model_id(model, @codec)
 
-  defp validate_messages([]), do: Helpers.error(@codec, "at least one message is required")
+  defp validate_messages(messages), do: Helpers.validate_messages(messages, @codec)
 
-  defp validate_messages(messages) when is_list(messages) do
-    Helpers.first_error(messages, fn
-      %Message{role: role, content: []} when role in [:user, :assistant] ->
-        Helpers.error(@codec, "message requires at least one content part")
-
-      %Message{role: role, content: content}
-      when role in [:user, :assistant] and is_list(content) ->
-        :ok
-
-      %Message{role: role} when role in [:user, :assistant] ->
-        Helpers.error(@codec, "message content must be a list")
-
-      %Message{} ->
-        Helpers.error(@codec, "message role must be :user or :assistant")
-
-      _other ->
-        Helpers.error(@codec, "messages must be LlmDialect.Message structs")
-    end)
-  end
-
-  defp validate_messages(_messages), do: Helpers.error(@codec, "messages must be a list")
-
-  defp validate_params(params) when is_map(params) do
-    Helpers.validate_param_keys(params, @param_keys, @codec)
-  end
-
-  defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
+  defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
 
   defp validate_reasoning(nil), do: :ok
 
@@ -381,27 +336,17 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp validate_output(output),
     do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
 
-  defp validate_tools(tools, tool_choice) when is_list(tools) do
-    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1) do
-      validate_tool_choice(tool_choice, tools)
-    end
-  end
+  defp validate_tools(tools, tool_choice),
+    do:
+      Helpers.validate_tools(
+        tools,
+        tool_choice,
+        @codec,
+        &validate_tool_spec/1,
+        &validate_tool_choice/2
+      )
 
-  defp validate_tools(_tools, _tool_choice), do: Helpers.error(@codec, "tools must be a list")
-
-  defp validate_tool_spec(%ToolSpec{kind: :builtin}),
-    do: Helpers.error(@codec, "builtin tools are not supported")
-
-  defp validate_tool_spec(%ToolSpec{name: name} = spec) when is_binary(name) and name != "" do
-    with :ok <- Helpers.reject(spec.strict, @codec, "tool strict mode is not supported") do
-      Helpers.validate_options(spec.provider_options, @codec, "tool provider_options")
-    end
-  end
-
-  defp validate_tool_spec(%ToolSpec{}), do: Helpers.error(@codec, "function tool requires a name")
-
-  defp validate_tool_spec(_spec),
-    do: Helpers.error(@codec, "tools must be LlmDialect.ToolSpec structs")
+  defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, options: true)
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -420,21 +365,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_system(nil), do: :ok
-  defp validate_system(text) when is_binary(text), do: :ok
-
-  defp validate_system(parts) when is_list(parts),
-    do: Helpers.first_error(parts, &validate_system_part/1)
-
-  defp validate_system(_system),
-    do: Helpers.error(@codec, "system must be a string or a list of content parts")
-
-  defp validate_system_part(%Content.Text{text: text}) when is_binary(text), do: :ok
-
-  defp validate_system_part(%Content.Text{}),
-    do: Helpers.error(@codec, "system text part requires text")
-
-  defp validate_system_part(_part), do: Helpers.error(@codec, "system only supports text parts")
+  defp validate_system(system), do: Helpers.validate_system(system, @codec)
 
   defp validate_parts(messages) do
     Helpers.first_error(messages, fn %Message{role: role, content: content} ->
@@ -492,32 +423,11 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
 
-  defp validate_tool_call_arguments(%ToolCall{arguments: arguments}) when is_map(arguments),
-    do: :ok
+  defp validate_tool_call_arguments(call),
+    do: Helpers.validate_tool_call_arguments(call, @codec)
 
-  defp validate_tool_call_arguments(%ToolCall{raw_arguments: nil}), do: :ok
-
-  defp validate_tool_call_arguments(%ToolCall{raw_arguments: raw}) do
-    case :json.decode(raw) do
-      %{} -> :ok
-      _not_a_map -> Helpers.error(@codec, "tool call raw_arguments must decode to an object")
-    end
-  rescue
-    _decode_error -> Helpers.error(@codec, "tool call raw_arguments must decode to an object")
-  end
-
-  defp validate_tool_result_content(content) when is_binary(content), do: :ok
-
-  defp validate_tool_result_content(content) when is_list(content),
-    do: Helpers.first_error(content, &validate_tool_result_part/1)
-
-  defp validate_tool_result_content(_content),
-    do: Helpers.error(@codec, "tool result content must be a string or content parts")
-
-  defp validate_tool_result_part(%Content.Text{}), do: :ok
-
-  defp validate_tool_result_part(_part),
-    do: Helpers.error(@codec, "tool result only supports text content")
+  defp validate_tool_result_content(content),
+    do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
     options = Config.provider_options(request, config)

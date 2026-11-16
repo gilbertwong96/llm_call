@@ -13,7 +13,7 @@ defmodule LlmDialect.Protocol.Helpers do
   validation message is prefixed with the codec that rejected the request.
   """
 
-  alias LlmDialect.{Config, Error, StreamEvent}
+  alias LlmDialect.{Config, Content, Error, Message, StreamEvent, ToolCall, ToolSpec}
 
   @type codec :: atom()
 
@@ -195,6 +195,255 @@ defmodule LlmDialect.Protocol.Helpers do
       body: body
     }
   end
+
+  @doc """
+  Validates that a model id is a non-empty string.
+  """
+  @spec validate_model(LlmDialect.model() | nil, codec()) :: :ok | {:error, Error.t()}
+  def validate_model(model, _codec) when is_binary(model) and model != "", do: :ok
+  def validate_model(_model, codec), do: error(codec, "model is required")
+
+  @doc """
+  Validates canonical messages: a non-empty list of user/assistant turns, each
+  with a non-empty content list.
+  """
+  @spec validate_messages([Message.t()], codec()) :: :ok | {:error, Error.t()}
+  def validate_messages([], codec), do: error(codec, "at least one message is required")
+
+  def validate_messages(messages, codec) when is_list(messages) do
+    first_error(messages, fn
+      %Message{role: role, content: []} when role in [:user, :assistant] ->
+        error(codec, "message requires at least one content part")
+
+      %Message{role: role, content: content}
+      when role in [:user, :assistant] and is_list(content) ->
+        :ok
+
+      %Message{role: role} when role in [:user, :assistant] ->
+        error(codec, "message content must be a list")
+
+      %Message{} ->
+        error(codec, "message role must be :user or :assistant")
+
+      _other ->
+        error(codec, "messages must be LlmDialect.Message structs")
+    end)
+  end
+
+  def validate_messages(_messages, codec), do: error(codec, "messages must be a list")
+
+  @doc """
+  Validates the system field: `nil`, a string, or a list of text parts.
+  """
+  @spec validate_system(LlmDialect.Request.system(), codec()) :: :ok | {:error, Error.t()}
+  def validate_system(nil, _codec), do: :ok
+  def validate_system(text, _codec) when is_binary(text), do: :ok
+
+  def validate_system(parts, codec) when is_list(parts) do
+    first_error(parts, fn
+      %Content.Text{text: text} when is_binary(text) -> :ok
+      %Content.Text{} -> error(codec, "system text part requires text")
+      _part -> error(codec, "system only supports text parts")
+    end)
+  end
+
+  def validate_system(_system, codec),
+    do: error(codec, "system must be a string or a list of content parts")
+
+  @doc """
+  Validates the tool list and delegates the tool-choice rules to the codec.
+
+  `spec_validator` is the codec's `validate_tool_spec/1`; `choice_validator` is
+  its `validate_tool_choice/2`, which owns the per-protocol choice union.
+  """
+  @spec validate_tools(
+          [ToolSpec.t()],
+          LlmDialect.Request.tool_choice(),
+          codec(),
+          (ToolSpec.t() -> :ok | {:error, Error.t()}),
+          (term(), [ToolSpec.t()] -> :ok | {:error, Error.t()})
+        ) ::
+          :ok | {:error, Error.t()}
+  def validate_tools(tools, tool_choice, _codec, spec_validator, choice_validator)
+      when is_list(tools) do
+    with :ok <- first_error(tools, spec_validator) do
+      choice_validator.(tool_choice, tools)
+    end
+  end
+
+  def validate_tools(_tools, _tool_choice, codec, _spec_validator, _choice_validator),
+    do: error(codec, "tools must be a list")
+
+  @doc """
+  Validates a tool call's arguments: a decoded map, or a raw string that decodes
+  to an object. A malformed fragment is an error, never `%{}`.
+  """
+  @spec validate_tool_call_arguments(ToolCall.t(), codec()) :: :ok | {:error, Error.t()}
+  def validate_tool_call_arguments(%ToolCall{arguments: arguments}, _codec)
+      when is_map(arguments),
+      do: :ok
+
+  def validate_tool_call_arguments(%ToolCall{raw_arguments: nil}, _codec), do: :ok
+
+  def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec) do
+    case :json.decode(raw) do
+      %{} -> :ok
+      _not_a_map -> error(codec, "tool call raw_arguments must decode to an object")
+    end
+  rescue
+    _decode_error -> error(codec, "tool call raw_arguments must decode to an object")
+  end
+
+  @doc """
+  Validates tool-result content: a string or a list of text parts.
+  """
+  @spec validate_tool_result_content(term(), codec()) :: :ok | {:error, Error.t()}
+  def validate_tool_result_content(content, _codec) when is_binary(content), do: :ok
+
+  def validate_tool_result_content(content, codec) when is_list(content) do
+    first_error(content, fn
+      %Content.Text{} -> :ok
+      _part -> error(codec, "tool result only supports text content")
+    end)
+  end
+
+  def validate_tool_result_content(_content, codec),
+    do: error(codec, "tool result content must be a string or content parts")
+
+  @doc """
+  Validates a media request's modality.
+  """
+  @spec validate_modality(term(), :image | :video, codec()) :: :ok | {:error, Error.t()}
+  def validate_modality(expected, expected, _codec), do: :ok
+
+  def validate_modality(modality, expected, codec) do
+    error(codec, "modality must be #{inspect(expected)}, got: #{inspect(modality)}")
+  end
+
+  @doc """
+  Runs a media adapter's validation pipeline.
+
+  The shared steps are modality, model, prompt, and the codec's own param,
+  reference, and provider-option checks, passed as functions so each codec keeps
+  its protocol-specific rules.
+  """
+  @spec validate_media_request(
+          LlmDialect.Media.Request.t(),
+          Config.t(),
+          codec(),
+          :image | :video,
+          (LlmDialect.model() | nil, codec() -> :ok | {:error, Error.t()}),
+          (map() -> :ok | {:error, Error.t()}),
+          (term() -> :ok | {:error, Error.t()}),
+          (LlmDialect.Media.Request.t(), Config.t() -> :ok | {:error, Error.t()})
+        ) :: :ok | {:error, Error.t()}
+  def validate_media_request(
+        request,
+        config,
+        codec,
+        modality,
+        model_fun,
+        params_fun,
+        references_fun,
+        options_fun
+      ) do
+    with :ok <- validate_modality(request.modality, modality, codec),
+         :ok <- model_fun.(request.model, codec),
+         :ok <- validate_prompt(request.prompt, codec),
+         :ok <- params_fun.(request.params),
+         :ok <- references_fun.(request.references) do
+      options_fun.(request, config)
+    end
+  end
+
+  @doc """
+  Validates that a media prompt is a non-empty string.
+  """
+  @spec validate_prompt(String.t() | nil, codec()) :: :ok | {:error, Error.t()}
+  def validate_prompt(prompt, _codec) when is_binary(prompt) and prompt != "", do: :ok
+  def validate_prompt(_prompt, codec), do: error(codec, "prompt is required")
+
+  @doc """
+  Validates `params.n` against the codec's declared maximum.
+  """
+  @spec validate_n(pos_integer() | nil, pos_integer() | :unsupported, codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_n(nil, _max_n, _codec), do: :ok
+  def validate_n(_n, :unsupported, codec), do: error(codec, "params.n is not supported")
+  def validate_n(n, max_n, _codec) when is_integer(n) and n > 0 and n <= max_n, do: :ok
+  def validate_n(_n, max_n, codec), do: error(codec, "params.n must be between 1 and #{max_n}")
+
+  @doc """
+  Validates the requested output modalities.
+
+  `allowed` is the protocol's output surface: OpenAI Chat and Anthropic accept
+  text only, Gemini also accepts images. Anything outside `[:text, :image,
+  :video]` or duplicated is a structural error.
+  """
+  @spec validate_modalities([LlmDialect.modality()], [LlmDialect.modality()], codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_modalities(modalities, allowed, codec)
+      when is_list(modalities) and modalities != [] do
+    cond do
+      Enum.any?(modalities, &(&1 not in [:text, :image, :video])) ->
+        error(codec, "modality must be :text, :image or :video")
+
+      length(Enum.uniq(modalities)) != length(modalities) ->
+        error(codec, "modalities must not repeat a value")
+
+      Enum.any?(modalities, &(&1 not in allowed)) ->
+        unsupported = Enum.reject(modalities, &(&1 in allowed))
+        error(codec, "output modality #{inspect(unsupported)} is not supported")
+
+      true ->
+        :ok
+    end
+  end
+
+  def validate_modalities(_modalities, _allowed, codec),
+    do: error(codec, "modalities must be a non-empty list")
+
+  @doc """
+  Validates that `params` is a map and only contains supported keys.
+  """
+  @spec validate_params(term(), [atom()], codec()) :: :ok | {:error, Error.t()}
+  def validate_params(params, keys, codec) when is_map(params),
+    do: validate_param_keys(params, keys, codec)
+
+  def validate_params(_params, _keys, codec), do: error(codec, "params must be a map")
+
+  @doc """
+  Validates a tool spec.
+
+  `strict: true` lets the protocol forward `strict`; otherwise a non-nil value is
+  rejected. `options: true` lets the protocol forward `provider_options`.
+  """
+  @spec validate_tool_spec(ToolSpec.t(), codec(), keyword()) :: :ok | {:error, Error.t()}
+  def validate_tool_spec(%ToolSpec{kind: :builtin}, codec, _opts),
+    do: error(codec, "builtin tools are not supported")
+
+  def validate_tool_spec(%ToolSpec{name: name} = spec, codec, opts)
+      when is_binary(name) and name != "" do
+    strict =
+      if Keyword.get(opts, :strict, false),
+        do: :ok,
+        else: reject(spec.strict, codec, "tool strict mode is not supported")
+
+    options =
+      if Keyword.get(opts, :options, false),
+        do: validate_options(spec.provider_options, codec, "tool provider_options"),
+        else: :ok
+
+    with :ok <- strict do
+      options
+    end
+  end
+
+  def validate_tool_spec(%ToolSpec{}, codec, _opts),
+    do: error(codec, "function tool requires a name")
+
+  def validate_tool_spec(_spec, codec, _opts),
+    do: error(codec, "tools must be LlmDialect.ToolSpec structs")
 
   @doc """
   Validates that a `params` map only contains supported keys.

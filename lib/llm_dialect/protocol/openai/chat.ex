@@ -61,14 +61,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
   def encode_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
-      {:ok,
-       %EncodedRequest{
-         method: :post,
-         path: @path,
-         query: %{},
-         headers: @headers,
-         body: body(request, config)
-       }}
+      {:ok, Helpers.post(@path, @headers, body(request, config))}
     end
   end
 
@@ -76,7 +69,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
-         :ok <- validate_modalities(request.modalities),
+         :ok <- Helpers.validate_modalities(request.modalities, [:text], @codec),
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
          :ok <- validate_reasoning(request.reasoning),
@@ -248,46 +241,11 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     Config.provider_options(request, config) |> Map.get(:openai, %{})
   end
 
-  defp validate_model(model) when is_binary(model) and model != "", do: :ok
-  defp validate_model(_model), do: Helpers.error(@codec, "model is required")
+  defp validate_model(model), do: Helpers.validate_model(model, @codec)
 
-  defp validate_modalities(modalities) when is_list(modalities) and modalities != [] do
-    cond do
-      Enum.any?(modalities, &(&1 not in [:text, :image, :video])) ->
-        Helpers.error(@codec, "modality must be :text, :image or :video")
+  defp validate_messages(messages), do: Helpers.validate_messages(messages, @codec)
 
-      length(Enum.uniq(modalities)) != length(modalities) ->
-        Helpers.error(@codec, "modalities must not repeat a value")
-
-      Enum.any?(modalities, &(&1 != :text)) ->
-        Helpers.error(
-          @codec,
-          "output modality #{inspect(Enum.reject(modalities, &(&1 == :text)))} is not supported"
-        )
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_modalities(_modalities),
-    do: Helpers.error(@codec, "modalities must be a non-empty list")
-
-  defp validate_messages([]), do: Helpers.error(@codec, "at least one message is required")
-
-  defp validate_messages(messages) when is_list(messages) do
-    Helpers.first_error(messages, fn
-      %Message{role: role} when role in [:user, :assistant] -> :ok
-      %Message{} -> Helpers.error(@codec, "message role must be :user or :assistant")
-      _other -> Helpers.error(@codec, "messages must be LlmDialect.Message structs")
-    end)
-  end
-
-  defp validate_params(params) when is_map(params) do
-    Helpers.validate_param_keys(params, @param_keys, @codec)
-  end
-
-  defp validate_params(_params), do: Helpers.error(@codec, "params must be a map")
+  defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
 
   defp validate_reasoning(nil), do: :ok
 
@@ -314,24 +272,17 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     Helpers.error(@codec, "reasoning effort #{inspect(effort)} is not supported")
   end
 
-  defp validate_tools(tools, tool_choice) when is_list(tools) do
-    with :ok <- Helpers.first_error(tools, &validate_tool_spec/1) do
-      validate_tool_choice(tool_choice, tools)
-    end
-  end
+  defp validate_tools(tools, tool_choice),
+    do:
+      Helpers.validate_tools(
+        tools,
+        tool_choice,
+        @codec,
+        &validate_tool_spec/1,
+        &validate_tool_choice/2
+      )
 
-  defp validate_tools(_tools, _tool_choice), do: Helpers.error(@codec, "tools must be a list")
-
-  defp validate_tool_spec(%ToolSpec{kind: :builtin}) do
-    Helpers.error(@codec, "builtin tools are not supported")
-  end
-
-  defp validate_tool_spec(%ToolSpec{name: name}) when is_binary(name) and name != "", do: :ok
-
-  defp validate_tool_spec(%ToolSpec{}), do: Helpers.error(@codec, "function tool requires a name")
-
-  defp validate_tool_spec(_spec),
-    do: Helpers.error(@codec, "tools must be LlmDialect.ToolSpec structs")
+  defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, strict: true)
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -360,21 +311,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   defp validate_tool_choice_value(choice),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_system(nil), do: :ok
-  defp validate_system(text) when is_binary(text), do: :ok
-
-  defp validate_system(parts) when is_list(parts),
-    do: Helpers.first_error(parts, &validate_system_part/1)
-
-  defp validate_system(_system),
-    do: Helpers.error(@codec, "system must be a string or a list of content parts")
-
-  defp validate_system_part(%Content.Text{text: text}) when is_binary(text), do: :ok
-
-  defp validate_system_part(%Content.Text{}),
-    do: Helpers.error(@codec, "system text part requires text")
-
-  defp validate_system_part(_part), do: Helpers.error(@codec, "system only supports text parts")
+  defp validate_system(system), do: Helpers.validate_system(system, @codec)
 
   defp validate_parts(messages) do
     Helpers.first_error(messages, fn %Message{role: role, content: content} ->
@@ -438,18 +375,8 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
 
-  defp validate_tool_result_content(content) when is_binary(content), do: :ok
-
-  defp validate_tool_result_content(content) when is_list(content),
-    do: Helpers.first_error(content, &validate_tool_result_part/1)
-
-  defp validate_tool_result_content(_content),
-    do: Helpers.error(@codec, "tool result content must be a string or content parts")
-
-  defp validate_tool_result_part(%Content.Text{}), do: :ok
-
-  defp validate_tool_result_part(_part),
-    do: Helpers.error(@codec, "tool result only supports text content")
+  defp validate_tool_result_content(content),
+    do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
     case Map.get(Config.provider_options(request, config), :openai, %{}) do
