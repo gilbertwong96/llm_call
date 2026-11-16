@@ -17,6 +17,10 @@ First release, not yet published to Hex.
   every unsupported field.
 - Reference adapters: OpenAI Chat Completions, Anthropic Messages, Gemini
   GenerateContent.
+- Adapter authoring macros: `LlmDialect.Protocol.Adapter` injects the behaviour,
+  aliases, and `encode_request/2`; `LlmDialect.Media.Adapter` additionally
+  injects the shared media validation pipeline. Shared rules live in
+  `LlmDialect.Protocol.Helpers`.
 - Streaming primitives (`StreamEvent`, `StreamDelta`, `StreamState`) and the pure
   `StreamAssembler`.
 - Media IR: `LlmDialect.Media.{Request,Response,Capabilities,Codec}`,

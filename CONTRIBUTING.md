@@ -2,11 +2,13 @@
 
 ## Which behaviour to implement
 
-- A completion endpoint (messages, system prompt, tools) → `LlmDialect.Codec`.
+- A completion endpoint (messages, system prompt, tools) →
+  `use LlmDialect.Protocol.Adapter` (`LlmDialect.Codec`).
 - A dedicated media endpoint (image/video generation, possibly long-running) →
-  `LlmDialect.Media.Codec`.
+  `use LlmDialect.Media.Adapter` (`LlmDialect.Media.Codec`).
 
-Both are described in [`docs/design.md`](docs/design.md) (§10, §23.5).
+Both macros inject the behaviour, the canonical aliases, `@codec`, and the shared
+validation entry point; see [`docs/design.md`](docs/design.md) (§10, §23.5).
 
 ## Where an adapter belongs
 
@@ -42,8 +44,11 @@ Ollama, Mistral, Sora, Veo — is written outside this repository.
 
 Every adapter must:
 
-1. Implement every required callback; implement `init_stream/2`,
-   `decode_stream_event/3`, `finish_stream/2` only when the protocol streams.
+1. Start from the adapter macro (`use LlmDialect.Protocol.Adapter, codec: ...`
+   with `@path`/`@headers`, or `use LlmDialect.Media.Adapter, ...` with a
+   modality), then implement every callback it does not inject. Implement
+   `init_stream/2`, `decode_stream_event/3`, `finish_stream/2` only when the
+   protocol streams.
 2. Return `Codec.Info` with the correct `ir_version` and wire `version`.
 3. **Validate before encoding.** `encode_*` returns
    `{:error, %LlmDialect.Error{kind: :validation}}` for anything the protocol cannot
@@ -87,12 +92,13 @@ mix ci
 ```
 
 It compiles with warnings as errors, checks formatting, runs the suite,
-`credo --strict`, Dialyzer, ExDNA, and Reach. The vendored media adapters run
+`credo --strict`, Dialyzer, SpecLint (with warnings as errors), ExDNA at a zero
+clone budget, and the Reach architecture policy. The vendored media adapters run
 the media conformance suite in the same `mix test`.
 
-`mix ci` uses a clone-budget ratchet (see `mix.exs`): the protocol adapters are
-deliberately parallel, so the budget is the current count — a new clone fails the
-build, and lowering it means extracting another shared validator.
+`mix ci` runs ExDNA with a zero clone budget (see `mix.exs`): the protocol
+adapters are deliberately parallel, but any logic clone fails the build, so a
+shared rule belongs in `LlmDialect.Protocol.Helpers`.
 
 ## Publishing
 
@@ -104,8 +110,8 @@ Before the first `mix hex.publish`:
    current toolchain).
 3. `mix hex.build` shows the expected package name, license, and file list.
 
-The clone-budget ratchet in `mix.exs` applies to published versions too: a new
-clone fails the gate, so lower the budget only by extracting shared code.
+The zero clone budget in `mix.exs` applies to published versions too: a new clone
+fails the gate, so shared logic belongs in `LlmDialect.Protocol.Helpers`.
 
 ## Documentation
 

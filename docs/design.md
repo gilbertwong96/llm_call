@@ -1050,10 +1050,23 @@ new protocol adapter independent of model catalogs and authentication.
 
 Adding a new codec should require only:
 
-1. A module implementing `LlmDialect.Codec`.
+1. A module that `use`s `LlmDialect.Protocol.Adapter` (or
+   `LlmDialect.Media.Adapter`), supplying `@path`, `@headers`, `info/0`,
+   `capabilities/0`, the protocol's own `validate_request/2`, and a private
+   `body/2` that returns the wire body.
 2. Protocol-specific request/response/stream fixtures.
-3. Codec metadata via `info/0`.
-4. Capability declarations for the models/endpoints the codec supports.
+3. Capability declarations for the models/endpoints the codec supports.
+
+`use LlmDialect.Protocol.Adapter, codec: :openai_chat` injects the behaviour, the
+canonical aliases, `@codec`, and `encode_request/2`; `encode: false` leaves
+`encode_request/2` to the codec when the path or method varies per request. The
+macro reads `@path` and `@headers` once the module finishes and raises at compile
+time if either is missing. The media macro additionally injects the shared
+`validate_request/2` pipeline.
+
+Adapters should not hand-roll the shared rules: `LlmDialect.Protocol.Helpers` is
+the adapter-authoring surface, and reimplementing it produces adapters the
+conformance suite cannot check consistently.
 
 It should not require a change to canonical `Request`, `Message`, `Response`,
 or `Tool` structs for already-representable concepts.
@@ -1099,7 +1112,7 @@ What they check today:
 - `info/0` metadata
 - streaming-callback presence matching `capabilities.streaming` (and
   `decode_operation/2` matching `LlmDialect.Media.Capabilities.async`)
-- encoded path/method/body/query shape, and credential-free headers
+- encoded path/method/body, a map-shaped query, and credential-free headers
 - `capture_raw` on `Response.raw` and `LlmDialect.Media.Response.raw` (core's unit tests also
   cover `Operation.raw`; the published suite does not)
 - stream roundtrip and stream-state ownership (the request is passed in, so an
@@ -1474,18 +1487,22 @@ lib/llm_dialect/stream_delta.ex
 lib/llm_dialect/stream_assembler.ex
 lib/llm_dialect/usage.ex
 lib/llm_dialect/error.ex
+lib/llm_dialect/json.ex
 lib/llm_dialect/capabilities.ex
 lib/llm_dialect/config.ex
 lib/llm_dialect/encoded_request.ex
 lib/llm_dialect/codec.ex
 lib/llm_dialect/codec/info.ex
+lib/llm_dialect/conformance.ex
 lib/llm_dialect/media/codec.ex
 lib/llm_dialect/media/request.ex
 lib/llm_dialect/media/response.ex
+lib/llm_dialect/media/adapter.ex
 lib/llm_dialect/media/capabilities.ex
 lib/llm_dialect/operation.ex
 lib/llm_dialect/codec_conformance.ex
 lib/llm_dialect/media_conformance.ex
+lib/llm_dialect/protocol/adapter.ex
 lib/llm_dialect/protocol/helpers.ex
 lib/llm_dialect/protocol/openai/chat.ex
 lib/llm_dialect/protocol/anthropic/messages.ex

@@ -29,6 +29,7 @@ mix ci
 - A blind global replace of an API or field rename is forbidden. If the semantic
   tools cannot express a change, stop and record why in the commit message.
 - After any refactor, `mix ci` is the gate and it must be green on both supported
-  toolchains: ExDNA reports no duplication at its default threshold, SpecLint
-  finds no spec that contradicts the compiler's inferred signature, Dialyzer and
-  Credo report nothing, and the suite passes.
+  toolchains: ExDNA reports no duplication at a zero clone budget, SpecLint
+  reports no spec that contradicts the compiler's inferred signature (with
+  warnings as errors), Reach passes the architecture policy in `.reach.exs`,
+  Dialyzer and Credo report nothing, and the suite passes.

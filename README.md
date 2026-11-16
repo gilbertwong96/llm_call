@@ -147,8 +147,11 @@ of the stable API surface (see `LlmDialect.Media`):
 | MiniMax Hailuo | `LlmDialect.Media.Protocol.MiniMax.Video` |
 
 The library does not promise provider coverage. An adapter outside this
-repository is a module implementing `LlmDialect.Codec` or `LlmDialect.Media.Codec` plus
-honest fixtures; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+repository is a module that `use`s `LlmDialect.Protocol.Adapter` (or
+`LlmDialect.Media.Adapter`) and supplies `@path`, `@headers`, a private `body/2`,
+and the protocol's own `validate_request/2`; share validation through
+`LlmDialect.Protocol.Helpers` instead of reimplementing it. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 Codec selection is explicit; there is no provider registry. OpenAI-compatible
 endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI surface, ...) use the
