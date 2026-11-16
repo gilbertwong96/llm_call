@@ -275,6 +275,26 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
              )
   end
 
+  test "provider_options deep-merge into the canonical body and across the :google alias" do
+    body =
+      encode(
+        text_request(
+          params: %{temperature: 0.2},
+          provider_options: %{
+            google: %{"safetySettings" => [%{"category" => "HARM"}]},
+            gemini: %{"generationConfig" => %{"thinkingConfig" => %{"includeThoughts" => true}}}
+          }
+        )
+      ).body
+
+    assert body["safetySettings"] == [%{"category" => "HARM"}]
+
+    assert body["generationConfig"] == %{
+             "temperature" => 0.2,
+             "thinkingConfig" => %{"includeThoughts" => true}
+           }
+  end
+
   test "unsupported canonical values are validation errors, never silent drops" do
     cases = [
       text_request(params: %{seed: 1}),
@@ -411,8 +431,10 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
                raw: ^payload
              } = GenerateContent.decode_error(payload, %Config{})
 
-      assert %Error{kind: :invalid_response, raw: nil} =
-               GenerateContent.decode_error(%{"weird" => 1}, %Config{})
+      unknown = %{"weird" => 1}
+
+      assert %Error{kind: :invalid_response, raw: ^unknown} =
+               GenerateContent.decode_error(unknown, %Config{})
     end
 
     test "capabilities/2 declares the Gemini surface" do
@@ -664,8 +686,10 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
 
     test "video needs the long-running path and image output cannot be streamed" do
       for modalities <- [[:video], [:text, :video]] do
-        assert {:error, %Error{kind: :validation}} =
+        assert {:error, %Error{kind: :validation, message: message}} =
                  GenerateContent.validate_request(text_request(modalities: modalities), %Config{})
+
+        assert message =~ "predict path"
       end
 
       streamed = text_request(modalities: [:text, :image], stream: true)

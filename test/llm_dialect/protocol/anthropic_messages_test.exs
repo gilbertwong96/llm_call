@@ -267,6 +267,36 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
              )
   end
 
+  test "provider_options deep-merge keep canonical fields" do
+    body =
+      encode(
+        text_request(
+          reasoning: %Reasoning{budget_tokens: 1024},
+          provider_options: %{anthropic: %{"thinking" => %{"display" => "omitted"}}}
+        )
+      ).body
+
+    assert body["thinking"] == %{
+             "type" => "enabled",
+             "budget_tokens" => 1024,
+             "display" => "omitted"
+           }
+  end
+
+  test "thinking blocks in user turns are rejected" do
+    request =
+      text_request(
+        messages: [
+          %Message{role: :user, content: [%Content.Thinking{text: "hmm", signature: "sig"}]}
+        ]
+      )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(request, %Config{})
+
+    assert message =~ "thinking content belongs to assistant messages"
+  end
+
   test "unsupported canonical values are validation errors, never silent drops" do
     cases = [
       text_request(params: %{seed: 1}),
@@ -390,8 +420,10 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
                raw: ^payload
              } = Messages.decode_error(payload, %Config{})
 
-      assert %Error{kind: :invalid_response, raw: nil} =
-               Messages.decode_error(%{"weird" => 1}, %Config{})
+      unknown = %{"weird" => 1}
+
+      assert %Error{kind: :invalid_response, raw: ^unknown} =
+               Messages.decode_error(unknown, %Config{})
     end
 
     test "capabilities/2 declares the Anthropic surface" do

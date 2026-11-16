@@ -8,9 +8,9 @@ defmodule LlmDialect.Protocol.Helpers do
   package would produce adapters that `LlmDialect.Codec.Conformance` cannot check
   consistently.
 
-  A codec keeps a module attribute for its own name (`@codec :openai_chat`) and
-  passes it to `error/2`, `reject/3`, and `validate_options/3`, so every
-  validation message is prefixed with the codec that rejected the request.
+  A codec's own name is injected as `@codec` by the adapter macros; pass it to
+  `error/2`, `reject/3`, and `validate_options/3`, so every validation message is
+  prefixed with the codec that rejected the request.
   """
 
   alias LlmDialect.{Config, Content, Error, Message, StreamEvent, ToolCall, ToolResult, ToolSpec}
@@ -142,8 +142,12 @@ defmodule LlmDialect.Protocol.Helpers do
     }
   end
 
-  def decode_provider_error(_term, codec, _code_keys, _retryable_codes) do
-    %Error{kind: :invalid_response, message: "#{codec}: unrecognized error payload", raw: nil}
+  def decode_provider_error(term, codec, _code_keys, _retryable_codes) do
+    %Error{
+      kind: :invalid_response,
+      message: "#{codec}: unrecognized error payload",
+      raw: if(is_map(term), do: term, else: nil)
+    }
   end
 
   @doc """
@@ -231,6 +235,28 @@ defmodule LlmDialect.Protocol.Helpers do
   end
 
   def validate_messages(_messages, codec), do: error(codec, "messages must be a list")
+
+  @doc """
+  Validates every content part in every message, applying the shared role rules
+  before the codec's `shape_fun`.
+
+  Protocol-specific role rules (for example OpenAI rejecting images in assistant
+  turns) stay in the codec's own `validate_part/2`.
+  """
+  @spec validate_parts(
+          [Message.t()],
+          codec(),
+          (Message.role(), Content.part() -> :ok | {:error, Error.t()})
+        ) :: :ok | {:error, Error.t()}
+  def validate_parts(messages, codec, shape_fun) do
+    first_error(messages, fn %Message{role: role, content: content} ->
+      first_error(content, &validate_part(role, &1, codec, shape_fun))
+    end)
+  end
+
+  defp validate_part(role, part, codec, shape_fun) do
+    with :ok <- validate_role(role, part, codec), do: shape_fun.(role, part)
+  end
 
   @doc """
   Validates the system field: `nil`, a string, or a list of text parts.

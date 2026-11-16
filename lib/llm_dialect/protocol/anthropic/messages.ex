@@ -61,7 +61,7 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     |> Helpers.maybe_put("tool_choice", encode_tool_choice(request.tool_choice, request.tools))
     |> Helpers.maybe_put("thinking", encode_reasoning(request.reasoning))
     |> Map.merge(encode_params(request.params))
-    |> Map.merge(provider_options(request, config))
+    |> Config.deep_merge(provider_options(request, config))
   end
 
   defp encode_system(nil), do: nil
@@ -277,66 +277,57 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_parts(messages) do
-    Helpers.first_error(messages, fn %Message{role: role, content: content} ->
-      Helpers.first_error(content, &validate_part(role, &1))
-    end)
-  end
+  defp validate_parts(messages),
+    do: Helpers.validate_parts(messages, @codec, &validate_part_shape/2)
 
-  defp validate_part(:user, %ToolCall{}),
-    do: Helpers.error(@codec, "tool calls belong to assistant messages")
+  defp validate_part_shape(_role, %Content.Text{}), do: :ok
 
-  defp validate_part(:user, %Content.Thinking{}),
-    do: Helpers.error(@codec, "thinking blocks belong to assistant messages")
-
-  defp validate_part(:assistant, %ToolResult{}),
-    do: Helpers.error(@codec, "tool results belong to user messages")
-
-  defp validate_part(_role, %Content.Text{}), do: :ok
-
-  defp validate_part(_role, %Content.Thinking{signature: nil}) do
+  defp validate_part_shape(_role, %Content.Thinking{signature: nil}) do
     Helpers.error(@codec, "thinking content requires a signature")
   end
 
-  defp validate_part(_role, %Content.Thinking{}), do: :ok
+  defp validate_part_shape(_role, %Content.Thinking{}), do: :ok
 
-  defp validate_part(_role, %Content.Image{source: {:file_id, _file_id}}),
+  defp validate_part_shape(_role, %Content.Image{source: {:file_id, _file_id}}),
     do: Helpers.error(@codec, "image source {:file_id, id} is not supported")
 
-  defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
     do: Helpers.error(@codec, "base64 image requires media_type")
 
-  defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
-  defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}), do: :ok
 
-  defp validate_part(_role, %Content.Image{}),
+  defp validate_part_shape(_role, %Content.Image{source: source}) when is_binary(source),
+    do: :ok
+
+  defp validate_part_shape(_role, %Content.Image{}),
     do: Helpers.error(@codec, "image source is not supported")
 
-  defp validate_part(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
+  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
     do: Helpers.error(@codec, "base64 document requires media_type")
 
-  defp validate_part(_role, %Content.File{}), do: :ok
-  defp validate_part(_role, %Content.Raw{data: %{}}), do: :ok
+  defp validate_part_shape(_role, %Content.File{}), do: :ok
+  defp validate_part_shape(_role, %Content.Raw{data: %{}}), do: :ok
 
-  defp validate_part(_role, %Content.Raw{}),
+  defp validate_part_shape(_role, %Content.Raw{}),
     do: Helpers.error(@codec, "raw content requires a map payload")
 
-  defp validate_part(_role, %ToolCall{id: nil}),
+  defp validate_part_shape(_role, %ToolCall{id: nil}),
     do: Helpers.error(@codec, "tool call requires an id")
 
-  defp validate_part(_role, %ToolCall{name: nil}),
+  defp validate_part_shape(_role, %ToolCall{name: nil}),
     do: Helpers.error(@codec, "tool call requires a name")
 
-  defp validate_part(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
+  defp validate_part_shape(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
 
-  defp validate_part(_role, %ToolResult{call_id: nil}),
+  defp validate_part_shape(_role, %ToolResult{call_id: nil}),
     do: Helpers.error(@codec, "tool result requires call_id")
 
-  defp validate_part(_role, %ToolResult{content: content}),
+  defp validate_part_shape(_role, %ToolResult{content: content}),
     do: validate_tool_result_content(content)
 
-  defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
+  defp validate_part_shape(_role, _part),
+    do: Helpers.error(@codec, "unsupported content part")
 
   defp validate_tool_call_arguments(call),
     do: Helpers.validate_tool_call_arguments(call, @codec)

@@ -54,6 +54,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
   def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
+         :ok <- validate_output_modalities(request.modalities),
          :ok <- Helpers.validate_modalities(request.modalities, [:text, :image], @codec),
          :ok <- validate_streaming_modalities(request),
          :ok <- validate_messages(request.messages),
@@ -89,7 +90,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
     |> Helpers.maybe_put("tools", encode_tools(request.tools))
     |> Helpers.maybe_put("toolConfig", encode_tool_config(request.tool_choice, request.tools))
     |> Helpers.maybe_put("generationConfig", encode_generation_config(request))
-    |> Map.merge(provider_options(request, config))
+    |> Config.deep_merge(provider_options(request, config))
   end
 
   defp encode_message(%Message{role: role, content: content}) do
@@ -253,7 +254,15 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   defp provider_options(request, config) do
     options = Config.provider_options(request, config)
-    Map.get(options, :gemini) || Map.get(options, :google) || %{}
+    (Map.get(options, :google) || %{}) |> Config.deep_merge(Map.get(options, :gemini) || %{})
+  end
+
+  defp validate_output_modalities(modalities) do
+    if is_list(modalities) and :video in modalities do
+      Helpers.error(@codec, "video output requires the long-running predict path")
+    else
+      :ok
+    end
   end
 
   defp validate_streaming_modalities(%Request{stream: true, modalities: modalities}) do
@@ -339,61 +348,53 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_parts(messages) do
-    Helpers.first_error(messages, fn %Message{role: role, content: content} ->
-      Helpers.first_error(content, &validate_part(role, &1))
-    end)
-  end
+  defp validate_parts(messages),
+    do: Helpers.validate_parts(messages, @codec, &validate_part_shape/2)
 
-  defp validate_part(:user, %ToolCall{}),
-    do: Helpers.error(@codec, "tool calls belong to assistant messages")
+  defp validate_part_shape(_role, %Content.Text{}), do: :ok
+  defp validate_part_shape(_role, %Content.Thinking{}), do: :ok
 
-  defp validate_part(:user, %Content.Thinking{}),
-    do: Helpers.error(@codec, "thinking parts belong to assistant messages")
-
-  defp validate_part(:assistant, %ToolResult{}),
-    do: Helpers.error(@codec, "tool results belong to user messages")
-
-  defp validate_part(_role, %Content.Text{}), do: :ok
-  defp validate_part(_role, %Content.Thinking{}), do: :ok
-
-  defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
     do: Helpers.error(@codec, "base64 image requires media_type")
 
-  defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
-  defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}), do: :ok
 
-  defp validate_part(_role, %Content.Image{}),
+  defp validate_part_shape(_role, %Content.Image{source: source}) when is_binary(source),
+    do: :ok
+
+  defp validate_part_shape(_role, %Content.Image{}),
     do: Helpers.error(@codec, "image source is not supported")
 
-  defp validate_part(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
+  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
     do: Helpers.error(@codec, "base64 file requires media_type")
 
-  defp validate_part(_role, %Content.File{source: {:base64, _data}}), do: :ok
-  defp validate_part(_role, %Content.File{source: {:url, _url}}), do: :ok
-  defp validate_part(_role, %Content.File{source: source}) when is_binary(source), do: :ok
+  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}}), do: :ok
+  defp validate_part_shape(_role, %Content.File{source: {:url, _url}}), do: :ok
 
-  defp validate_part(_role, %Content.File{}),
+  defp validate_part_shape(_role, %Content.File{source: source}) when is_binary(source),
+    do: :ok
+
+  defp validate_part_shape(_role, %Content.File{}),
     do: Helpers.error(@codec, "file source is not supported")
 
-  defp validate_part(_role, %Content.Raw{data: %{}}), do: :ok
+  defp validate_part_shape(_role, %Content.Raw{data: %{}}), do: :ok
 
-  defp validate_part(_role, %Content.Raw{}),
+  defp validate_part_shape(_role, %Content.Raw{}),
     do: Helpers.error(@codec, "raw content requires a map payload")
 
-  defp validate_part(_role, %ToolCall{name: nil}),
+  defp validate_part_shape(_role, %ToolCall{name: nil}),
     do: Helpers.error(@codec, "tool call requires a name")
 
-  defp validate_part(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
+  defp validate_part_shape(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
 
-  defp validate_part(_role, %ToolResult{name: nil}),
+  defp validate_part_shape(_role, %ToolResult{name: nil}),
     do: Helpers.error(@codec, "tool result requires a name")
 
-  defp validate_part(_role, %ToolResult{content: content}),
+  defp validate_part_shape(_role, %ToolResult{content: content}),
     do: validate_tool_result_content(content)
 
-  defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
+  defp validate_part_shape(_role, _part), do: Helpers.error(@codec, "unsupported content part")
 
   defp validate_tool_call_arguments(call),
     do: Helpers.validate_tool_call_arguments(call, @codec)
@@ -415,7 +416,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
         Helpers.error(@codec, "provider_options.google must be a map")
 
       true ->
-        Helpers.validate_option_keys(gemini || google || %{}, @reserved_keys, @codec)
+        Helpers.validate_option_keys(provider_options(request, config), @reserved_keys, @codec)
     end
   end
 
