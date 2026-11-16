@@ -64,11 +64,13 @@ defmodule LlmDialect.MixProject do
     ]
   end
 
-  # The clone budget is a ratchet, not a target of zero: the protocol adapters
-  # are deliberately parallel (the same validator shape per protocol), so the
-  # current count is the ceiling and a new clone fails the build. Lowering it
-  # means extracting another shared validator, not silencing the check.
-  @max_clones 17
+  # ExDNA: no logic clone is allowed. `min_mass` 45 keeps the scan focused on
+  # real duplication — above it are the extracted validators and decoders — and
+  # ignores the alias preambles and one-line delegations every adapter shares by
+  # construction. Shared logic lives in LlmDialect.Protocol.Helpers; a new clone
+  # above the threshold fails `mix ci`.
+  @max_clones 0
+  @min_clone_mass 45
 
   defp aliases() do
     [
@@ -78,7 +80,7 @@ defmodule LlmDialect.MixProject do
         "test",
         "credo --strict",
         "dialyzer",
-        "ex_dna --max-clones #{@max_clones}",
+        "ex_dna --max-clones #{@max_clones} --min-mass #{@min_clone_mass}",
         "reach.check --arch --smells"
       ]
     ]
