@@ -64,13 +64,10 @@ defmodule LlmDialect.MixProject do
     ]
   end
 
-  # ExDNA: no logic clone is allowed. `min_mass` 45 keeps the scan focused on
-  # real duplication — above it are the extracted validators and decoders — and
-  # ignores the alias preambles and one-line delegations every adapter shares by
-  # construction. Shared logic lives in LlmDialect.Protocol.Helpers; a new clone
-  # above the threshold fails `mix ci`.
+  # ExDNA runs with its defaults: any clone fails the gate. Shared logic lives in
+  # LlmDialect.Protocol.Helpers and the two adapter macros, so the adapters keep
+  # their protocol-specific parts without duplicating them.
   @max_clones 0
-  @min_clone_mass 45
 
   defp aliases() do
     [
@@ -80,7 +77,7 @@ defmodule LlmDialect.MixProject do
         "test",
         "credo --strict",
         "dialyzer",
-        "ex_dna --max-clones #{@max_clones} --min-mass #{@min_clone_mass}",
+        "ex_dna --max-clones #{@max_clones}",
         "reach.check --arch --smells"
       ]
     ]
