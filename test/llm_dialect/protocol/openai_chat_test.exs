@@ -285,6 +285,10 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
   test "unsupported canonical values are validation errors, never silent drops" do
     cases = [
       text_request(params: %{top_k: 5}),
+      text_request(output: :xml),
+      text_request(output: {:json_schema, "x", "not-a-map", true}),
+      text_request(reasoning: %Reasoning{provider_options: "not-a-map"}),
+      text_request(tools: [%ToolSpec{name: "f", provider_options: "not-a-map"}]),
       text_request(tools: [%ToolSpec{kind: :builtin, name: "web_search"}]),
       text_request(tools: [%ToolSpec{name: "f"}], tool_choice: {:allowed, ["f"]}),
       text_request(tools: [], tool_choice: :required),
@@ -321,6 +325,22 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
 
       assert is_binary(message)
       assert {:error, %Error{kind: :validation}} = Chat.encode_request(request, %Config{})
+    end
+  end
+
+  test "output and provider-option shapes are rejected before encoding" do
+    for {request, pattern} <- [
+          {text_request(output: :xml), ~r/output :xml is not supported/},
+          {text_request(output: {:json_schema, "x", "not-a-map", true}), ~r/map schema/},
+          {text_request(reasoning: %Reasoning{provider_options: "not-a-map"}),
+           ~r/reasoning.provider_options must be a map/},
+          {text_request(tools: [%ToolSpec{name: "f", provider_options: "not-a-map"}]),
+           ~r/tool provider_options must be a map/}
+        ] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Chat.validate_request(request, %Config{})
+
+      assert message =~ pattern
     end
   end
 

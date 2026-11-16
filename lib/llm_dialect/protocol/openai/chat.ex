@@ -40,6 +40,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
          :ok <- Helpers.validate_modalities(request.modalities, [:text], @codec),
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
+         :ok <- validate_output(request.output),
          :ok <- validate_reasoning(request.reasoning),
          :ok <-
            Helpers.validate_tools(
@@ -222,6 +223,20 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
 
+  defp validate_output(:text), do: :ok
+  defp validate_output(:json_object), do: :ok
+
+  defp validate_output({:json_schema, name, schema, strict})
+       when is_binary(name) and name != "" and is_map(schema) and
+              (is_boolean(strict) or is_nil(strict)),
+       do: :ok
+
+  defp validate_output({:json_schema, _name, schema, _strict}) when not is_map(schema),
+    do: Helpers.error(@codec, "json_schema output requires a map schema")
+
+  defp validate_output(output),
+    do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
+
   defp validate_reasoning(nil), do: :ok
 
   defp validate_reasoning(%Reasoning{} = reasoning) do
@@ -231,6 +246,12 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
              reasoning.budget_tokens,
              @codec,
              "reasoning budget_tokens is not supported"
+           ),
+         :ok <-
+           Helpers.validate_options(
+             reasoning.provider_options,
+             @codec,
+             "reasoning.provider_options"
            ) do
       Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported")
     end
@@ -247,7 +268,8 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     Helpers.error(@codec, "reasoning effort #{inspect(effort)} is not supported")
   end
 
-  defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, strict: true)
+  defp validate_tool_spec(spec),
+    do: Helpers.validate_tool_spec(spec, @codec, strict: true, options: true)
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -292,51 +314,53 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   defp validate_content_list(_content),
     do: Helpers.error(@codec, "message content must be a list of content parts")
 
-  defp validate_part(:user, %ToolCall{}),
-    do: Helpers.error(@codec, "tool calls belong to assistant messages")
-
-  defp validate_part(:assistant, %ToolResult{}),
-    do: Helpers.error(@codec, "tool results belong to user messages")
-
   defp validate_part(:assistant, %Content.Image{}),
     do: Helpers.error(@codec, "images belong to user messages")
-
-  defp validate_part(_role, %Content.Text{}), do: :ok
-
-  defp validate_part(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 image requires media_type")
-
-  defp validate_part(_role, %Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part(_role, %Content.Image{source: {:url, _url}}), do: :ok
-  defp validate_part(_role, %Content.Image{source: source}) when is_binary(source), do: :ok
-
-  defp validate_part(_role, %Content.Image{}),
-    do: Helpers.error(@codec, "image source is not supported")
-
-  defp validate_part(_role, %Content.File{}),
-    do: Helpers.error(@codec, "file content is not supported")
 
   defp validate_part(_role, %Content.Thinking{}),
     do: Helpers.error(@codec, "thinking content is not supported in a request")
 
-  defp validate_part(_role, %Content.Raw{}),
+  defp validate_part(role, part) do
+    with :ok <- Helpers.validate_role(role, part, @codec) do
+      validate_part_shape(role, part)
+    end
+  end
+
+  defp validate_part_shape(_role, %Content.Text{}), do: :ok
+
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
+    do: Helpers.error(@codec, "base64 image requires media_type")
+
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}), do: :ok
+
+  defp validate_part_shape(_role, %Content.Image{source: source}) when is_binary(source),
+    do: :ok
+
+  defp validate_part_shape(_role, %Content.Image{}),
+    do: Helpers.error(@codec, "image source is not supported")
+
+  defp validate_part_shape(_role, %Content.File{}),
+    do: Helpers.error(@codec, "file content is not supported")
+
+  defp validate_part_shape(_role, %Content.Raw{}),
     do: Helpers.error(@codec, "raw content is not supported in a request")
 
-  defp validate_part(_role, %ToolCall{id: nil}),
+  defp validate_part_shape(_role, %ToolCall{id: nil}),
     do: Helpers.error(@codec, "tool call requires an id")
 
-  defp validate_part(_role, %ToolCall{name: nil}),
+  defp validate_part_shape(_role, %ToolCall{name: nil}),
     do: Helpers.error(@codec, "tool call requires a name")
 
-  defp validate_part(_role, %ToolCall{}), do: :ok
+  defp validate_part_shape(_role, %ToolCall{}), do: :ok
 
-  defp validate_part(_role, %ToolResult{call_id: nil}),
+  defp validate_part_shape(_role, %ToolResult{call_id: nil}),
     do: Helpers.error(@codec, "tool result requires call_id")
 
-  defp validate_part(_role, %ToolResult{content: content}),
+  defp validate_part_shape(_role, %ToolResult{content: content}),
     do: validate_tool_result_content(content)
 
-  defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
+  defp validate_part_shape(_role, _part), do: Helpers.error(@codec, "unsupported content part")
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
