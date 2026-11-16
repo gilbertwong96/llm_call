@@ -3,10 +3,16 @@ defmodule LlmDialect.Media.Adapter do
   `use` for a media adapter.
 
   Injects the behaviour, the canonical aliases, the codec's name and modality,
-  and the shared validation pipeline. The codec supplies `validate_params/1`,
-  `validate_references/1`, and `validate_provider_options/2`:
+  and the shared `validate_request/2` pipeline:
 
       use LlmDialect.Media.Adapter, codec: :openai_images, modality: :image
+
+  The codec supplies `info/0`, `capabilities/0`, `encode_submit/2`,
+  `decode_submit/2`, `validate_params/1`, `validate_references/1`, and
+  `validate_provider_options/2`.
+
+  `model_fun:` replaces the model check for protocols that constrain the model id
+  itself (Gemini's predict path rejects bare ids containing `/` or `:`).
   """
 
   defmacro __using__(opts) do
@@ -26,7 +32,11 @@ defmodule LlmDialect.Media.Adapter do
       @codec unquote(codec)
       @modality unquote(modality)
 
+      @doc """
+      Runs the shared media validation pipeline with the codec's own checks.
+      """
       @impl true
+      @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
       def validate_request(%Request{} = request, %Config{} = config) do
         Helpers.validate_media_request(
           request,
