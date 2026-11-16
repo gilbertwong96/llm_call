@@ -8,7 +8,7 @@ defmodule LlmDialect.MixProject do
     [
       app: :llm_dialect,
       version: @version,
-      elixir: "~> 1.17",
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -41,6 +41,7 @@ defmodule LlmDialect.MixProject do
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:spec_lint, "~> 0.1", only: [:dev, :test], runtime: false},
       {:vibe_kit, "~> 0.1", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
       {:igniter, "~> 0.8.5", only: [:dev, :test], runtime: false}
@@ -77,6 +78,7 @@ defmodule LlmDialect.MixProject do
         "test",
         "credo --strict",
         "dialyzer",
+        "spec_lint",
         "ex_dna --max-clones #{@max_clones}",
         "reach.check --arch --smells"
       ]

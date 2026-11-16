@@ -18,7 +18,7 @@ def deps do
 end
 ```
 
-Requires Elixir 1.17+ on OTP 27+ (the `:json` module ships with OTP 27). It owns no HTTP client, authentication, model
+Requires Elixir 1.18+ on OTP 27+ (the `:json` module ships with OTP 27). It owns no HTTP client, authentication, model
 registry, tool execution, retries, or agent loop — a codec returns
 JSON-compatible Elixir terms, and your transport does the rest.
 

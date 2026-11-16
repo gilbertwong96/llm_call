@@ -100,7 +100,7 @@ Before the first `mix hex.publish`:
 
 1. Confirm `@source_url` in `mix.exs`. It is an assumption until the repository
    exists, and Hex freezes the links and source URL for a published version.
-2. `mix ci` is green on both supported toolchains (Elixir 1.17/OTP 27 and the
+2. `mix ci` is green on both supported toolchains (Elixir 1.18/OTP 27 and the
    current toolchain).
 3. `mix hex.build` shows the expected package name, license, and file list.
 
