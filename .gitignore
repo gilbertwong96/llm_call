@@ -15,6 +15,9 @@ deps/
 # Temporary files, for example, from tests.
 /tmp/
 
+# Dialyzer PLTs live outside _build so CI can cache them.
+/priv/plts/
+
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 

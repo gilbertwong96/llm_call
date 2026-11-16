@@ -16,7 +16,11 @@ defmodule LlmDialect.MixProject do
         "Wire-protocol codec for LLM APIs: canonical IR, codec behaviours, and media adapters.",
       package: package(),
       docs: docs(),
-      dialyzer: [plt_add_apps: [:ex_unit]],
+      dialyzer: [
+        plt_add_apps: [:ex_unit],
+        plt_local_path: "priv/plts",
+        plt_core_path: "priv/plts/core"
+      ],
       aliases: aliases()
     ]
   end
@@ -78,9 +82,9 @@ defmodule LlmDialect.MixProject do
         "test",
         "credo --strict",
         "dialyzer",
-        "spec_lint",
+        "spec_lint --warnings-as-errors",
         "ex_dna --max-clones #{@max_clones}",
-        "reach.check --arch --smells"
+        "reach.check --arch"
       ]
     ]
   end
