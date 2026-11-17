@@ -372,6 +372,78 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
            }
   end
 
+  test "a present but nil namespace is a typed error, not a raise" do
+    for options <- [%{openai: nil}, %{"openai" => %{}}] do
+      assert {:error, %Error{kind: :validation}} =
+               Chat.validate_request(text_request(provider_options: options), %Config{})
+    end
+
+    assert {:error, %Error{kind: :validation}} =
+             Chat.validate_request(text_request(), %Config{
+               default_provider_options: %{openai: nil}
+             })
+
+    assert :ok ==
+             Chat.validate_request(text_request(), %Config{
+               default_provider_options: %{openai: %{}, anthropic: %{"metadata" => %{}}}
+             })
+  end
+
+  test "a struct is not a namespace map" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(provider_options: %{openai: %Date{year: 2026, month: 1, day: 1}}),
+               %Config{}
+             )
+
+    assert message =~ "must be a map"
+  end
+
+  test "stream_options may add native keys but cannot switch usage off" do
+    body =
+      encode(
+        text_request(
+          stream: true,
+          provider_options: %{openai: %{"stream_options" => %{"include_obfuscation" => true}}}
+        )
+      ).body
+
+    assert body["stream_options"] == %{"include_usage" => true, "include_obfuscation" => true}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(
+                 provider_options: %{openai: %{"stream_options" => %{"include_usage" => false}}}
+               ),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+  end
+
+  test "unencodable tool call arguments are a typed error" do
+    messages = [
+      %Message{
+        role: :assistant,
+        content: [%ToolCall{id: "c1", name: "f", arguments: %{"when" => {1, 2}}}]
+      }
+    ]
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(text_request(messages: messages), %Config{})
+
+    assert message =~ "JSON-encodable"
+
+    atoms = [
+      %Message{
+        role: :assistant,
+        content: [%ToolCall{id: "c1", name: "f", arguments: %{"mode" => :fast}}]
+      }
+    ]
+
+    assert :ok == Chat.validate_request(text_request(messages: atoms), %Config{})
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =

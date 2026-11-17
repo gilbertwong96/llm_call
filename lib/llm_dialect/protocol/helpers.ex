@@ -71,9 +71,11 @@ defmodule LlmDialect.Protocol.Helpers do
   well as `%{"prompt" => "x"}`.
   """
   @spec reserved_key?(term(), [String.t()]) :: boolean()
-  def reserved_key?(key, reserved_keys) do
+  def reserved_key?(key, reserved_keys) when is_binary(key) or is_atom(key) do
     key |> to_string() |> String.downcase() |> then(&(&1 in reserved_keys))
   end
+
+  def reserved_key?(_key, _reserved_keys), do: false
 
   @doc """
   Checks that a `provider_options` namespace is a map.
@@ -302,12 +304,16 @@ defmodule LlmDialect.Protocol.Helpers do
 
   @doc """
   Validates a tool call's arguments: a decoded map, or a raw string that decodes
-  to an object. A malformed fragment is an error, never `%{}`.
+  to an object. A malformed fragment is an error, never `%{}`. A map that cannot
+  be JSON-encoded is an error too, because the codec has to emit it as a string.
   """
   @spec validate_tool_call_arguments(ToolCall.t(), codec()) :: :ok | {:error, Error.t()}
-  def validate_tool_call_arguments(%ToolCall{arguments: arguments}, _codec)
-      when is_map(arguments),
-      do: :ok
+  def validate_tool_call_arguments(%ToolCall{arguments: arguments}, codec)
+      when is_map(arguments) do
+    if LlmDialect.JSON.encodable?(arguments),
+      do: :ok,
+      else: error(codec, "tool call arguments must be JSON-encodable")
+  end
 
   def validate_tool_call_arguments(%ToolCall{raw_arguments: nil}, _codec), do: :ok
 
@@ -530,7 +536,7 @@ defmodule LlmDialect.Protocol.Helpers do
   forward without replacing a canonical field.
   """
   @spec validate_option_keys(map(), [String.t()], codec()) :: :ok | {:error, Error.t()}
-  def validate_option_keys(options, reserved_keys, codec) do
+  def validate_option_keys(options, reserved_keys, codec) when is_map(options) do
     options
     |> Map.keys()
     |> first_error(fn key ->
@@ -547,6 +553,9 @@ defmodule LlmDialect.Protocol.Helpers do
     end)
   end
 
+  def validate_option_keys(_options, _reserved_keys, codec),
+    do: error(codec, "provider options must be a map")
+
   @doc """
   Validates a provider-options container against the namespaces a codec consumes.
 
@@ -554,32 +563,41 @@ defmodule LlmDialect.Protocol.Helpers do
   options are silently ignored or would raise later:
 
     * the container is a map;
-    * every key is an atom and one the codec reads (`:openai`, `[:gemini,
-      :google]`, ...) — a typo or a string key is an error, not a drop;
-    * every present namespace holds a map, so `LlmDialect.Config.deep_merge/2` is never
-      handed a non-map.
+    * every key is an atom, and with `strict?: true` one the codec reads
+      (`:openai`, `[:gemini, :google]`, ...) — a typo or a string key is an error,
+      not a drop;
+    * every present declared namespace holds a map, so
+      `LlmDialect.Config.deep_merge/2` is never handed a non-map.
+
+  Pass `strict?: false` for `Config.default_provider_options`: a default map is
+  application-wide and legitimately carries namespaces for other providers, so
+  only the namespaces this codec reads are checked.
   """
-  @spec validate_option_map(term(), codec(), String.t(), [atom()]) ::
+  @spec validate_option_map(term(), codec(), String.t(), [atom()], keyword()) ::
           :ok | {:error, Error.t()}
-  def validate_option_map(options, codec, label, namespaces) when is_map(options) do
+  def validate_option_map(options, codec, label, namespaces, opts \\ [])
+
+  def validate_option_map(options, codec, label, namespaces, opts) when is_map(options) do
+    strict? = Keyword.get(opts, :strict?, true)
+
     options
     |> Map.keys()
-    |> first_error(fn key -> validate_namespace_key(key, namespaces, codec, label) end)
+    |> first_error(fn key -> validate_namespace_key(key, namespaces, codec, label, strict?) end)
     |> then(fn
       :ok -> validate_namespace_values(options, namespaces, codec, label)
       error -> error
     end)
   end
 
-  def validate_option_map(_options, codec, label, _namespaces),
+  def validate_option_map(_options, codec, label, _namespaces, _opts),
     do: error(codec, "#{label} must be a map")
 
-  defp validate_namespace_key(key, namespaces, codec, label) do
+  defp validate_namespace_key(key, namespaces, codec, label, strict?) do
     cond do
       not is_atom(key) ->
         error(codec, "#{label} namespace #{inspect(key)} must be an atom")
 
-      key not in namespaces ->
+      strict? and key not in namespaces ->
         error(
           codec,
           "#{label} namespace #{inspect(key)} is not used by this codec " <>
@@ -593,10 +611,10 @@ defmodule LlmDialect.Protocol.Helpers do
 
   defp validate_namespace_values(options, namespaces, codec, label) do
     first_error(namespaces, fn key ->
-      case Map.get(options, key) do
-        nil -> :ok
-        value when is_map(value) -> :ok
-        _other -> error(codec, "#{label}.#{key} must be a map")
+      case Map.fetch(options, key) do
+        :error -> :ok
+        {:ok, value} when is_map(value) and not is_struct(value) -> :ok
+        {:ok, _other} -> error(codec, "#{label}.#{key} must be a map")
       end
     end)
   end

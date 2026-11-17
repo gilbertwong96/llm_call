@@ -12,10 +12,11 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   @api_version "2023-06-01"
   @path "/v1/messages"
   @headers [{"content-type", "application/json"}, {"anthropic-version", @api_version}]
-  @envelope_keys ~w(model messages system contents tools stream thinking)
+  @envelope_keys ~w(model messages system tools thinking stream)
   @default_reserved_keys @envelope_keys ++
-                           ~w(max_tokens temperature top_p top_k stop_sequences tool_choice)
+                           ~w(tool_choice max_tokens temperature top_p top_k stop_sequences)
   @tool_reserved_keys ~w(name description input_schema)
+  @reasoning_reserved_keys ~w(type budget_tokens)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
@@ -66,8 +67,12 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     |> Helpers.maybe_put("tool_choice", encode_tool_choice(request.tool_choice, request.tools))
     |> Helpers.maybe_put("thinking", encode_reasoning(request.reasoning))
     |> Map.merge(encode_params(request.params))
+    |> Helpers.maybe_put("stream", encode_stream(request.stream))
     |> Config.deep_merge(provider_options(request, config))
   end
+
+  defp encode_stream(true), do: true
+  defp encode_stream(false), do: nil
 
   defp encode_system(nil), do: nil
   defp encode_system([]), do: nil
@@ -216,11 +221,18 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
          :ok <- validate_budget(reasoning.budget_tokens),
          :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported"),
          :ok <- reject_budget_with_effort(reasoning) do
-      Helpers.validate_options(
-        reasoning.provider_options,
-        @codec,
-        "reasoning.provider_options"
-      )
+      with :ok <-
+             Helpers.validate_options(
+               reasoning.provider_options,
+               @codec,
+               "reasoning.provider_options"
+             ) do
+        Helpers.validate_option_keys(
+          reasoning.provider_options,
+          @reasoning_reserved_keys,
+          @codec
+        )
+      end
     end
   end
 
@@ -367,7 +379,8 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
              config.default_provider_options,
              @codec,
              "default_provider_options",
-             @namespaces
+             @namespaces,
+             strict?: false
            ),
          request_options = Map.get(request.provider_options, :anthropic, %{}),
          default_options = Map.get(config.default_provider_options, :anthropic, %{}),

@@ -13,10 +13,10 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   @path "/v1/chat/completions"
   @headers [{"content-type", "application/json"}]
-  @envelope_keys ~w(model messages system contents tools stream response_format tool_choice
-                    reasoning_effort)
+  @envelope_keys ~w(model messages tools tool_choice response_format reasoning_effort stream)
   @default_reserved_keys @envelope_keys ++
                            ~w(temperature top_p max_tokens stop seed stream_options)
+  @stream_reserved_keys ~w(include_usage)
   @tool_reserved_keys ~w(name description parameters strict)
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
   @efforts [:none, :minimal, :low, :medium, :high]
@@ -367,7 +367,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   defp validate_part_shape(_role, %ToolCall{name: nil}),
     do: Helpers.error(@codec, "tool call requires a name")
 
-  defp validate_part_shape(_role, %ToolCall{}), do: :ok
+  defp validate_part_shape(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
 
   defp validate_part_shape(_role, %ToolResult{call_id: nil}),
     do: Helpers.error(@codec, "tool result requires call_id")
@@ -379,6 +379,9 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
+
+  defp validate_tool_call_arguments(call),
+    do: Helpers.validate_tool_call_arguments(call, @codec)
 
   defp validate_provider_options(request, config) do
     with :ok <-
@@ -393,12 +396,27 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
              config.default_provider_options,
              @codec,
              "default_provider_options",
-             @namespaces
+             @namespaces,
+             strict?: false
            ),
          request_options = Map.get(request.provider_options, :openai, %{}),
          default_options = Map.get(config.default_provider_options, :openai, %{}),
-         :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec) do
-      Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec)
+         :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec),
+         :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec) do
+      validate_stream_options(request_options)
+    end
+  end
+
+  defp validate_stream_options(options) do
+    case Map.get(options, "stream_options") do
+      nil ->
+        :ok
+
+      value when is_map(value) ->
+        Helpers.validate_option_keys(value, @stream_reserved_keys, @codec)
+
+      _other ->
+        Helpers.error(@codec, "provider_options.stream_options must be a map")
     end
   end
 

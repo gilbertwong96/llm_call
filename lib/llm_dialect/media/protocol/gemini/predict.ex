@@ -19,7 +19,7 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model prompt instances modality)
+  @reserved_keys ~w(instances)
   @param_keys [:n, :aspect_ratio, :negative_prompt]
   @aspect_ratios ["1:1", "3:4", "4:3", "9:16", "16:9"]
   @max_n 4

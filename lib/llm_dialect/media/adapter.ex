@@ -7,7 +7,7 @@ defmodule LlmDialect.Media.Adapter do
 
       use LlmDialect.Media.Adapter, codec: :openai_images, modality: :image
 
-  The codec supplies `info/0`, `capabilities/0`, `encode_submit/2`,
+  The codec supplies `info/0`, `capabilities/2`, `encode_submit/2`,
   `decode_submit/2`, `validate_params/1`, `validate_references/1`, and
   `validate_provider_options/2`.
 
@@ -56,7 +56,8 @@ defmodule LlmDialect.Media.Adapter do
                  config.default_provider_options,
                  @codec,
                  "default_provider_options",
-                 @namespaces
+                 @namespaces,
+                 strict?: false
                ) do
           Helpers.validate_media_request(
             request,

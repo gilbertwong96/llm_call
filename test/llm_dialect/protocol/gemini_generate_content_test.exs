@@ -359,6 +359,70 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
     end
   end
 
+  test "generationConfig may add native knobs but not canonical ones" do
+    body =
+      encode(
+        text_request(
+          params: %{temperature: 0.2},
+          provider_options: %{
+            gemini: %{"generationConfig" => %{"candidateCount" => 2, "seed" => 7}}
+          }
+        )
+      ).body
+
+    assert body["generationConfig"] == %{
+             "temperature" => 0.2,
+             "candidateCount" => 2,
+             "seed" => 7
+           }
+
+    for key <- ["temperature", "responseMimeType", "responseModalities", "thinkingConfig"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(provider_options: %{gemini: %{"generationConfig" => %{key => 1}}}),
+                 %Config{}
+               )
+
+      assert message =~ "canonical field"
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(
+               text_request(provider_options: %{gemini: %{"generationConfig" => "x"}}),
+               %Config{}
+             )
+
+    assert message =~ "generationConfig must be a map"
+  end
+
+  test "reasoning provider_options cannot replace the canonical thinking config" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(
+               text_request(
+                 reasoning: %Reasoning{
+                   effort: :high,
+                   provider_options: %{"thinkingLevel" => "low"}
+                 }
+               ),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+  end
+
+  test "a shared Config may carry defaults for other providers" do
+    assert :ok ==
+             GenerateContent.validate_request(text_request(), %Config{
+               default_provider_options: %{openai: %{"logprobs" => true}}
+             })
+
+    assert {:error, %Error{kind: :validation}} =
+             GenerateContent.validate_request(
+               text_request(provider_options: %{openai: %{}}),
+               %Config{}
+             )
+  end
+
   test "native generationConfig keys land beside the canonical values" do
     body =
       encode(

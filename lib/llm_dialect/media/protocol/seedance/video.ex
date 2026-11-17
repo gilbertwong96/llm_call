@@ -20,7 +20,7 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
   @api_version "v3"
   @path "/api/v3/contents/generations/tasks"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model prompt content instances parameters modality ratio duration seed)
+  @reserved_keys ~w(model content ratio duration seed)
   @param_keys [:aspect_ratio, :duration_s, :seed]
   @ratios ["adaptive", "1:1", "4:3", "3:4", "16:9", "9:16", "21:9"]
   # Union across Seedance models: 1.0 accepts 2-12 s, 1.5 pro 4-12 s, 2.0 4-15 s,

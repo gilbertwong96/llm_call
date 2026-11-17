@@ -333,6 +333,47 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
     assert message =~ "canonical field"
   end
 
+  test "a streaming request asks the API for SSE" do
+    assert encode(text_request(stream: true, params: %{max_tokens: 16})).body["stream"] == true
+    refute Map.has_key?(encode(text_request(params: %{max_tokens: 16})).body, "stream")
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(
+               text_request(provider_options: %{anthropic: %{"stream" => true}}),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+  end
+
+  test "reasoning provider_options cannot replace the canonical thinking budget" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(
+               text_request(
+                 reasoning: %Reasoning{
+                   budget_tokens: 1024,
+                   provider_options: %{"budget_tokens" => 5}
+                 }
+               ),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+  end
+
+  test "a present but nil namespace is a typed error" do
+    assert {:error, %Error{kind: :validation}} =
+             Messages.validate_request(
+               text_request(provider_options: %{anthropic: nil}),
+               %Config{}
+             )
+
+    assert :ok ==
+             Messages.validate_request(text_request(), %Config{
+               default_provider_options: %{anthropic: %{}, openai: %{"logprobs" => true}}
+             })
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =

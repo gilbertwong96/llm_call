@@ -21,9 +21,12 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
-  @envelope_keys ~w(model messages system contents tools stream systeminstruction toolconfig)
-  @default_reserved_keys @envelope_keys ++ ~w(generationconfig)
+  @envelope_keys ~w(contents systeminstruction tools toolconfig)
+  @generation_config_reserved_keys ~w(temperature topp topk maxoutputtokens stopsequences
+                                     responsemimetype responseschema thinkingconfig
+                                     responsemodalities)
   @tool_reserved_keys ~w(name description parameters)
+  @reasoning_reserved_keys ~w(thinkingbudget thinkinglevel)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
@@ -313,11 +316,18 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
          :ok <- validate_budget(reasoning.budget_tokens),
          :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported"),
          :ok <- reject_effort_with_budget(reasoning) do
-      Helpers.validate_options(
-        reasoning.provider_options,
-        @codec,
-        "reasoning.provider_options"
-      )
+      with :ok <-
+             Helpers.validate_options(
+               reasoning.provider_options,
+               @codec,
+               "reasoning.provider_options"
+             ) do
+        Helpers.validate_option_keys(
+          reasoning.provider_options,
+          @reasoning_reserved_keys,
+          @codec
+        )
+      end
     end
   end
 
@@ -446,19 +456,32 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
              config.default_provider_options,
              @codec,
              "default_provider_options",
-             @namespaces
+             @namespaces,
+             strict?: false
            ),
-         :ok <-
-           Helpers.validate_option_keys(
-             native_options(request.provider_options),
-             @envelope_keys,
-             @codec
-           ) do
-      Helpers.validate_option_keys(
-        native_options(config.default_provider_options),
-        @default_reserved_keys,
-        @codec
-      )
+         :ok <- validate_native_options(request.provider_options, "provider_options") do
+      validate_native_options(config.default_provider_options, "default_provider_options")
+    end
+  end
+
+  defp validate_native_options(options, label) do
+    native = native_options(options)
+
+    with :ok <- Helpers.validate_option_keys(native, @envelope_keys, @codec) do
+      validate_generation_config(native, label)
+    end
+  end
+
+  defp validate_generation_config(options, label) do
+    case Map.get(options, "generationConfig") do
+      nil ->
+        :ok
+
+      value when is_map(value) ->
+        Helpers.validate_option_keys(value, @generation_config_reserved_keys, @codec)
+
+      _other ->
+        Helpers.error(@codec, "#{label}.generationConfig must be a map")
     end
   end
 
