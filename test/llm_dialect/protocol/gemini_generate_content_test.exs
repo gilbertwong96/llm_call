@@ -748,6 +748,46 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
                GenerateContent.decode_stream_event(chunk, %Config{}, stream_state())
     end
 
+    test "streamed usage accumulates across chunks instead of being replaced" do
+      chunks = [
+        %{
+          "candidates" => [
+            %{"content" => %{"parts" => [%{"text" => "Hi"}]}, "index" => 0}
+          ],
+          "usageMetadata" => %{"promptTokenCount" => 10}
+        },
+        %{
+          "candidates" => [
+            %{"content" => %{"parts" => [%{"text" => " there"}]}, "index" => 0}
+          ],
+          "usageMetadata" => %{"candidatesTokenCount" => 4}
+        },
+        %{
+          "candidates" => [
+            %{"content" => %{"parts" => []}, "finishReason" => "STOP", "index" => 0}
+          ],
+          "usageMetadata" => %{"totalTokenCount" => 14}
+        }
+      ]
+
+      {state, _events} = run_stream(chunks)
+
+      assert {:ok,
+              [
+                %LlmDialect.StreamEvent{
+                  type: :message_delta,
+                  delta: %LlmDialect.StreamDelta.MessageDelta{
+                    usage: %LlmDialect.Usage{
+                      input_tokens: 10,
+                      output_tokens: 4,
+                      total_tokens: 14
+                    }
+                  }
+                },
+                %LlmDialect.StreamEvent{type: :message_stop}
+              ], _state} = GenerateContent.finish_stream(state, %Config{})
+    end
+
     test "error chunks become typed errors and unknown chunks are Raw message deltas" do
       assert {:error, %Error{kind: :provider}} =
                GenerateContent.decode_stream_event(

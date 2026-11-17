@@ -99,7 +99,8 @@ defmodule LlmDialect.StreamDeltaAuditTest do
         chunks: LlmDialect.Fixtures.AnthropicMessages.thinking_stream(),
         ignored: [
           # this fixture has no message_delta, so the merged usage never surfaces;
-          # the text_stream case proves the merge
+          # the protocol suite's "a later usage delta keeps fields it omits" case
+          # pins the merge
           {0, ["message"]},
           {0, ["message", "id"]},
           {0, ["message", "model"]},

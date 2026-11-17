@@ -600,6 +600,30 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
              } = Enum.at(events, 5).delta
     end
 
+    test "a later usage delta keeps fields it omits" do
+      chunks = [
+        Fx.message_start(),
+        %{
+          "type" => "message_delta",
+          "delta" => %{"stop_reason" => "end_turn"},
+          "usage" => %{"cache_read_input_tokens" => 2}
+        },
+        %{"type" => "message_stop"}
+      ]
+
+      {_state, events} = run_stream(chunks)
+
+      assert %LlmDialect.StreamDelta.MessageDelta{
+               stop_reason: :end_turn,
+               usage: %LlmDialect.Usage{
+                 input_tokens: 12,
+                 output_tokens: 1,
+                 cache_read_tokens: 2,
+                 total_tokens: 13
+               }
+             } = Enum.at(events, 1).delta
+    end
+
     test "tool_use blocks emit tool_call_start, deltas and tool_call_stop and assemble" do
       {_state, events} = run_stream(Fx.tool_stream())
 
