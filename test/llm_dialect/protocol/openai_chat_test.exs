@@ -328,6 +328,50 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
     end
   end
 
+  test "reasoning and tool provider options cannot replace canonical fields" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(reasoning: %Reasoning{provider_options: %{"model" => "evil"}}),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+
+    assert :ok ==
+             Chat.validate_request(
+               text_request(reasoning: %Reasoning{provider_options: %{"service_tier" => "flex"}}),
+               %Config{}
+             )
+
+    tools = [
+      %ToolSpec{
+        name: "f",
+        parameters: %{"type" => "object"},
+        provider_options: %{"name" => "shadow"}
+      }
+    ]
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(text_request(tools: tools), %Config{})
+
+    assert message =~ "canonical field"
+  end
+
+  test "native request options land beside the canonical body" do
+    body =
+      encode(
+        text_request(
+          stream: true,
+          provider_options: %{openai: %{"stream_options" => %{"include_obfuscation" => true}}}
+        )
+      ).body
+
+    assert body["stream_options"] == %{
+             "include_usage" => true,
+             "include_obfuscation" => true
+           }
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =

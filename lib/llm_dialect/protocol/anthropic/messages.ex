@@ -12,9 +12,10 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   @api_version "2023-06-01"
   @path "/v1/messages"
   @headers [{"content-type", "application/json"}, {"anthropic-version", @api_version}]
-  @envelope_keys ~w(model messages system contents tools stream)
+  @envelope_keys ~w(model messages system contents tools stream thinking)
   @default_reserved_keys @envelope_keys ++
-                           ~w(max_tokens temperature top_p top_k stop_sequences thinking tool_choice)
+                           ~w(max_tokens temperature top_p top_k stop_sequences tool_choice)
+  @tool_reserved_keys ~w(name description input_schema)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
@@ -255,7 +256,21 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     Helpers.error(@codec, "output #{inspect(output)} is not supported")
   end
 
-  defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, options: true)
+  defp validate_native_tool_choice(%{"tool_choice" => choice}) when is_map(choice) do
+    Helpers.validate_option_keys(choice, ["type", "name"], @codec)
+  end
+
+  defp validate_native_tool_choice(%{"tool_choice" => _other}) do
+    Helpers.error(@codec, "provider_options.tool_choice must be a map")
+  end
+
+  defp validate_native_tool_choice(_options), do: :ok
+
+  defp validate_tool_spec(spec) do
+    with :ok <- Helpers.validate_tool_spec(spec, @codec, options: true) do
+      Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
+    end
+  end
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -358,7 +373,9 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
              "default_provider_options.anthropic"
            ),
          :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec) do
-      Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec)
+      with :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec) do
+        validate_native_tool_choice(request_options)
+      end
     end
   end
 

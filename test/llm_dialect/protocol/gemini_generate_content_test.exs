@@ -351,6 +351,37 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
     end
   end
 
+  test "native generationConfig keys land beside the canonical values" do
+    body =
+      encode(
+        text_request(
+          params: %{temperature: 0.2},
+          provider_options: %{
+            gemini: %{"generationConfig" => %{"candidateCount" => 2, "seed" => 7}}
+          }
+        )
+      ).body
+
+    assert body["generationConfig"] == %{
+             "temperature" => 0.2,
+             "candidateCount" => 2,
+             "seed" => 7
+           }
+
+    tools = [
+      %ToolSpec{
+        name: "f",
+        parameters: %{"type" => "object"},
+        provider_options: %{"name" => "shadow"}
+      }
+    ]
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(text_request(tools: tools), %Config{})
+
+    assert message =~ "canonical field"
+  end
+
   test "the provider_options envelope is reserved, but native knobs stay reachable" do
     for options <- [
           %{gemini: %{"contents" => []}},

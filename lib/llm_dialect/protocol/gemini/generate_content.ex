@@ -12,12 +12,18 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   Streaming changes the method in the path (`:streamGenerateContent`) and adds
   `alt=sse` to the query; the transport still owns SSE framing.
+
+  `provider_options` accepts `:gemini` and its `:google` alias. The alias is
+  collapsed per source before merging, so a request value wins over a config
+  default even when the two use different names, and nested native objects are
+  deep-merged (a request can extend a defaulted `generationConfig`).
   """
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
   @envelope_keys ~w(model messages system contents tools stream systeminstruction toolconfig)
   @default_reserved_keys @envelope_keys ++ ~w(generationconfig)
+  @tool_reserved_keys ~w(name description parameters)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
@@ -348,7 +354,11 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp validate_output(output),
     do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
 
-  defp validate_tool_spec(spec), do: Helpers.validate_tool_spec(spec, @codec, options: true)
+  defp validate_tool_spec(spec) do
+    with :ok <- Helpers.validate_tool_spec(spec, @codec, options: true) do
+      Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
+    end
+  end
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok
@@ -429,8 +439,20 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
              @codec,
              "default_provider_options"
            ),
-         :ok <- validate_namespaces(request.provider_options, "provider_options"),
-         :ok <- validate_namespaces(config.default_provider_options, "default_provider_options"),
+         :ok <-
+           Helpers.validate_namespaces(
+             request.provider_options,
+             [:gemini, :google],
+             @codec,
+             "provider_options"
+           ),
+         :ok <-
+           Helpers.validate_namespaces(
+             config.default_provider_options,
+             [:gemini, :google],
+             @codec,
+             "default_provider_options"
+           ),
          :ok <-
            Helpers.validate_option_keys(
              native_options(request.provider_options),
@@ -443,16 +465,6 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
         @codec
       )
     end
-  end
-
-  defp validate_namespaces(options, label) do
-    Helpers.first_error([:gemini, :google], fn key ->
-      case Map.get(options, key) do
-        nil -> :ok
-        value when is_map(value) -> :ok
-        _other -> Helpers.error(@codec, "#{label}.#{key} must be a map")
-      end
-    end)
   end
 
   @impl true

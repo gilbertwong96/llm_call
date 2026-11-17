@@ -13,10 +13,11 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   @path "/v1/chat/completions"
   @headers [{"content-type", "application/json"}]
-  @envelope_keys ~w(model messages system contents tools stream)
+  @envelope_keys ~w(model messages system contents tools stream response_format tool_choice
+                    reasoning_effort)
   @default_reserved_keys @envelope_keys ++
-                           ~w(temperature top_p max_tokens stop seed response_format reasoning_effort
-                              tool_choice stream_options)
+                           ~w(temperature top_p max_tokens stop seed stream_options)
+  @tool_reserved_keys ~w(name description parameters strict)
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
   @efforts [:none, :minimal, :low, :medium, :high]
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
@@ -255,6 +256,12 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
              reasoning.provider_options,
              @codec,
              "reasoning.provider_options"
+           ),
+         :ok <-
+           Helpers.validate_option_keys(
+             reasoning.provider_options,
+             @default_reserved_keys,
+             @codec
            ) do
       Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported")
     end
@@ -271,8 +278,11 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     Helpers.error(@codec, "reasoning effort #{inspect(effort)} is not supported")
   end
 
-  defp validate_tool_spec(spec),
-    do: Helpers.validate_tool_spec(spec, @codec, strict: true, options: true)
+  defp validate_tool_spec(spec) do
+    with :ok <- Helpers.validate_tool_spec(spec, @codec, strict: true, options: true) do
+      Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
+    end
+  end
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok

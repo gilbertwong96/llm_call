@@ -285,6 +285,54 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
            }
   end
 
+  test "only native tool-choice keys pass through, and canonical ones are reserved" do
+    request =
+      text_request(
+        tools: [%ToolSpec{name: "f", parameters: %{"type" => "object"}}],
+        tool_choice: :required,
+        provider_options: %{anthropic: %{"tool_choice" => %{"disable_parallel_tool_use" => true}}}
+      )
+
+    assert encode(request).body["tool_choice"] == %{
+             "type" => "any",
+             "disable_parallel_tool_use" => true
+           }
+
+    for choice <- [%{"type" => "none"}, %{"name" => "g"}] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.validate_request(
+                 text_request(
+                   tools: [%ToolSpec{name: "f", parameters: %{"type" => "object"}}],
+                   provider_options: %{anthropic: %{"tool_choice" => choice}}
+                 ),
+                 %Config{}
+               )
+
+      assert message =~ "canonical field"
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(
+               text_request(provider_options: %{anthropic: %{"thinking" => %{}}}),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+
+    tools = [
+      %ToolSpec{
+        name: "f",
+        parameters: %{"type" => "object"},
+        provider_options: %{"name" => "shadow"}
+      }
+    ]
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(text_request(tools: tools), %Config{})
+
+    assert message =~ "canonical field"
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =
