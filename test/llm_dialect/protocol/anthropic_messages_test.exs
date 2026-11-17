@@ -201,7 +201,7 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
         role: :user,
         content: [
           %Content.Image{source: {:base64, "AAA"}, media_type: "image/png"},
-          %Content.Image{source: {:url, "https://example.com/a.png"}},
+          %Content.Image{source: {:url, "https://example.com/a.png"}, media_type: "image/png"},
           %Content.File{
             source: {:base64, "PDF"},
             media_type: "application/pdf",

@@ -364,6 +364,34 @@ reserved: `generationConfig.candidateCount` and
 and `stream_options.include_usage` are not, because the codec derives those from
 `params`.
 
+#### Fields a protocol cannot carry
+
+A protocol with no wire field for a canonical value must reject it, not drop it —
+except for the fields below, which are local to the IR and never meant to reach a
+provider. They are listed deliberately so a reviewer does not have to rediscover
+them:
+
+- `ToolCall.index` — stream bookkeeping. `LlmDialect.StreamAssembler` keys
+  fragments by it; a request tool call has no index on the wire.
+- `Content.Image.media_type` when `source` is a URL (Anthropic): the protocol
+  infers the type from the URL, and its `image` block has no `media_type` for that
+  source. Base64 sources do carry it.
+- The `name` in `output: {:json_schema, name, schema, strict?}` (Gemini): Gemini's
+  `responseSchema` has no schema name. The name stays a caller-side label; the
+  codec keeps the schema and drops the label. OpenAI emits it; Anthropic rejects
+  structured output entirely.
+- `Request.modalities` equal to `[:text]` (the default) — the protocol default, so
+  it is omitted rather than written.
+
+Everything else is a rejection: an unsupported content variant
+(`Content.Video` in a chat request), `ToolSpec.strict` on Anthropic or Gemini,
+`{:allowed, names}` on OpenAI or Anthropic, and a `params` key the codec does not
+implement.
+
+`test/llm_dialect/write_path_audit_test.exs` enumerates every canonical-derived
+wire key and asserts each is rejected from every source that can write it, so
+this list is the only place a dropped field may be added.
+
 ### 8.2 Message
 
 ```elixir

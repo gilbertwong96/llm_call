@@ -423,6 +423,15 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
              )
   end
 
+  test "the json_schema name is a caller-side label Gemini drops" do
+    body = encode(text_request(output: {:json_schema, "person", %{"type" => "object"}, nil})).body
+
+    assert body["generationConfig"] == %{
+             "responseMimeType" => "application/json",
+             "responseSchema" => %{"type" => "object"}
+           }
+  end
+
   test "native generationConfig keys land beside the canonical values" do
     body =
       encode(
