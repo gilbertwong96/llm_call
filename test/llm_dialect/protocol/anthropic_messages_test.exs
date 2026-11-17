@@ -446,7 +446,7 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
                supported: true,
                budget_tokens: true,
                adaptive: true,
-               efforts: [],
+               efforts: [:none],
                summary: []
              } = caps.reasoning
     end

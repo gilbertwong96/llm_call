@@ -381,7 +381,7 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
       file_input: true,
       reasoning: %ReasoningCapabilities{
         supported: true,
-        efforts: [],
+        efforts: [:none],
         default_effort: nil,
         budget_tokens: true,
         adaptive: true,
