@@ -534,11 +534,30 @@ defmodule LlmDialect.Protocol.Helpers do
     options
     |> Map.keys()
     |> first_error(fn key ->
-      if reserved_key?(key, reserved_keys),
-        do: error(codec, "provider option #{inspect(key)} would replace a canonical field"),
-        else: :ok
+      cond do
+        not (is_binary(key) or is_atom(key)) ->
+          error(codec, "provider option key #{inspect(key)} must be a string")
+
+        reserved_key?(key, reserved_keys) ->
+          error(codec, "provider option #{inspect(key)} would replace a canonical field")
+
+        true ->
+          :ok
+      end
     end)
   end
+
+  @doc """
+  Validates a provider-options container: a map of namespace to map.
+
+  A non-map is an error, so a malformed container cannot reach
+  `Config.provider_options/2` and raise instead of returning a typed error.
+  """
+  @spec validate_option_map(term(), codec(), String.t()) :: :ok | {:error, Error.t()}
+  def validate_option_map(options, _codec, _label) when is_map(options), do: :ok
+
+  def validate_option_map(_options, codec, label),
+    do: error(codec, "#{label} must be a map")
 
   @doc """
   Normalizes a provider's error code to a string or `nil`.

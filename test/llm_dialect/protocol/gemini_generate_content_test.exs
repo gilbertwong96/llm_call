@@ -275,24 +275,97 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
              )
   end
 
-  test "provider_options deep-merge into the canonical body and across the :google alias" do
+  test "reasoning provider_options deep-merge into generationConfig" do
     body =
       encode(
         text_request(
           params: %{temperature: 0.2},
-          provider_options: %{
-            google: %{"safetySettings" => [%{"category" => "HARM"}]},
-            gemini: %{"generationConfig" => %{"thinkingConfig" => %{"includeThoughts" => true}}}
+          reasoning: %Reasoning{
+            provider_options: %{"includeThoughts" => true}
           }
         )
       ).body
-
-    assert body["safetySettings"] == [%{"category" => "HARM"}]
 
     assert body["generationConfig"] == %{
              "temperature" => 0.2,
              "thinkingConfig" => %{"includeThoughts" => true}
            }
+  end
+
+  test "the :google alias merges with :gemini, and the request wins over config defaults" do
+    body =
+      encode(
+        text_request(
+          provider_options: %{
+            google: %{"safetySettings" => [%{"category" => "HARM"}]},
+            gemini: %{"cachedContent" => "cache-1"}
+          }
+        )
+      ).body
+
+    assert body["safetySettings"] == [%{"category" => "HARM"}]
+    assert body["cachedContent"] == "cache-1"
+
+    config = %Config{
+      default_provider_options: %{
+        gemini: %{"labels" => %{"team" => "default", "env" => "prod"}}
+      }
+    }
+
+    request = text_request(provider_options: %{google: %{"labels" => %{"team" => "request"}}})
+
+    assert encode(request, config).body["labels"] == %{
+             "team" => "request",
+             "env" => "prod"
+           }
+  end
+
+  test "the provider_options container is validated" do
+    for options <- [nil, "not-a-map"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(provider_options: options),
+                 %Config{}
+               )
+
+      assert message =~ "provider_options must be a map"
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(
+               text_request(provider_options: %{gemini: "not-a-map"}),
+               %Config{}
+             )
+
+    assert message =~ "gemini must be a map"
+  end
+
+  test "malformed json_schema output is rejected" do
+    for output <- [
+          {:json_schema, nil, %{}, nil},
+          {:json_schema, "", %{}, nil},
+          {:json_schema, "x", %{}, "strict"}
+        ] do
+      assert {:error, %Error{kind: :validation}} =
+               GenerateContent.validate_request(text_request(output: output), %Config{})
+    end
+  end
+
+  test "canonical wire keys are reserved against provider_options" do
+    for options <- [
+          %{gemini: %{"generationConfig" => %{}}},
+          %{gemini: %{"contents" => []}},
+          %{gemini: %{"systemInstruction" => %{}}},
+          %{gemini: %{"toolConfig" => %{}}}
+        ] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(provider_options: options),
+                 %Config{}
+               )
+
+      assert message =~ "canonical field"
+    end
   end
 
   test "unsupported canonical values are validation errors, never silent drops" do

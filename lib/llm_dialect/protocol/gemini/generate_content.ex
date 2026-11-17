@@ -16,7 +16,8 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model messages system contents tools stream)
+  @reserved_keys ~w(model messages system contents tools stream systeminstruction toolconfig
+                    generationconfig)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
@@ -253,8 +254,21 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp reasoning_options(%Reasoning{provider_options: options}) when is_map(options), do: options
 
   defp provider_options(request, config) do
-    options = Config.provider_options(request, config)
-    (Map.get(options, :google) || %{}) |> Config.deep_merge(Map.get(options, :gemini) || %{})
+    config.default_provider_options
+    |> native_options()
+    |> Config.deep_merge(native_options(request.provider_options))
+  end
+
+  defp native_options(options) do
+    google = Map.get(options, :google)
+    gemini = Map.get(options, :gemini)
+
+    case {google, gemini} do
+      {nil, nil} -> %{}
+      {google, nil} -> google
+      {nil, gemini} -> gemini
+      {google, gemini} -> Config.deep_merge(google, gemini)
+    end
   end
 
   defp validate_output_modalities(modalities) do
@@ -323,8 +337,10 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp validate_output(:text), do: :ok
   defp validate_output(:json_object), do: :ok
 
-  defp validate_output({:json_schema, _name, schema, strict})
-       when is_map(schema) and strict != true, do: :ok
+  defp validate_output({:json_schema, name, schema, strict})
+       when is_binary(name) and name != "" and is_map(schema) and
+              (is_boolean(strict) or is_nil(strict)) and strict != true,
+       do: :ok
 
   defp validate_output({:json_schema, _name, _schema, true}),
     do: Helpers.error(@codec, "strict json_schema is not supported")
@@ -406,21 +422,27 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
     do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
-    options = Config.provider_options(request, config)
-
-    gemini = Map.get(options, :gemini)
-    google = Map.get(options, :google)
-
-    cond do
-      not is_nil(gemini) and not is_map(gemini) ->
-        Helpers.error(@codec, "provider_options.gemini must be a map")
-
-      not is_nil(google) and not is_map(google) ->
-        Helpers.error(@codec, "provider_options.google must be a map")
-
-      true ->
-        Helpers.validate_option_keys(provider_options(request, config), @reserved_keys, @codec)
+    with :ok <- Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+         :ok <-
+           Helpers.validate_option_map(
+             config.default_provider_options,
+             @codec,
+             "default_provider_options"
+           ),
+         :ok <- validate_namespaces(request.provider_options, "provider_options"),
+         :ok <- validate_namespaces(config.default_provider_options, "default_provider_options") do
+      Helpers.validate_option_keys(provider_options(request, config), @reserved_keys, @codec)
     end
+  end
+
+  defp validate_namespaces(options, label) do
+    Helpers.first_error([:gemini, :google], fn key ->
+      case Map.get(options, key) do
+        nil -> :ok
+        value when is_map(value) -> :ok
+        _other -> Helpers.error(@codec, "#{label}.#{key} must be a map")
+      end
+    end)
   end
 
   @impl true

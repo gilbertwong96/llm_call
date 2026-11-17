@@ -328,6 +328,33 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
     end
   end
 
+  test "the provider_options container and canonical wire keys are validated" do
+    for options <- [nil, "not-a-map"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Chat.validate_request(text_request(provider_options: options), %Config{})
+
+      assert message =~ "provider_options must be a map"
+    end
+
+    for key <- ["response_format", "max_tokens", "temperature", "stream_options"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Chat.validate_request(
+                 text_request(provider_options: %{openai: %{key => 1}}),
+                 %Config{}
+               )
+
+      assert message =~ "canonical field"
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(provider_options: %{openai: %{{:tuple, 1} => 2}}),
+               %Config{}
+             )
+
+    assert message =~ "must be a string"
+  end
+
   test "output and provider-option shapes are rejected before encoding" do
     for {request, pattern} <- [
           {text_request(output: :xml), ~r/output :xml is not supported/},

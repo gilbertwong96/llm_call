@@ -12,7 +12,8 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   @api_version "2023-06-01"
   @path "/v1/messages"
   @headers [{"content-type", "application/json"}, {"anthropic-version", @api_version}]
-  @reserved_keys ~w(model messages system contents tools stream)
+  @reserved_keys ~w(model messages system contents tools stream max_tokens temperature top_p top_k
+                    stop_sequences thinking tool_choice)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
@@ -336,12 +337,20 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
-    case Map.get(Config.provider_options(request, config), :anthropic, %{}) do
-      options when is_map(options) ->
-        Helpers.validate_option_keys(options, @reserved_keys, @codec)
+    with :ok <- Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+         :ok <-
+           Helpers.validate_option_map(
+             config.default_provider_options,
+             @codec,
+             "default_provider_options"
+           ) do
+      case Map.get(Config.provider_options(request, config), :anthropic, %{}) do
+        options when is_map(options) ->
+          Helpers.validate_option_keys(options, @reserved_keys, @codec)
 
-      _options ->
-        Helpers.error(@codec, "provider_options.anthropic must be a map")
+        _options ->
+          Helpers.error(@codec, "provider_options.anthropic must be a map")
+      end
     end
   end
 

@@ -267,12 +267,14 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
              )
   end
 
-  test "provider_options deep-merge keep canonical fields" do
+  test "reasoning provider_options deep-merge keep canonical fields" do
     body =
       encode(
         text_request(
-          reasoning: %Reasoning{budget_tokens: 1024},
-          provider_options: %{anthropic: %{"thinking" => %{"display" => "omitted"}}}
+          reasoning: %Reasoning{
+            budget_tokens: 1024,
+            provider_options: %{"display" => "omitted"}
+          }
         )
       ).body
 
@@ -281,6 +283,25 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
              "budget_tokens" => 1024,
              "display" => "omitted"
            }
+  end
+
+  test "the provider_options container and canonical wire keys are validated" do
+    for options <- [nil, "not-a-map"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.validate_request(text_request(provider_options: options), %Config{})
+
+      assert message =~ "provider_options must be a map"
+    end
+
+    for key <- ["max_tokens", "thinking", "stop_sequences", "tool_choice"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.validate_request(
+                 text_request(provider_options: %{anthropic: %{key => 1}}),
+                 %Config{}
+               )
+
+      assert message =~ "canonical field"
+    end
   end
 
   test "thinking blocks in user turns are rejected" do
