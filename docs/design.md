@@ -1124,8 +1124,8 @@ What they check today:
   (`assert_stream/3`)
 - streamed tool-call assembly through `LlmDialect.StreamAssembler`
   (`assert_tool_call_assembly/5`)
-- `capture_raw` on `Response.raw`, `LlmDialect.Media.Response.raw`, and
-  `Operation.raw`
+- `capture_raw` on `Response.raw`, `StreamEvent.raw`,
+  `LlmDialect.Media.Response.raw`, and `Operation.raw`
 - stream roundtrip and stream-state ownership (the request is passed in, so an
   out-of-tree codec is checkable)
 - `Operation` state-machine invariants

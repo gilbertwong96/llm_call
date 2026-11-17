@@ -73,6 +73,7 @@ Every adapter must:
    LlmDialect.Codec.Conformance.assert_invalid_response(MyCodec, %{"unexpected" => true})
    LlmDialect.Codec.Conformance.assert_decode_error(MyCodec, error_fixture)
    LlmDialect.Codec.Conformance.assert_stream(MyCodec, stream_request, chunks)
+   LlmDialect.Codec.Conformance.assert_stream_capture_raw(MyCodec, stream_request, chunks)
    LlmDialect.Codec.Conformance.assert_tool_call_assembly(MyCodec, stream_request, tool_chunks, 1)
    LlmDialect.Codec.Conformance.assert_capability_consistency(MyCodec, request, config)
    LlmDialect.Codec.Conformance.assert_capture_raw(MyCodec, response_fixture)
