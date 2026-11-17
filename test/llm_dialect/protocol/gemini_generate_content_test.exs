@@ -351,9 +351,8 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
     end
   end
 
-  test "canonical wire keys are reserved against provider_options" do
+  test "the provider_options envelope is reserved, but native knobs stay reachable" do
     for options <- [
-          %{gemini: %{"generationConfig" => %{}}},
           %{gemini: %{"contents" => []}},
           %{gemini: %{"systemInstruction" => %{}}},
           %{gemini: %{"toolConfig" => %{}}}
@@ -366,6 +365,31 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
 
       assert message =~ "canonical field"
     end
+
+    assert :ok ==
+             GenerateContent.validate_request(
+               text_request(
+                 provider_options: %{
+                   gemini: %{
+                     "generationConfig" => %{
+                       "candidateCount" => 2,
+                       "seed" => 7,
+                       "frequencyPenalty" => 0.5
+                     }
+                   }
+                 }
+               ),
+               %Config{}
+             )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(text_request(), %Config{
+               default_provider_options: %{
+                 gemini: %{"generationConfig" => %{"temperature" => 0.9}}
+               }
+             })
+
+    assert message =~ "canonical field"
   end
 
   test "unsupported canonical values are validation errors, never silent drops" do

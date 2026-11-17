@@ -16,8 +16,8 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model messages system contents tools stream systeminstruction toolconfig
-                    generationconfig)
+  @envelope_keys ~w(model messages system contents tools stream systeminstruction toolconfig)
+  @default_reserved_keys @envelope_keys ++ ~w(generationconfig)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
@@ -430,8 +430,18 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
              "default_provider_options"
            ),
          :ok <- validate_namespaces(request.provider_options, "provider_options"),
-         :ok <- validate_namespaces(config.default_provider_options, "default_provider_options") do
-      Helpers.validate_option_keys(provider_options(request, config), @reserved_keys, @codec)
+         :ok <- validate_namespaces(config.default_provider_options, "default_provider_options"),
+         :ok <-
+           Helpers.validate_option_keys(
+             native_options(request.provider_options),
+             @envelope_keys,
+             @codec
+           ) do
+      Helpers.validate_option_keys(
+        native_options(config.default_provider_options),
+        @default_reserved_keys,
+        @codec
+      )
     end
   end
 

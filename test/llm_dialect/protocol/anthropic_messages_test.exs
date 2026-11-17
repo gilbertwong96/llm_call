@@ -285,7 +285,7 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
            }
   end
 
-  test "the provider_options container and canonical wire keys are validated" do
+  test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =
                Messages.validate_request(text_request(provider_options: options), %Config{})
@@ -293,7 +293,7 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
       assert message =~ "provider_options must be a map"
     end
 
-    for key <- ["max_tokens", "thinking", "stop_sequences", "tool_choice"] do
+    for key <- ["model", "messages", "stream"] do
       assert {:error, %Error{kind: :validation, message: message}} =
                Messages.validate_request(
                  text_request(provider_options: %{anthropic: %{key => 1}}),
@@ -302,6 +302,19 @@ defmodule LlmDialect.Protocol.AnthropicMessagesTest do
 
       assert message =~ "canonical field"
     end
+
+    assert :ok ==
+             Messages.validate_request(
+               text_request(provider_options: %{anthropic: %{"max_tokens" => 1}}),
+               %Config{}
+             )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(text_request(), %Config{
+               default_provider_options: %{anthropic: %{"max_tokens" => 1}}
+             })
+
+    assert message =~ "canonical field"
   end
 
   test "thinking blocks in user turns are rejected" do

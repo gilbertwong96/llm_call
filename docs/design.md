@@ -336,11 +336,17 @@ Fields:
 
 `provider_options` is intentionally not a catch-all for values that the
 canonical layer can represent. It is for features that are genuinely
-provider-specific: a codec reserves the wire keys it derives from canonical
-fields (`max_tokens`, `response_format`, `generationConfig`, ...), so passing one
-through `provider_options` is a validation error instead of a silent override.
-Reasoning-specific native controls belong on `Reasoning.provider_options`, which
-merges into the protocol's reasoning object.
+provider-specific.
+
+A codec reserves the wire keys it derives from the request envelope (`model`,
+`messages`, `system`, `contents`, `tools`, `stream`), so a request-level override
+is a validation error. Parameter-level native keys stay reachable:
+`provider_options.gemini.generationConfig.candidateCount` or a nested
+`tool_choice.disable_parallel_tool_use` are explicit caller intent, merged beside
+the canonical values. `Config.default_provider_options` may not override a
+parameter-level canonical field, so a default cannot silently beat an explicit
+request. Reasoning-specific native controls belong on
+`Reasoning.provider_options`, which merges into the protocol's reasoning object.
 
 ### 8.2 Message
 

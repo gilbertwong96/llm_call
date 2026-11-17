@@ -13,8 +13,10 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   @path "/v1/chat/completions"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model messages system contents tools stream response_format reasoning_effort
-                    tool_choice temperature top_p max_tokens stop seed stream_options)
+  @envelope_keys ~w(model messages system contents tools stream)
+  @default_reserved_keys @envelope_keys ++
+                           ~w(temperature top_p max_tokens stop seed response_format reasoning_effort
+                              tool_choice stream_options)
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
   @efforts [:none, :minimal, :low, :medium, :high]
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
@@ -373,14 +375,21 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
              config.default_provider_options,
              @codec,
              "default_provider_options"
-           ) do
-      case Map.get(Config.provider_options(request, config), :openai, %{}) do
-        options when is_map(options) ->
-          Helpers.validate_option_keys(options, @reserved_keys, @codec)
-
-        _options ->
-          Helpers.error(@codec, "provider_options.openai must be a map")
-      end
+           ),
+         {:ok, request_options} <-
+           Helpers.namespace_options(
+             Map.get(request.provider_options, :openai, %{}),
+             @codec,
+             "provider_options.openai"
+           ),
+         {:ok, default_options} <-
+           Helpers.namespace_options(
+             Map.get(config.default_provider_options, :openai, %{}),
+             @codec,
+             "default_provider_options.openai"
+           ),
+         :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec) do
+      Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec)
     end
   end
 

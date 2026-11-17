@@ -548,6 +548,16 @@ defmodule LlmDialect.Protocol.Helpers do
   end
 
   @doc """
+  Validates one provider-options namespace and returns its map.
+
+  A missing namespace is the caller's business (`Map.get/3` supplies the
+  default); a present non-map is an error.
+  """
+  @spec namespace_options(term(), codec(), String.t()) :: {:ok, map()} | {:error, Error.t()}
+  def namespace_options(options, _codec, _label) when is_map(options), do: {:ok, options}
+  def namespace_options(_options, codec, label), do: error(codec, "#{label} must be a map")
+
+  @doc """
   Validates a provider-options container: a map of namespace to map.
 
   A non-map is an error, so a malformed container cannot reach
