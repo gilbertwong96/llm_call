@@ -1,3 +1,59 @@
+defmodule LlmDialect.TestCodec.DoneThenContent do
+  @moduledoc "Emits content from `finish_stream/2` after `{:done, state}`, so conformance must catch it."
+
+  @behaviour LlmDialect.Codec
+
+  alias LlmDialect.{
+    Capabilities,
+    Codec,
+    EncodedRequest,
+    Error,
+    Response,
+    StreamEvent,
+    StreamState
+  }
+
+  alias LlmDialect.StreamDelta
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :done_then_content, protocol: :done_then_content, ir_version: 1}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_request(_request, _config),
+    do: {:ok, %EncodedRequest{path: "/done-then-content"}}
+
+  @impl true
+  def decode_response(%{"text" => text}, _config) do
+    {:ok, %Response{content: [%LlmDialect.Content.Text{text: text}]}}
+  end
+
+  def decode_response(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "done_then_content"}}
+
+  @impl true
+  def decode_error(_term, _config),
+    do: %Error{kind: :provider, message: "done_then_content"}
+
+  @impl true
+  def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+  @impl true
+  def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+  @impl true
+  def decode_stream_event(_term, _config, state), do: {:done, state}
+
+  @impl true
+  def finish_stream(state, _config) do
+    event = %StreamEvent{type: :text_delta, delta: %StreamDelta.Text{text: "late"}}
+    {:ok, [event], state}
+  end
+end
+
 defmodule LlmDialect.CodecConformanceTest do
   use ExUnit.Case, async: true
 
@@ -114,6 +170,33 @@ defmodule LlmDialect.CodecConformanceTest do
           ]
         },
         %Config{}
+      )
+    end
+  end
+
+  test "an unmapped provider field is a Raw message delta, not a contract violation" do
+    {:ok, state} = LlmDialect.Protocol.OpenAI.Chat.init_stream(request("gpt-4o", true), %Config{})
+
+    chunk = %{
+      "choices" => [
+        %{"index" => 0, "delta" => %{"refusal" => "no"}, "finish_reason" => nil}
+      ]
+    }
+
+    assert {:ok, [event], _state} =
+             LlmDialect.Protocol.OpenAI.Chat.decode_stream_event(chunk, %Config{}, state)
+
+    assert event.type == :message_delta
+    assert %LlmDialect.StreamDelta.Raw{} = event.delta
+    assert :ok = LlmDialect.Conformance.assert_stream_event(event, "openai")
+  end
+
+  test "assert_stream/3 catches content emitted after {:done, state}" do
+    assert_raise ExUnit.AssertionError, ~r/only emit :message_stop/, fn ->
+      Conformance.assert_stream(
+        LlmDialect.TestCodec.DoneThenContent,
+        request("done-1", true),
+        [%{}]
       )
     end
   end

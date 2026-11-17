@@ -28,7 +28,6 @@ defmodule LlmDialect.Codec.Conformance do
     Reasoning,
     ReasoningCapabilities,
     StreamAssembler,
-    StreamEvent,
     StreamState,
     ToolCall,
     ToolSpec
@@ -37,6 +36,7 @@ defmodule LlmDialect.Codec.Conformance do
   alias LlmDialect.Conformance, as: Shared
 
   @reasoning_levels [:none, :minimal, :low, :medium, :high, :xhigh, :max]
+  @reasoning_summaries [:none, :auto, :concise, :detailed]
 
   @doc "Asserts well-formed `info/0` metadata (see `LlmDialect.Conformance`)."
   @spec assert_info(module()) :: :ok
@@ -255,8 +255,8 @@ defmodule LlmDialect.Codec.Conformance do
     assert_event_order(events, label)
 
     if done? do
-      refute Enum.any?(tail, &content_event?/1),
-             "#{label} emitted content after {:done, state}: " <>
+      assert Enum.all?(tail, &(&1.type == :message_stop)),
+             "#{label} may only emit :message_stop after {:done, state}, got: " <>
                inspect(Enum.map(tail, & &1.type))
     end
 
@@ -400,6 +400,10 @@ defmodule LlmDialect.Codec.Conformance do
     )
   end
 
+  defp check_tools(_codec, _request, _config, %Capabilities{tools: other}) do
+    flunk("Capabilities.tools must be a boolean, got: #{inspect(other)}")
+  end
+
   defp check_tool_choice(codec, request, config, %Capabilities{tool_choice: true}) do
     request =
       request |> with_field(:tools, [minimal_tool()]) |> with_field(:tool_choice, :required)
@@ -415,6 +419,10 @@ defmodule LlmDialect.Codec.Conformance do
       request |> with_field(:tools, [minimal_tool()]) |> with_field(:tool_choice, :required)
 
     expect_rejection(codec, request, config, "declares tool_choice: false but accepts :required")
+  end
+
+  defp check_tool_choice(_codec, _request, _config, %Capabilities{tool_choice: other}) do
+    flunk("Capabilities.tool_choice must be a boolean, got: #{inspect(other)}")
   end
 
   defp check_output(codec, request, config, :none) do
@@ -452,6 +460,13 @@ defmodule LlmDialect.Codec.Conformance do
     end
 
     :ok
+  end
+
+  defp check_output(_codec, _request, _config, other) do
+    flunk(
+      "Capabilities.structured_output must be :none, :json_object or :json_schema, " <>
+        "got: #{inspect(other)}"
+    )
   end
 
   defp check_modalities(codec, request, config, declared) do
@@ -492,6 +507,10 @@ defmodule LlmDialect.Codec.Conformance do
     )
   end
 
+  defp check_part_support(_codec, _request, _config, other, _part, label) do
+    flunk("Capabilities.#{label} must be a boolean, got: #{inspect(other)}")
+  end
+
   defp check_reasoning(codec, request, config, nil) do
     expect_rejection(
       codec,
@@ -520,17 +539,16 @@ defmodule LlmDialect.Codec.Conformance do
              "#{inspect(codec)} declares reasoning effort #{inspect(effort)} but rejects it"
     end
 
-    case Enum.find(@reasoning_levels, &(&1 not in capabilities.efforts)) do
-      nil ->
-        :ok
+    undeclared_levels = Enum.reject(@reasoning_levels, &(&1 in capabilities.efforts))
+    sentinel = Enum.find(undeclared_levels, &(&1 != :none)) || List.first(undeclared_levels)
 
-      undeclared ->
-        expect_rejection(
-          codec,
-          with_field(request, :reasoning, %Reasoning{effort: undeclared}),
-          config,
-          "does not declare reasoning effort #{inspect(undeclared)} but accepts it"
-        )
+    if sentinel do
+      expect_rejection(
+        codec,
+        with_field(request, :reasoning, %Reasoning{effort: sentinel}),
+        config,
+        "does not declare reasoning effort #{inspect(sentinel)} but accepts it"
+      )
     end
 
     check_reasoning_flag(
@@ -543,6 +561,13 @@ defmodule LlmDialect.Codec.Conformance do
     )
 
     check_reasoning_summary(codec, request, config, capabilities.summary)
+  end
+
+  defp check_reasoning(_codec, _request, _config, other) do
+    flunk(
+      "Capabilities.reasoning must be nil or a %LlmDialect.ReasoningCapabilities{}, " <>
+        "got: #{inspect(other)}"
+    )
   end
 
   defp check_reasoning_flag(codec, request, config, true, reasoning, label) do
@@ -561,26 +586,33 @@ defmodule LlmDialect.Codec.Conformance do
     )
   end
 
-  defp check_reasoning_summary(codec, request, config, []),
-    do:
-      check_reasoning_flag(
-        codec,
-        request,
-        config,
-        false,
-        %Reasoning{summary: :auto},
-        "reasoning.summary"
-      )
+  defp check_reasoning_summary(codec, request, config, declared) when is_list(declared) do
+    for summary <- declared do
+      assert :ok ==
+               codec.validate_request(
+                 with_field(request, :reasoning, %Reasoning{summary: summary}),
+                 config
+               ),
+             "#{inspect(codec)} declares reasoning summary #{inspect(summary)} but rejects it"
+    end
 
-  defp check_reasoning_summary(codec, request, config, [summary | _rest]) do
-    assert :ok ==
-             codec.validate_request(
-               with_field(request, :reasoning, %Reasoning{summary: summary}),
-               config
-             ),
-           "#{inspect(codec)} declares reasoning summary #{inspect(summary)} but rejects it"
+    undeclared = Enum.reject(@reasoning_summaries, &(&1 in declared))
+    sentinel = Enum.find(undeclared, &(&1 != :none)) || List.first(undeclared)
+
+    if sentinel do
+      expect_rejection(
+        codec,
+        with_field(request, :reasoning, %Reasoning{summary: sentinel}),
+        config,
+        "does not declare reasoning summary #{inspect(sentinel)} but accepts it"
+      )
+    end
 
     :ok
+  end
+
+  defp check_reasoning_summary(_codec, _request, _config, other) do
+    flunk("ReasoningCapabilities.summary must be a list, got: #{inspect(other)}")
   end
 
   defp assert_assembled_call(%ToolCall{} = call, label) do
@@ -638,9 +670,6 @@ defmodule LlmDialect.Codec.Conformance do
     {events ++ tail, tail, done?}
   end
 
-  defp content_event?(%StreamEvent{type: type}),
-    do: type in [:text_delta, :thinking_delta, :tool_call_delta]
-
   defp assert_event_order(events, label) do
     types = Enum.map(events, & &1.type)
 
@@ -660,7 +689,7 @@ defmodule LlmDialect.Codec.Conformance do
              "#{label} emitted #{inspect(terminal)} more than once: #{inspect(types)}"
 
       if terminal in types do
-        assert List.last(types) == terminal or terminal == :error,
+        assert List.last(types) == terminal,
                "#{label} emitted #{inspect(terminal)} before the end of the stream: #{inspect(types)}"
       end
     end
@@ -703,7 +732,17 @@ defmodule LlmDialect.Codec.Conformance do
   defp with_field(request, field, value), do: Map.put(request, field, value)
 
   defp with_part(request, part) do
-    message = %Message{role: :user, content: [part]}
-    with_field(request, :messages, request.messages ++ [message])
+    case List.last(request.messages) do
+      %Message{role: :user, content: content} when is_list(content) ->
+        message = %Message{role: :user, content: content ++ [part]}
+        with_field(request, :messages, List.replace_at(request.messages, -1, message))
+
+      _other ->
+        with_field(
+          request,
+          :messages,
+          request.messages ++ [%Message{role: :user, content: [part]}]
+        )
+    end
   end
 end

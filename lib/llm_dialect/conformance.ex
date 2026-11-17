@@ -25,14 +25,7 @@ defmodule LlmDialect.Conformance do
     :unknown
   ]
 
-  @usage_fields [
-    :input_tokens,
-    :output_tokens,
-    :total_tokens,
-    :cache_read_tokens,
-    :cache_write_tokens,
-    :reasoning_tokens
-  ]
+  @usage_fields Enum.sort(Map.keys(%Usage{}) -- [:__struct__])
 
   @part_modules [
     Content.Text,
@@ -45,19 +38,20 @@ defmodule LlmDialect.Conformance do
     LlmDialect.ToolResult
   ]
 
-  @event_types [
-    :message_start,
-    :content_start,
-    :text_delta,
-    :tool_call_start,
-    :tool_call_delta,
-    :tool_call_stop,
-    :thinking_delta,
-    :content_stop,
-    :message_delta,
-    :message_stop,
-    :error
-  ]
+  @delta_for %{
+    text_delta: [StreamDelta.Text],
+    thinking_delta: [StreamDelta.Thinking],
+    tool_call_start: [StreamDelta.ToolCall],
+    tool_call_delta: [StreamDelta.ToolCall],
+    tool_call_stop: [StreamDelta.ToolCall],
+    message_delta: [StreamDelta.MessageDelta, StreamDelta.Raw]
+  }
+
+  @delta_free [:message_start, :content_start, :content_stop, :message_stop]
+
+  @delta_any [:error]
+
+  @event_types Enum.sort(@delta_free ++ Map.keys(@delta_for) ++ @delta_any)
 
   @doc """
   Asserts that `info/0` returns well-formed codec metadata.
@@ -83,17 +77,6 @@ defmodule LlmDialect.Conformance do
   @doc "The header names a codec must never emit (the transport adds them)."
   @spec credential_headers() :: [String.t()]
   def credential_headers, do: @credential_headers
-
-  @delta_for %{
-    text_delta: StreamDelta.Text,
-    thinking_delta: StreamDelta.Thinking,
-    tool_call_start: StreamDelta.ToolCall,
-    tool_call_delta: StreamDelta.ToolCall,
-    tool_call_stop: StreamDelta.ToolCall,
-    message_delta: StreamDelta.MessageDelta
-  }
-
-  @delta_free [:message_start, :content_start, :content_stop, :message_stop]
 
   @doc """
   Asserts that a decoded error is a canonical `LlmDialect.Error`.
@@ -207,9 +190,10 @@ defmodule LlmDialect.Conformance do
   Asserts that a stream event uses the canonical type union and its matching delta.
 
   The index is a non-negative integer or `nil`. A content event carries the delta
-  its type names (`:text_delta` → `StreamDelta.Text`, and so on); a structural
-  event carries none. A mismatched delta is how a codec silently turns a tool
-  fragment into text.
+  its type names (`:text_delta` → `StreamDelta.Text`, and so on); a
+  `:message_delta` carries either the normalized delta or `StreamDelta.Raw` for an
+  unmapped provider field, which is how a codec preserves unknown data. A
+  structural event carries none.
   """
   @spec assert_stream_event(StreamEvent.t() | term(), String.t()) :: :ok
   def assert_stream_event(%StreamEvent{type: type, index: index, delta: delta}, label) do
@@ -231,18 +215,19 @@ defmodule LlmDialect.Conformance do
   end
 
   defp assert_delta(type, delta, label) do
-    case Map.fetch(@delta_for, type) do
-      {:ok, module} ->
-        assert is_struct(delta, module),
-               "#{label} #{inspect(type)} must carry a %#{inspect(module)}{}, " <>
+    cond do
+      modules = @delta_for[type] ->
+        assert Enum.any?(modules, &is_struct(delta, &1)),
+               "#{label} #{inspect(type)} must carry one of #{inspect(modules)}, " <>
                  "got: #{inspect(delta)}"
 
-      :error ->
-        if type in @delta_free do
-          assert is_nil(delta),
-                 "#{label} #{inspect(type)} is structural and must not carry a delta, " <>
-                   "got: #{inspect(delta)}"
-        end
+      type in @delta_free ->
+        assert is_nil(delta),
+               "#{label} #{inspect(type)} is structural and must not carry a delta, " <>
+                 "got: #{inspect(delta)}"
+
+      true ->
+        :ok
     end
   end
 end
