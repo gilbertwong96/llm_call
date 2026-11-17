@@ -751,6 +751,52 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
                calls
     end
 
+    test "parallel tool calls in one choice keep the tool-call index, not the choice index" do
+      chunk = %{
+        "choices" => [
+          %{
+            "index" => 0,
+            "delta" => %{
+              "tool_calls" => [
+                %{
+                  "index" => 0,
+                  "id" => "call_a",
+                  "type" => "function",
+                  "function" => %{"name" => "alpha", "arguments" => ~s({"n":1})}
+                },
+                %{
+                  "index" => 1,
+                  "id" => "call_b",
+                  "type" => "function",
+                  "function" => %{"name" => "beta", "arguments" => ~s({"n":2})}
+                }
+              ]
+            },
+            "finish_reason" => nil
+          }
+        ]
+      }
+
+      {_state, events} = run_stream([chunk])
+
+      starts =
+        for %LlmDialect.StreamEvent{type: :tool_call_start, index: index} <- events, do: index
+
+      assert starts == [0, 1]
+
+      assembler = LlmDialect.StreamAssembler.new(json_decoder: &LlmDialect.TestJSON.decode/1)
+
+      {assembler, calls} =
+        Enum.reduce(events, {assembler, []}, fn event, {assembler, acc} ->
+          {:ok, assembler, new} = LlmDialect.StreamAssembler.feed(assembler, event)
+          {assembler, acc ++ new}
+        end)
+
+      {:ok, _assembler, final} = LlmDialect.StreamAssembler.finish(assembler)
+
+      assert [%ToolCall{name: "alpha"}, %ToolCall{name: "beta"}] = calls ++ final
+    end
+
     test "usage merges instead of overwriting previously seen fields" do
       {_state, events} = run_stream(Fx.usage_split_chunks())
 

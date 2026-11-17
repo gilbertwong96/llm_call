@@ -7,6 +7,10 @@ defmodule LlmDialect.Media.Fixtures.GeminiPredict do
     %{"predictions" => [%{"bytesBase64Encoded" => "AAA", "mimeType" => "image/png"}]}
   end
 
+  def jpeg_response do
+    %{"predictions" => [%{"bytesBase64Encoded" => "BBB", "mimeType" => "image/jpeg"}]}
+  end
+
   def filtered_response do
     %{"predictions" => [%{"raiFilteredReason" => "Blocked by safety filters"}]}
   end

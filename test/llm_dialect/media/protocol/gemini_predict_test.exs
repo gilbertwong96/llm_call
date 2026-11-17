@@ -197,6 +197,14 @@ defmodule LlmDialect.Media.Protocol.GeminiPredictTest do
             }} = Predict.decode_submit(Fx.base64_response(), %Config{})
   end
 
+  test "the prediction mimeType becomes the asset media type" do
+    assert {:ok,
+            %MediaResponse{
+              assets: [%Content.Image{source: {:base64, "BBB"}, media_type: "image/jpeg"}]
+            }} =
+             Predict.decode_submit(Fx.jpeg_response(), %Config{})
+  end
+
   test "a filtered prediction is a provider error" do
     assert {:error, %Error{kind: :provider, message: "Blocked by safety filters"}} =
              Predict.decode_submit(Fx.filtered_response(), %Config{})

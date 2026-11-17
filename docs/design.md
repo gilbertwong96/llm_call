@@ -392,6 +392,15 @@ implement.
 wire key and asserts each is rejected from every source that can write it, so
 this list is the only place a dropped field may be added.
 
+The decode side has the mirror problem: a provider field can be ignored. Envelope
+data, echoes (`choices[].index`, `candidates[].index`), discriminators
+(`tool_calls[].type`, `"type" => "message"`), and an implied role
+(`message.role`) are deliberately not modelled; they remain reachable through
+`Response.raw` when `capture_raw` keeps it.
+`test/llm_dialect/decode_path_audit_test.exs` deletes every provider leaf and
+requires the canonical struct to change, or the leaf to be listed with a reason.
+Adding a field to a provider fixture without mapping it fails that test.
+
 ### 8.2 Message
 
 ```elixir
@@ -1751,6 +1760,15 @@ For each protocol:
    - `capture_raw` on `LlmDialect.Media.Response.raw` and `Operation.raw`
    - a media codec without `decode_operation/2` returns a typed error
    - `Request.modalities` mapping per codec, including the streaming rejection
+
+9. **Write-path and decode-path audits**
+   - encode: every canonical-derived wire key is rejected from every source that
+     can write it (see §8.1)
+   - decode: deleting any single provider field either changes the canonical
+     struct or is listed as an ignored envelope/echo field; deleting any field
+     never raises; an absent field is `nil`/`:unknown`, never a fabricated value
+     (`test/llm_dialect/write_path_audit_test.exs` and
+     `decode_path_audit_test.exs`)
 
 ## 18. Failure and compatibility policy
 
