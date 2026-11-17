@@ -258,7 +258,10 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   end
 
   defp validate_output_modalities(modalities) do
-    if is_list(modalities) and :video in modalities do
+    valid? =
+      is_list(modalities) and Enum.all?(modalities, &(&1 in [:text, :image, :video]))
+
+    if valid? and :video in modalities do
       Helpers.error(@codec, "video output requires the long-running predict path")
     else
       :ok
