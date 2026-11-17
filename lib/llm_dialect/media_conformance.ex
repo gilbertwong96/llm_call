@@ -256,7 +256,7 @@ defmodule LlmDialect.MediaConformance do
     :ok
   end
 
-  defp check_max_n(codec, request, config, max_n) do
+  defp check_max_n(codec, request, config, max_n) when is_integer(max_n) and max_n > 0 do
     for n <- 1..max_n do
       assert :ok == codec.validate_request(with_param(request, :n, n), config),
              "#{inspect(codec)} declares max_n #{max_n} but rejects n: #{n}"
@@ -268,6 +268,12 @@ defmodule LlmDialect.MediaConformance do
            "#{inspect(codec)} accepts n: #{max_n + 1} beyond max_n #{max_n}"
 
     :ok
+  end
+
+  defp check_max_n(_codec, _request, _config, other) do
+    flunk(
+      "Media.Capabilities.max_n must be a positive integer or :unsupported, got: #{inspect(other)}"
+    )
   end
 
   defp check_flag(codec, request, config, key, true, value) do

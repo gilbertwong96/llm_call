@@ -15,10 +15,24 @@ defmodule LlmDialect.JSON do
   @doc """
   Encodes a term as a JSON string.
 
+  Raises when the term is not JSON-encodable (an atom value, a tuple, a PID);
+  callers that accept caller-supplied data validate it first.
+
       iex> LlmDialect.JSON.encode(%{"city" => "Oslo"})
       ~s({"city":"Oslo"})
   """
 
   @spec encode(term()) :: String.t()
   def encode(term), do: term |> :json.encode() |> IO.iodata_to_binary()
+
+  @doc """
+  True when `LlmDialect.JSON.encode/1` accepts the term.
+  """
+  @spec encodable?(term()) :: boolean()
+  def encodable?(term) do
+    _encoded = encode(term)
+    true
+  rescue
+    _error -> false
+  end
 end

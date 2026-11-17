@@ -95,7 +95,7 @@ defmodule LlmDialect.Media.Protocol.OpenAIImagesTest do
     body = encode_body(request(provider_options: %{openai: %{"user" => "u1"}}))
     assert body["user"] == "u1"
 
-    for key <- ["model", "prompt", "instances", "parameters", "modality"] do
+    for key <- ["model", "prompt", "n", "size"] do
       assert {:error, %Error{kind: :validation}} =
                Images.encode_submit(
                  request(provider_options: %{openai: %{key => "x"}}),

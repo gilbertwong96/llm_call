@@ -13,7 +13,7 @@ defmodule LlmDialect.Protocol.Adapter do
   `@path` and `@headers` may appear anywhere in the module body; they are read
   once the module finishes, so declaration order does not matter.
 
-  The codec still supplies `info/0`, `capabilities/0`, `validate_request/2`, and
+  The codec still supplies `info/0`, `capabilities/2`, `validate_request/2`, and
   a private `body/2` that returns the wire body for a validated request.
 
   Pass `encode: false` when the protocol needs its own `encode_request/2` — for

@@ -1,3 +1,46 @@
+defmodule LlmDialect.TestCodec.IllegalStreamReturn do
+  @moduledoc "Returns `:ok` from `decode_stream_event/3`, which is outside the callback contract."
+
+  @behaviour LlmDialect.Codec
+
+  alias LlmDialect.{Capabilities, Codec, EncodedRequest, Error, Response, StreamState}
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :illegal_stream_return, protocol: :illegal_stream_return, ir_version: 1}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_request(_request, _config),
+    do: {:ok, %EncodedRequest{path: "/illegal-stream-return"}}
+
+  @impl true
+  def decode_response(%{"text" => text}, _config) do
+    {:ok, %Response{content: [%LlmDialect.Content.Text{text: text}]}}
+  end
+
+  def decode_response(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "illegal_stream_return"}}
+
+  @impl true
+  def decode_error(_term, _config),
+    do: %Error{kind: :provider, message: "illegal_stream_return"}
+
+  @impl true
+  def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+  @impl true
+  def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+  @impl true
+  def decode_stream_event(_term, _config, _state), do: :ok
+
+  @impl true
+  def finish_stream(state, _config), do: {:ok, [], state}
+end
+
 defmodule LlmDialect.TestCodec.UsageAfterDone do
   @moduledoc "Flushes usage and a terminal event from `finish_stream/2` after `{:done, state}`, which is legal."
 
@@ -296,10 +339,12 @@ defmodule LlmDialect.CodecConformanceTest do
       Conformance.assert_decode_error(codec, %{"unexpected" => true})
     end
 
-    assert_raise ExUnit.AssertionError, fn ->
-      Conformance.assert_stream(codec, request("gpt-4o", true), [
-        %{"error" => %{"message" => "boom"}}
-      ])
+    assert_raise ExUnit.AssertionError, ~r/must return/, fn ->
+      Conformance.assert_stream(
+        LlmDialect.TestCodec.IllegalStreamReturn,
+        request("illegal-1", true),
+        [%{}]
+      )
     end
 
     assert_raise ExUnit.AssertionError, ~r/tool call/, fn ->

@@ -352,9 +352,17 @@ merges it into the body root).
 
 The namespace keys are checked, not just their values: a codec names the
 namespaces it reads (`:openai`, `[:gemini, :google]`, ...) and rejects any other
-key, so `provider_options: %{openai_chat: ...}` or a string key is a validation
-error rather than a silently ignored option. Every present namespace must be a
-map.
+key in a **request**, so `provider_options: %{openai_chat: ...}`, a string key, or
+a present-but-`nil` namespace is a validation error rather than a silently ignored
+option. `Config.default_provider_options` is application-wide: only the
+namespaces this codec reads are checked there, so one `Config` can carry defaults
+for several providers.
+
+A nested native object stays reachable in both sources, with its canonical keys
+reserved: `generationConfig.candidateCount` and
+`stream_options.include_obfuscation` are accepted, `generationConfig.temperature`
+and `stream_options.include_usage` are not, because the codec derives those from
+`params`.
 
 ### 8.2 Message
 

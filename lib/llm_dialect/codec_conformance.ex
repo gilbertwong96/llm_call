@@ -67,8 +67,15 @@ defmodule LlmDialect.Codec.Conformance do
     :ok
   end
 
-  @spec assert_path(module(), LlmDialect.Request.t(), String.t()) :: :ok
-  def assert_path(codec, request, expected_path) do
+  @doc """
+  Asserts the encoded request's method, path, body shape, and credential-free
+  headers.
+
+  `method` defaults to `:post`. A codec that uses `encode: false` for a
+  per-request method passes the one it produces.
+  """
+  @spec assert_path(module(), LlmDialect.Request.t(), String.t(), :post | :get) :: :ok
+  def assert_path(codec, request, expected_path, method \\ :post) do
     result = codec.encode_request(request, %Config{})
 
     assert match?({:ok, %EncodedRequest{}}, result),
@@ -76,7 +83,9 @@ defmodule LlmDialect.Codec.Conformance do
 
     {:ok, %EncodedRequest{} = encoded} = result
 
-    assert encoded.method == :post
+    assert encoded.method == method,
+           "#{inspect(codec)} encoded method must be #{inspect(method)}, got: #{inspect(encoded.method)}"
+
     assert encoded.path == expected_path
     assert is_map(encoded.body)
     assert is_map(encoded.query)
@@ -353,9 +362,10 @@ defmodule LlmDialect.Codec.Conformance do
   `summary`. An undeclared one must be a validation error. The base request must
   otherwise be valid for the codec.
 
-  `reasoning.adaptive` and `reasoning.default_effort` are declarations only: the
-  canonical IR has no field that expresses them, so there is nothing to check in
-  either direction.
+  `reasoning.adaptive`, `reasoning.default_effort`, `parallel_tool_calls`,
+  `streaming_tool_calls`, `prompt_cache`, and `stateful` are declarations only:
+  the canonical IR has no request field that expresses them, so there is nothing
+  to check in either direction.
   """
   @spec assert_capability_consistency(module(), LlmDialect.Request.t(), Config.t()) :: :ok
   def assert_capability_consistency(codec, request, config) do
@@ -650,29 +660,39 @@ defmodule LlmDialect.Codec.Conformance do
     assert {:ok, %StreamState{} = state} = codec.init_stream(request, config),
            "#{label}.init_stream/2 must return {:ok, %LlmDialect.StreamState{}}"
 
-    {events, state, done?} =
+    {events, state, done?, halted?} =
       chunks
       |> Enum.with_index()
-      |> Enum.reduce_while({[], state, false}, fn {chunk, position}, {events, state, _done} ->
+      |> Enum.reduce_while({[], state, false, false}, fn {chunk, position},
+                                                         {events, state, _done, _halted} ->
         case codec.decode_stream_event(chunk, config, state) do
           {:ok, new_events, %StreamState{} = next} when is_list(new_events) ->
-            {:cont, {events ++ new_events, next, false}}
+            {:cont, {events ++ new_events, next, false, false}}
 
           {:done, %StreamState{} = next} ->
-            {:halt, {events, next, true}}
+            {:halt, {events, next, true, false}}
+
+          {:error, %Error{} = error} ->
+            Shared.assert_error(error, label)
+            {:halt, {events, state, true, true}}
 
           other ->
             flunk(
-              "#{label}.decode_stream_event/3 must return {:ok, events, state} or " <>
-                "{:done, state} for chunk #{position}, got: #{inspect(other)}"
+              "#{label}.decode_stream_event/3 must return {:ok, events, state}, " <>
+                "{:done, state}, or {:error, %LlmDialect.Error{}} for chunk #{position}, " <>
+                "got: #{inspect(other)}"
             )
         end
       end)
 
-    assert {:ok, tail, %StreamState{}} = codec.finish_stream(state, config),
-           "#{label}.finish_stream/2 must return {:ok, events, state}"
+    if halted? do
+      {events, [], done?}
+    else
+      assert {:ok, tail, %StreamState{}} = codec.finish_stream(state, config),
+             "#{label}.finish_stream/2 must return {:ok, events, state}"
 
-    {events ++ tail, tail, done?}
+      {events ++ tail, tail, done?}
+    end
   end
 
   defp assert_event_order(events, label) do
