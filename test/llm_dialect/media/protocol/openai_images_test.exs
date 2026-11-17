@@ -26,6 +26,42 @@ defmodule LlmDialect.Media.Protocol.OpenAIImagesTest do
     assert encoded.body == %{"model" => "gpt-image-1", "prompt" => "a cat"}
   end
 
+  test "canonical params stay canonical through provider_options" do
+    for options <- [%{openai: %{"size" => "512x512"}}, %{openai: %{"n" => 9}}] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Images.validate_request(request(provider_options: options), %Config{})
+
+      assert message =~ "canonical field"
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Images.validate_request(request(), %Config{
+               default_provider_options: %{openai: %{"size" => "512x512"}}
+             })
+
+    assert message =~ "canonical field"
+
+    assert :ok =
+             Images.validate_request(
+               request(provider_options: %{openai: %{"background" => "transparent"}}),
+               %Config{}
+             )
+  end
+
+  test "a malformed provider_options container is a typed error" do
+    for options <- [nil, "not-a-map"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Images.validate_request(request(provider_options: options), %Config{})
+
+      assert message =~ "provider_options must be a map"
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Images.validate_request(request(provider_options: %{"openai" => %{}}), %Config{})
+
+    assert message =~ "namespace"
+  end
+
   test "response_format is only sent to models that accept it" do
     refute Map.has_key?(encode_body(request()), "response_format")
     assert encode_body(request(model: "dall-e-3"))["response_format"] == "b64_json"

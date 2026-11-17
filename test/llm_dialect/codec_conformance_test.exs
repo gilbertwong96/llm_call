@@ -1,3 +1,66 @@
+defmodule LlmDialect.TestCodec.UsageAfterDone do
+  @moduledoc "Flushes usage and a terminal event from `finish_stream/2` after `{:done, state}`, which is legal."
+
+  @behaviour LlmDialect.Codec
+
+  alias LlmDialect.{
+    Capabilities,
+    Codec,
+    EncodedRequest,
+    Error,
+    Response,
+    StreamEvent,
+    StreamState
+  }
+
+  alias LlmDialect.StreamDelta
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :usage_after_done, protocol: :usage_after_done, ir_version: 1}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_request(_request, _config),
+    do: {:ok, %EncodedRequest{path: "/usage-after-done"}}
+
+  @impl true
+  def decode_response(%{"text" => text}, _config) do
+    {:ok, %Response{content: [%LlmDialect.Content.Text{text: text}]}}
+  end
+
+  def decode_response(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "usage_after_done"}}
+
+  @impl true
+  def decode_error(_term, _config), do: %Error{kind: :provider, message: "usage_after_done"}
+
+  @impl true
+  def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+  @impl true
+  def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+  @impl true
+  def decode_stream_event(_term, _config, state), do: {:done, state}
+
+  @impl true
+  def finish_stream(state, _config) do
+    usage = %LlmDialect.Usage{input_tokens: 1, output_tokens: 1, total_tokens: 2}
+
+    {:ok,
+     [
+       %StreamEvent{
+         type: :message_delta,
+         delta: %StreamDelta.MessageDelta{usage: usage}
+       },
+       %StreamEvent{type: :message_stop}
+     ], state}
+  end
+end
+
 defmodule LlmDialect.TestCodec.DoneThenContent do
   @moduledoc "Emits content from `finish_stream/2` after `{:done, state}`, so conformance must catch it."
 
@@ -191,8 +254,17 @@ defmodule LlmDialect.CodecConformanceTest do
     assert :ok = LlmDialect.Conformance.assert_stream_event(event, "openai")
   end
 
+  test "assert_stream/3 allows a usage flush after {:done, state}" do
+    assert :ok =
+             Conformance.assert_stream(
+               LlmDialect.TestCodec.UsageAfterDone,
+               request("usage-1", true),
+               [%{}]
+             )
+  end
+
   test "assert_stream/3 catches content emitted after {:done, state}" do
-    assert_raise ExUnit.AssertionError, ~r/only emit :message_stop/, fn ->
+    assert_raise ExUnit.AssertionError, ~r/only flush metadata/, fn ->
       Conformance.assert_stream(
         LlmDialect.TestCodec.DoneThenContent,
         request("done-1", true),

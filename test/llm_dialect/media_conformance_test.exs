@@ -191,6 +191,13 @@ defmodule LlmDialect.MediaConformanceTest do
           %Operation{status: :completed, next: poll, next_kind: :poll, result: %MediaResponse{}},
           %Operation{status: :completed, next: poll, next_kind: :asset, result: %MediaResponse{}},
           %Operation{status: :completed, next_kind: :asset, next_media_type: "video/mp4"},
+          %Operation{
+            status: :completed,
+            result: %MediaResponse{assets: [%LlmDialect.Content.Video{source: {:url, "u"}}]},
+            next: poll,
+            next_kind: :asset,
+            next_media_type: "video/mp4"
+          },
           %Operation{status: :in_progress},
           %Operation{status: :failed, next: poll},
           %Operation{

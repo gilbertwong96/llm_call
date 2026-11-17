@@ -177,18 +177,45 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   end
 
   defp validate_provider_options(request, config) do
-    case provider_options(request, config) do
-      options when is_map(options) ->
-        Helpers.validate_option_keys(options, @reserved_keys, @codec)
+    with :ok <-
+           Helpers.validate_namespaces(
+             request.provider_options,
+             [:gemini, :google],
+             @codec,
+             "provider_options"
+           ),
+         :ok <-
+           Helpers.validate_namespaces(
+             config.default_provider_options,
+             [:gemini, :google],
+             @codec,
+             "default_provider_options"
+           ) do
+      options = provider_options(request, config)
 
-      _options ->
-        Helpers.error(@codec, "provider_options.gemini must be a map")
+      with :ok <- Helpers.validate_option_keys(options, @reserved_keys, @codec) do
+        validate_parameters(options)
+      end
     end
   end
 
+  defp validate_parameters(%{"parameters" => parameters}) when is_map(parameters) do
+    Helpers.validate_option_keys(
+      parameters,
+      ["samplecount", "aspectratio", "negativeprompt"],
+      @codec
+    )
+  end
+
+  defp validate_parameters(%{"parameters" => _other}) do
+    Helpers.error(@codec, "provider_options.parameters must be a map")
+  end
+
+  defp validate_parameters(_options), do: :ok
+
   defp provider_options(request, config) do
     options = Config.provider_options(request, config)
-    Map.get(options, :gemini) || Map.get(options, :google) || %{}
+    (Map.get(options, :google) || %{}) |> Config.deep_merge(Map.get(options, :gemini) || %{})
   end
 
   defp invalid_response(message) do

@@ -286,6 +286,10 @@ defmodule LlmDialect.MediaConformance do
     :ok
   end
 
+  defp check_flag(_codec, _request, _config, key, other, _value) do
+    flunk("Media.Capabilities.#{key} must be a boolean, got: #{inspect(other)}")
+  end
+
   defp check_max_references(codec, request, config, nil) do
     result = codec.validate_request(%{request | references: references(1)}, config)
 

@@ -82,6 +82,55 @@ defmodule LlmDialect.Media.Protocol.GeminiPredictTest do
     assert body["parameters"] == %{"sampleCount" => 2, "personGeneration" => "dont_allow"}
   end
 
+  test "canonical parameters stay canonical through provider_options" do
+    for key <- ["sampleCount", "aspectRatio", "negativePrompt"] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Predict.validate_request(
+                 request(provider_options: %{gemini: %{"parameters" => %{key => 1}}}),
+                 %Config{}
+               )
+
+      assert message =~ "canonical field"
+    end
+
+    assert :ok ==
+             Predict.validate_request(
+               request(
+                 provider_options: %{
+                   gemini: %{"parameters" => %{"personGeneration" => "dont_allow"}}
+                 }
+               ),
+               %Config{}
+             )
+  end
+
+  test "a malformed parameters object is a typed error" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Predict.validate_request(
+               request(provider_options: %{gemini: %{"parameters" => "nope"}}),
+               %Config{}
+             )
+
+    assert message =~ "parameters must be a map"
+  end
+
+  test "the :google alias merges with :gemini" do
+    body =
+      encode_body(
+        request(
+          provider_options: %{
+            google: %{"parameters" => %{"personGeneration" => "allow_adult"}},
+            gemini: %{"parameters" => %{"safetySetting" => "block_low_and_above"}}
+          }
+        )
+      )
+
+    assert body["parameters"] == %{
+             "personGeneration" => "allow_adult",
+             "safetySetting" => "block_low_and_above"
+           }
+  end
+
   test "nil knobs mean the provider default and are accepted" do
     assert :ok = Predict.validate_request(request(params: %{size: nil, seed: nil}), %Config{})
     assert :ok = Predict.validate_request(request(references: nil), %Config{})

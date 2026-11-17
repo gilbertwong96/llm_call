@@ -255,8 +255,10 @@ defmodule LlmDialect.Codec.Conformance do
     assert_event_order(events, label)
 
     if done? do
-      assert Enum.all?(tail, &(&1.type == :message_stop)),
-             "#{label} may only emit :message_stop after {:done, state}, got: " <>
+      allowed = [:content_stop, :message_delta, :message_stop]
+
+      assert Enum.all?(tail, &(&1.type in allowed)),
+             "#{label} may only flush metadata or close a block after {:done, state}, got: " <>
                inspect(Enum.map(tail, & &1.type))
     end
 
@@ -347,8 +349,13 @@ defmodule LlmDialect.Codec.Conformance do
 
   A declared capability must accept a minimal representative: `tools`,
   `tool_choice`, `structured_output`, `modalities`, `image_input`, `file_input`,
-  and each `reasoning` axis. An undeclared one must be a validation error. The
-  base request must otherwise be valid for the codec.
+  `reasoning.supported`, every declared `efforts` level, `budget_tokens`, and
+  `summary`. An undeclared one must be a validation error. The base request must
+  otherwise be valid for the codec.
+
+  `reasoning.adaptive` and `reasoning.default_effort` are declarations only: the
+  canonical IR has no field that expresses them, so there is nothing to check in
+  either direction.
   """
   @spec assert_capability_consistency(module(), LlmDialect.Request.t(), Config.t()) :: :ok
   def assert_capability_consistency(codec, request, config) do
@@ -539,15 +546,12 @@ defmodule LlmDialect.Codec.Conformance do
              "#{inspect(codec)} declares reasoning effort #{inspect(effort)} but rejects it"
     end
 
-    undeclared_levels = Enum.reject(@reasoning_levels, &(&1 in capabilities.efforts))
-    sentinel = Enum.find(undeclared_levels, &(&1 != :none)) || List.first(undeclared_levels)
-
-    if sentinel do
+    for effort <- Enum.reject(@reasoning_levels, &(&1 in capabilities.efforts)) do
       expect_rejection(
         codec,
-        with_field(request, :reasoning, %Reasoning{effort: sentinel}),
+        with_field(request, :reasoning, %Reasoning{effort: effort}),
         config,
-        "does not declare reasoning effort #{inspect(sentinel)} but accepts it"
+        "does not declare reasoning effort #{inspect(effort)} but accepts it"
       )
     end
 
@@ -586,6 +590,10 @@ defmodule LlmDialect.Codec.Conformance do
     )
   end
 
+  defp check_reasoning_flag(_codec, _request, _config, other, _reasoning, label) do
+    flunk("ReasoningCapabilities.#{label} must be a boolean, got: #{inspect(other)}")
+  end
+
   defp check_reasoning_summary(codec, request, config, declared) when is_list(declared) do
     for summary <- declared do
       assert :ok ==
@@ -596,15 +604,12 @@ defmodule LlmDialect.Codec.Conformance do
              "#{inspect(codec)} declares reasoning summary #{inspect(summary)} but rejects it"
     end
 
-    undeclared = Enum.reject(@reasoning_summaries, &(&1 in declared))
-    sentinel = Enum.find(undeclared, &(&1 != :none)) || List.first(undeclared)
-
-    if sentinel do
+    for summary <- Enum.reject(@reasoning_summaries, &(&1 in declared)) do
       expect_rejection(
         codec,
-        with_field(request, :reasoning, %Reasoning{summary: sentinel}),
+        with_field(request, :reasoning, %Reasoning{summary: summary}),
         config,
-        "does not declare reasoning summary #{inspect(sentinel)} but accepts it"
+        "does not declare reasoning summary #{inspect(summary)} but accepts it"
       )
     end
 

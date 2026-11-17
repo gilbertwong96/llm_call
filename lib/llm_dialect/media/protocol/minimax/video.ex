@@ -27,7 +27,7 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   @query_path "/v1/query/video_generation"
   @retrieve_path "/v1/files/retrieve"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model prompt content instances parameters modality)
+  @reserved_keys ~w(model prompt content instances parameters modality duration first_frame_image)
   @param_keys [:duration_s]
   @durations [6, 10]
   @retryable_codes ~w(1001 1002 1013 1039)

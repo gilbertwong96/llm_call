@@ -38,16 +38,25 @@ defmodule LlmDialect.Media.Adapter do
       @impl true
       @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
       def validate_request(%Request{} = request, %Config{} = config) do
-        Helpers.validate_media_request(
-          request,
-          config,
-          @codec,
-          @modality,
-          unquote(model_fun),
-          &validate_params/1,
-          &validate_references/1,
-          &validate_provider_options/2
-        )
+        with :ok <-
+               Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+             :ok <-
+               Helpers.validate_option_map(
+                 config.default_provider_options,
+                 @codec,
+                 "default_provider_options"
+               ) do
+          Helpers.validate_media_request(
+            request,
+            config,
+            @codec,
+            @modality,
+            unquote(model_fun),
+            &validate_params/1,
+            &validate_references/1,
+            &validate_provider_options/2
+          )
+        end
       end
     end
   end

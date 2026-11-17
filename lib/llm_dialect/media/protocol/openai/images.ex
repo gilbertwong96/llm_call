@@ -18,7 +18,7 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
 
   @path "/v1/images/generations"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(model prompt instances parameters modality)
+  @reserved_keys ~w(model prompt instances parameters modality n size)
   @param_keys [:n, :size]
   @sizes [
     "256x256",
