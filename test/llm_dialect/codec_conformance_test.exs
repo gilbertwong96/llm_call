@@ -44,6 +44,7 @@ defmodule LlmDialect.CodecConformanceTest do
       assert :ok = Conformance.assert_invalid_response(codec, %{"unexpected" => true})
       assert :ok = Conformance.assert_decode_error(codec, error_payload)
       assert :ok = Conformance.assert_stream(codec, request(model, true), chunks)
+      assert :ok = Conformance.assert_stream_capture_raw(codec, request(model, true), chunks)
 
       assert :ok =
                Conformance.assert_tool_call_assembly(
@@ -92,6 +93,16 @@ defmodule LlmDialect.CodecConformanceTest do
     }
 
     assert :ok = Conformance.assert_rejects(LlmDialect.Protocol.OpenAI.Chat, request, %Config{})
+
+    assert_raise ExUnit.AssertionError, ~r/text_delta must carry/, fn ->
+      LlmDialect.Conformance.assert_stream_event(
+        %LlmDialect.StreamEvent{
+          type: :text_delta,
+          delta: %LlmDialect.StreamDelta.Thinking{text: "hmm"}
+        },
+        "fake"
+      )
+    end
 
     assert_raise ExUnit.AssertionError, fn ->
       Conformance.assert_rejects(

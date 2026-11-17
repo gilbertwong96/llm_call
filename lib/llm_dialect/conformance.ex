@@ -84,6 +84,17 @@ defmodule LlmDialect.Conformance do
   @spec credential_headers() :: [String.t()]
   def credential_headers, do: @credential_headers
 
+  @delta_for %{
+    text_delta: StreamDelta.Text,
+    thinking_delta: StreamDelta.Thinking,
+    tool_call_start: StreamDelta.ToolCall,
+    tool_call_delta: StreamDelta.ToolCall,
+    tool_call_stop: StreamDelta.ToolCall,
+    message_delta: StreamDelta.MessageDelta
+  }
+
+  @delta_free [:message_start, :content_start, :content_stop, :message_stop]
+
   @doc """
   Asserts that a decoded error is a canonical `LlmDialect.Error`.
 
@@ -193,10 +204,12 @@ defmodule LlmDialect.Conformance do
   end
 
   @doc """
-  Asserts that a stream event uses the canonical type union and delta structs.
+  Asserts that a stream event uses the canonical type union and its matching delta.
 
-  The index is a non-negative integer or `nil`; a delta is `nil` or one of the
-  `LlmDialect.StreamDelta` structs.
+  The index is a non-negative integer or `nil`. A content event carries the delta
+  its type names (`:text_delta` → `StreamDelta.Text`, and so on); a structural
+  event carries none. A mismatched delta is how a codec silently turns a tool
+  fragment into text.
   """
   @spec assert_stream_event(StreamEvent.t() | term(), String.t()) :: :ok
   def assert_stream_event(%StreamEvent{type: type, index: index, delta: delta}, label) do
@@ -208,9 +221,7 @@ defmodule LlmDialect.Conformance do
            "#{label} stream event index must be a non-negative integer or nil, " <>
              "got: #{inspect(index)}"
 
-    assert is_nil(delta) or canonical_delta?(delta),
-           "#{label} stream event delta must be nil or a canonical StreamDelta struct, " <>
-             "got: #{inspect(delta)}"
+    assert_delta(type, delta, label)
 
     :ok
   end
@@ -219,11 +230,19 @@ defmodule LlmDialect.Conformance do
     flunk("#{label} must emit %LlmDialect.StreamEvent{} structs, got: #{inspect(other)}")
   end
 
-  defp canonical_delta?(delta) do
-    is_struct(delta, StreamDelta.Text) or
-      is_struct(delta, StreamDelta.ToolCall) or
-      is_struct(delta, StreamDelta.Thinking) or
-      is_struct(delta, StreamDelta.MessageDelta) or
-      is_struct(delta, StreamDelta.Raw)
+  defp assert_delta(type, delta, label) do
+    case Map.fetch(@delta_for, type) do
+      {:ok, module} ->
+        assert is_struct(delta, module),
+               "#{label} #{inspect(type)} must carry a %#{inspect(module)}{}, " <>
+                 "got: #{inspect(delta)}"
+
+      :error ->
+        if type in @delta_free do
+          assert is_nil(delta),
+                 "#{label} #{inspect(type)} is structural and must not carry a delta, " <>
+                   "got: #{inspect(delta)}"
+        end
+    end
   end
 end

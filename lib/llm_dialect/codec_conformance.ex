@@ -28,6 +28,7 @@ defmodule LlmDialect.Codec.Conformance do
     Reasoning,
     ReasoningCapabilities,
     StreamAssembler,
+    StreamEvent,
     StreamState,
     ToolCall,
     ToolSpec
@@ -243,18 +244,57 @@ defmodule LlmDialect.Codec.Conformance do
 
   Order rules: `:message_start` at most once and before any delta;
   `:message_stop`/`:error` at most once and terminal. A `{:done, state}` result
-  stops the stream, and `finish_stream/2` afterwards must not resurrect content.
+  stops the stream, and `finish_stream/2` afterwards must not emit content.
   """
   @spec assert_stream(module(), LlmDialect.Request.t(), [LlmDialect.wire_value()]) :: :ok
   def assert_stream(codec, request, chunks) do
     label = inspect(codec)
-    {events, done?} = collect_stream(codec, request, chunks, label)
-
-    assert events != [] or not done?,
-           "#{label} returned {:done, state} without emitting any event"
+    {events, tail, done?} = collect_stream(codec, request, chunks, label)
 
     Enum.each(events, &Shared.assert_stream_event(&1, label))
     assert_event_order(events, label)
+
+    if done? do
+      refute Enum.any?(tail, &content_event?/1),
+             "#{label} emitted content after {:done, state}: " <>
+               inspect(Enum.map(tail, & &1.type))
+    end
+
+    :ok
+  end
+
+  @doc """
+  Asserts that `StreamEvent.raw` follows the `capture_raw` policy.
+
+  `:none` and `:response` keep no provider event; `:all` keeps at least one, and
+  every retained payload is a map. A codec that copies provider chunks into every
+  event regardless of the policy fails here.
+  """
+  @spec assert_stream_capture_raw(module(), LlmDialect.Request.t(), [LlmDialect.wire_value()]) ::
+          :ok
+  def assert_stream_capture_raw(codec, request, chunks) do
+    label = inspect(codec)
+
+    for {capture, expect_payloads?} <- [none: false, response: false, all: true] do
+      config = %Config{capture_raw: capture}
+      {events, _tail, _done?} = collect_stream(codec, request, chunks, label, config)
+
+      raw = Enum.map(events, & &1.raw)
+
+      assert Enum.all?(raw, &(is_nil(&1) or is_map(&1))),
+             "#{label} StreamEvent.raw must be a map or nil with " <>
+               "capture_raw: #{inspect(capture)}, got: #{inspect(raw)}"
+
+      if expect_payloads? do
+        assert Enum.any?(raw, &is_map/1),
+               "#{label} capture_raw: :all must retain at least one provider event on " <>
+                 "StreamEvent.raw"
+      else
+        assert Enum.all?(raw, &is_nil/1),
+               "#{label} capture_raw: #{inspect(capture)} must not retain provider events, " <>
+                 "got: #{inspect(Enum.reject(raw, &is_nil/1))}"
+      end
+    end
 
     :ok
   end
@@ -279,7 +319,7 @@ defmodule LlmDialect.Codec.Conformance do
   def assert_tool_call_assembly(codec, request, chunks, expected_calls, opts \\ []) do
     label = inspect(codec)
     decoder = Keyword.get_lazy(opts, :json_decoder, fn -> &default_decoder/1 end)
-    {events, _done?} = collect_stream(codec, request, chunks, label)
+    {events, _tail, _done?} = collect_stream(codec, request, chunks, label)
 
     assembler = StreamAssembler.new(json_decoder: decoder)
 
@@ -569,20 +609,20 @@ defmodule LlmDialect.Codec.Conformance do
     )
   end
 
-  defp collect_stream(codec, request, chunks, label) do
-    assert {:ok, %StreamState{} = state} = codec.init_stream(request, %Config{}),
+  defp collect_stream(codec, request, chunks, label, config \\ %Config{}) do
+    assert {:ok, %StreamState{} = state} = codec.init_stream(request, config),
            "#{label}.init_stream/2 must return {:ok, %LlmDialect.StreamState{}}"
 
     {events, state, done?} =
       chunks
       |> Enum.with_index()
-      |> Enum.reduce({[], state, false}, fn {chunk, position}, {events, state, done?} ->
-        case codec.decode_stream_event(chunk, %Config{}, state) do
+      |> Enum.reduce_while({[], state, false}, fn {chunk, position}, {events, state, _done} ->
+        case codec.decode_stream_event(chunk, config, state) do
           {:ok, new_events, %StreamState{} = next} when is_list(new_events) ->
-            {events ++ new_events, next, done?}
+            {:cont, {events ++ new_events, next, false}}
 
           {:done, %StreamState{} = next} ->
-            {events, next, true}
+            {:halt, {events, next, true}}
 
           other ->
             flunk(
@@ -592,11 +632,14 @@ defmodule LlmDialect.Codec.Conformance do
         end
       end)
 
-    assert {:ok, tail, %StreamState{}} = codec.finish_stream(state, %Config{}),
+    assert {:ok, tail, %StreamState{}} = codec.finish_stream(state, config),
            "#{label}.finish_stream/2 must return {:ok, events, state}"
 
-    {events ++ tail, done?}
+    {events ++ tail, tail, done?}
   end
+
+  defp content_event?(%StreamEvent{type: type}),
+    do: type in [:text_delta, :thinking_delta, :tool_call_delta]
 
   defp assert_event_order(events, label) do
     types = Enum.map(events, & &1.type)
