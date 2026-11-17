@@ -178,6 +178,9 @@ defmodule LlmDialect.MediaConformance do
             assert is_binary(operation.next_media_type),
                    "an :asset fetch must name its media type"
 
+            assert operation.result.assets == [],
+                   "a completed operation that still needs an :asset fetch must not carry assets"
+
           nil ->
             assert match?([_ | _], operation.result.assets),
                    "a completed operation with no next request must carry at least one asset"
@@ -227,8 +230,6 @@ defmodule LlmDialect.MediaConformance do
 
     :ok
   end
-
-  defp check_declared(_codec, _request, _config, [], _key, _sentinel), do: :ok
 
   defp check_declared(codec, request, config, values, key, sentinel) do
     Enum.each(values, fn value ->

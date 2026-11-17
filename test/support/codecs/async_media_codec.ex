@@ -36,6 +36,9 @@ defmodule LlmDialect.TestCodec.AsyncMedia do
       Map.has_key?(params, :negative_prompt) ->
         {:error, %Error{kind: :validation, message: "async_media: negative_prompt"}}
 
+      Enum.any?([:size, :aspect_ratio, :duration_s], &Map.has_key?(params, &1)) ->
+        {:error, %Error{kind: :validation, message: "async_media: undeclared param"}}
+
       request.references != [] ->
         {:error, %Error{kind: :validation, message: "async_media: references"}}
 

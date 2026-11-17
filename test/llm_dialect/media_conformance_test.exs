@@ -13,7 +13,13 @@ defmodule LlmDialect.TestCodec.SloppyMaxN do
     do: %Capabilities{modalities: [:video], async: true, max_n: 1}
 
   @impl true
-  def validate_request(%Request{}, %Config{}), do: :ok
+  def validate_request(%Request{params: params}, %Config{}) do
+    if Enum.any?([:size, :aspect_ratio, :duration_s], &Map.has_key?(params, &1)) do
+      {:error, %Error{kind: :validation, message: "sloppy_max_n: undeclared param"}}
+    else
+      :ok
+    end
+  end
 
   @impl true
   def encode_submit(_request, _config), do: {:ok, %LlmDialect.EncodedRequest{path: "/sloppy"}}
@@ -55,6 +61,9 @@ defmodule LlmDialect.TestCodec.SloppyRefs do
 
       Map.has_key?(params, :negative_prompt) ->
         {:error, %Error{kind: :validation, message: "sloppy_refs: neg"}}
+
+      Enum.any?([:size, :aspect_ratio, :duration_s], &Map.has_key?(params, &1)) ->
+        {:error, %Error{kind: :validation, message: "sloppy_refs: undeclared param"}}
 
       true ->
         :ok

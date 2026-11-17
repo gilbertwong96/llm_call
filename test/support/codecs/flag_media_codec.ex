@@ -25,6 +25,9 @@ defmodule LlmDialect.TestCodec.FlagMedia do
       Map.has_key?(params, :seed) ->
         {:error, %Error{kind: :validation, message: "flag_media: seed"}}
 
+      Enum.any?([:size, :aspect_ratio, :duration_s], &Map.has_key?(params, &1)) ->
+        {:error, %Error{kind: :validation, message: "flag_media: undeclared param"}}
+
       true ->
         :ok
     end
