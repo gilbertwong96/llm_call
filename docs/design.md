@@ -336,7 +336,11 @@ Fields:
 
 `provider_options` is intentionally not a catch-all for values that the
 canonical layer can represent. It is for features that are genuinely
-provider-specific.
+provider-specific: a codec reserves the wire keys it derives from canonical
+fields (`max_tokens`, `response_format`, `generationConfig`, ...), so passing one
+through `provider_options` is a validation error instead of a silent override.
+Reasoning-specific native controls belong on `Reasoning.provider_options`, which
+merges into the protocol's reasoning object.
 
 ### 8.2 Message
 
@@ -1121,7 +1125,8 @@ What they check today:
 - provider error envelopes as a canonical `%Error{}`: string-or-nil code, `status:
   nil`, boolean `retryable?`
 - stream event shape and order, driven over the caller's chunks
-  (`assert_stream/3`)
+  (`assert_stream/3`); `:message_delta` may carry `StreamDelta.Raw` for an
+  unmapped provider field, and `{:done, state}` must not be followed by content
 - streamed tool-call assembly through `LlmDialect.StreamAssembler`
   (`assert_tool_call_assembly/5`)
 - `capture_raw` on `Response.raw`, `StreamEvent.raw`,

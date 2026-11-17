@@ -56,9 +56,8 @@ Every adapter must:
 4. **Declare capabilities that match validation.** A `size` you declare must be
    accepted; a knob you reject must be absent from the declaration. For media, a
    modality you declare must be accepted, `max_n: :unsupported` must reject every
-   `n`, and `max_references` must accept exactly that many references. The
-   **media** conformance suite checks all of these in both directions; the chat
-   suite does not yet.
+   `n`, and `max_references` must accept exactly that many references. Both
+   conformance suites check these in both directions.
 5. **Use `LlmDialect.Protocol.Helpers`** for error formatting, `maybe_put`,
    reserved-key checks, and the `capture_raw` policy, so the suite can assert
    behaviour consistently.
@@ -68,6 +67,7 @@ Every adapter must:
 
    ```elixir
    LlmDialect.Codec.Conformance.assert_info(MyCodec)
+   LlmDialect.Codec.Conformance.assert_capabilities(MyCodec, stream_request, config)
    LlmDialect.Codec.Conformance.assert_path(MyCodec, request, "/v1/my-endpoint")
    LlmDialect.Codec.Conformance.assert_decode_response(MyCodec, response_fixture)
    LlmDialect.Codec.Conformance.assert_invalid_response(MyCodec, %{"unexpected" => true})
@@ -77,6 +77,7 @@ Every adapter must:
    LlmDialect.Codec.Conformance.assert_tool_call_assembly(MyCodec, stream_request, tool_chunks, 1)
    LlmDialect.Codec.Conformance.assert_capability_consistency(MyCodec, request, config)
    LlmDialect.Codec.Conformance.assert_capture_raw(MyCodec, response_fixture)
+   LlmDialect.Codec.Conformance.assert_stream_roundtrip(MyCodec, stream_request)
    LlmDialect.Codec.Conformance.assert_stream_state_ownership(MyCodec, OtherCodec, request)
    LlmDialect.Codec.Conformance.assert_rejects(MyCodec, invalid_request, %LlmDialect.Config{})
    ```
@@ -127,5 +128,5 @@ fails the gate, so shared logic belongs in `LlmDialect.Protocol.Helpers`.
 
 ## Documentation
 
-Every module has a moduledoc — no `@moduledoc false`, including fixtures and test
-fakes. A test enforces this.
+Every module under `lib/` and `test/support/` has a moduledoc — no
+`@moduledoc false`. A test enforces this.
