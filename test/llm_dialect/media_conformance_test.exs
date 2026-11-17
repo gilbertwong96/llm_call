@@ -76,6 +76,38 @@ defmodule LlmDialect.TestCodec.SloppyRefs do
   def decode_error(_term, _config), do: %Error{kind: :provider, message: "sloppy_refs"}
 end
 
+defmodule LlmDialect.TestCodec.RawLeakingOperation do
+  @moduledoc "Keeps `Operation.raw` regardless of `capture_raw`, so conformance must catch it."
+
+  @behaviour LlmDialect.Media.Codec
+
+  alias LlmDialect.{Codec, Config, Error, Operation}
+  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :raw_leaking_operation, protocol: :raw_leaking_operation, ir_version: 1}
+
+  @impl true
+  def capabilities(_request, _config), do: %MediaCapabilities{modalities: [:image], async: true}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_submit(_request, _config), do: {:ok, %LlmDialect.EncodedRequest{path: "/raw"}}
+
+  @impl true
+  def decode_submit(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "raw_leaking_operation"}}
+
+  @impl true
+  def decode_operation(payload, _config), do: {:ok, %Operation{status: :queued, raw: payload}}
+
+  @impl true
+  def decode_error(_term, _config), do: %Error{kind: :provider, message: "raw_leaking_operation"}
+end
+
 defmodule LlmDialect.MediaConformanceTest do
   use ExUnit.Case, async: true
 
@@ -100,6 +132,14 @@ defmodule LlmDialect.MediaConformanceTest do
     end
 
     assert :ok = MediaConformance.assert_sync_rejects_operation(codec)
+
+    assert_raise ExUnit.AssertionError, ~r/Operation.raw/, fn ->
+      MediaConformance.assert_operation_capture_raw(
+        LlmDialect.TestCodec.RawLeakingOperation,
+        %{"status" => "queued"},
+        %Config{}
+      )
+    end
   end
 
   test "an async declaration without decode_operation/2 is caught" do

@@ -100,6 +100,43 @@ defmodule LlmDialect.MediaConformance do
   end
 
   @doc """
+  Asserts that `decode_operation/2` applies the `capture_raw` policy to
+  `Operation.raw`.
+
+  The operation payload is the provider's job body, so `:none` must drop it and
+  `:response`/`:all` must keep it, matching `decode_submit/2`. `Error.raw` is
+  intentionally unconditional: an error keeps the payload it came from.
+  """
+  @spec assert_operation_capture_raw(module(), LlmDialect.wire_value(), Config.t()) :: :ok
+  def assert_operation_capture_raw(codec, provider_payload, base_config \\ %Config{}) do
+    for {capture, expected} <- [none: nil, response: provider_payload, all: provider_payload] do
+      config = %{base_config | capture_raw: capture}
+
+      case codec.decode_operation(provider_payload, config) do
+        {:ok, %Operation{raw: raw}} ->
+          assert raw == expected,
+                 "#{inspect(codec)} Operation.raw must be #{inspect(expected)} with " <>
+                   "capture_raw: #{inspect(capture)}, got: #{inspect(raw)}"
+
+        other ->
+          flunk(
+            "#{inspect(codec)}.decode_operation/2 must succeed with " <>
+              "capture_raw: #{inspect(capture)}, got: #{inspect(other)}"
+          )
+      end
+    end
+
+    :ok
+  end
+
+  defp assert_operation_raw(%Operation{raw: raw}) do
+    assert is_nil(raw) or is_map(raw),
+           "Operation.raw must be a map or nil, got: #{inspect(raw)}"
+
+    :ok
+  end
+
+  @doc """
   Checks one `LlmDialect.Operation` against the state-machine invariants.
 
   A state a codec can return must satisfy: `:queued`/`:in_progress` poll with no
@@ -108,6 +145,8 @@ defmodule LlmDialect.MediaConformance do
   """
   @spec assert_operation(Operation.t()) :: :ok
   def assert_operation(%Operation{} = operation) do
+    assert_operation_raw(operation)
+
     case operation.status do
       status when status in [:queued, :in_progress] ->
         assert operation.result == nil,

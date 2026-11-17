@@ -160,6 +160,15 @@ defmodule LlmDialect.Media.Protocol.SeedanceVideoTest do
     assert :ok = LlmDialect.MediaConformance.assert_operation(operation)
   end
 
+  test "operation raw follows the capture_raw policy" do
+    assert :ok =
+             LlmDialect.MediaConformance.assert_operation_capture_raw(
+               Video,
+               Fx.succeeded_response(),
+               %Config{}
+             )
+  end
+
   test "polling maps queued, running, succeeded and terminal failures" do
     for {payload, status} <- [
           {Fx.queued_response(), :queued},

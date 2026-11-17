@@ -8,12 +8,20 @@ defmodule LlmDialect.CodecConformanceTest do
   defp codecs do
     [
       {LlmDialect.Protocol.OpenAI.Chat, "gpt-4o", LlmDialect.Fixtures.OpenAIChat.text_response(),
-       "/v1/chat/completions"},
+       "/v1/chat/completions", LlmDialect.Fixtures.OpenAIChat.error_payload(),
+       LlmDialect.Fixtures.OpenAIChat.text_chunks(),
+       LlmDialect.Fixtures.OpenAIChat.tool_call_chunks()},
       {LlmDialect.Protocol.Anthropic.Messages, "claude-sonnet-4-5",
-       LlmDialect.Fixtures.AnthropicMessages.text_response(), "/v1/messages"},
+       LlmDialect.Fixtures.AnthropicMessages.text_response(), "/v1/messages",
+       LlmDialect.Fixtures.AnthropicMessages.error_payload(),
+       LlmDialect.Fixtures.AnthropicMessages.text_stream(),
+       LlmDialect.Fixtures.AnthropicMessages.tool_stream()},
       {LlmDialect.Protocol.Gemini.GenerateContent, "gemini-2.5-pro",
        LlmDialect.Fixtures.GeminiGenerateContent.text_response(),
-       "/v1beta/models/gemini-2.5-pro:generateContent"}
+       "/v1beta/models/gemini-2.5-pro:generateContent",
+       LlmDialect.Fixtures.GeminiGenerateContent.error_payload(),
+       LlmDialect.Fixtures.GeminiGenerateContent.text_chunks(),
+       LlmDialect.Fixtures.GeminiGenerateContent.tool_chunks()}
     ]
   end
 
@@ -27,11 +35,27 @@ defmodule LlmDialect.CodecConformanceTest do
   end
 
   test "every codec satisfies the conformance contract" do
-    for {codec, model, response, path} <- codecs() do
+    for {codec, model, response, path, error_payload, chunks, tool_chunks} <- codecs() do
       assert :ok = Conformance.assert_info(codec)
       assert :ok = Conformance.assert_capabilities(codec, request(model, true), %Config{})
       assert :ok = Conformance.assert_path(codec, request(model, false), path)
       assert :ok = Conformance.assert_capture_raw(codec, response)
+      assert :ok = Conformance.assert_decode_response(codec, response)
+      assert :ok = Conformance.assert_invalid_response(codec, %{"unexpected" => true})
+      assert :ok = Conformance.assert_decode_error(codec, error_payload)
+      assert :ok = Conformance.assert_stream(codec, request(model, true), chunks)
+
+      assert :ok =
+               Conformance.assert_tool_call_assembly(
+                 codec,
+                 request(model, true),
+                 tool_chunks,
+                 1
+               )
+
+      assert :ok =
+               Conformance.assert_capability_consistency(codec, request(model, false), %Config{})
+
       assert :ok = Conformance.assert_stream_roundtrip(codec, request(model, true))
 
       assert :ok =
@@ -92,6 +116,37 @@ defmodule LlmDialect.CodecConformanceTest do
 
     assert_raise ExUnit.AssertionError, fn ->
       Conformance.assert_capture_raw(codec, %{"choices" => []})
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_decode_response(codec, %{"unexpected" => true})
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_invalid_response(codec, LlmDialect.Fixtures.OpenAIChat.text_response())
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_decode_error(codec, %{"unexpected" => true})
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_stream(codec, request("gpt-4o", true), [
+        %{"error" => %{"message" => "boom"}}
+      ])
+    end
+
+    assert_raise ExUnit.AssertionError, ~r/tool call/, fn ->
+      Conformance.assert_tool_call_assembly(
+        codec,
+        request("gpt-4o", true),
+        LlmDialect.Fixtures.OpenAIChat.tool_call_chunks(),
+        2
+      )
+    end
+
+    assert_raise ExUnit.AssertionError, ~r/declares tools: false/, fn ->
+      Conformance.assert_capability_consistency(TextOnly, request("text-only", false), %Config{})
     end
   end
 end

@@ -116,6 +116,22 @@ defmodule LlmDialect.Media.Protocol.MiniMaxVideoTest do
     assert :ok = LlmDialect.MediaConformance.assert_operation(operation)
   end
 
+  test "operation raw follows the capture_raw policy" do
+    assert :ok =
+             LlmDialect.MediaConformance.assert_operation_capture_raw(
+               Video,
+               Fx.retrieve_response(),
+               %Config{}
+             )
+
+    assert :ok =
+             LlmDialect.MediaConformance.assert_operation_capture_raw(
+               Video,
+               Fx.fail_response(),
+               %Config{}
+             )
+  end
+
   test "queueing and processing stay in progress on the query endpoint" do
     for {payload, status} <- [
           {Fx.preparing_response(), :in_progress},
