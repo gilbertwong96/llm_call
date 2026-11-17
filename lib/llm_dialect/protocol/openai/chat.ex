@@ -395,18 +395,8 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
              "default_provider_options",
              @namespaces
            ),
-         {:ok, request_options} <-
-           Helpers.namespace_options(
-             Map.get(request.provider_options, :openai, %{}),
-             @codec,
-             "provider_options.openai"
-           ),
-         {:ok, default_options} <-
-           Helpers.namespace_options(
-             Map.get(config.default_provider_options, :openai, %{}),
-             @codec,
-             "default_provider_options.openai"
-           ),
+         request_options = Map.get(request.provider_options, :openai, %{}),
+         default_options = Map.get(config.default_provider_options, :openai, %{}),
          :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec) do
       Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec)
     end

@@ -21,6 +21,9 @@ First release, not yet published to Hex.
   aliases, and `encode_request/2`; `LlmDialect.Media.Adapter` additionally
   injects the shared media validation pipeline. Shared rules live in
   `LlmDialect.Protocol.Helpers`.
+- `provider_options` is validated, not just merged: a codec reserves the wire
+  keys it derives from canonical fields, rejects a namespace it does not read,
+  and refuses a `Config` default that would override an explicit request.
 - Streaming primitives (`StreamEvent`, `StreamDelta`, `StreamState`) and the pure
   `StreamAssembler`.
 - Media IR: `LlmDialect.Media.{Request,Response,Capabilities,Codec}`,

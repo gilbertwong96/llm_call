@@ -1069,9 +1069,10 @@ new protocol adapter independent of model catalogs and authentication.
 Adding a new codec should require only:
 
 1. A module that `use`s `LlmDialect.Protocol.Adapter` (or
-   `LlmDialect.Media.Adapter`), supplying `@path`, `@headers`, `info/0`,
-   `capabilities/0`, the protocol's own `validate_request/2`, and a private
-   `body/2` that returns the wire body.
+   `LlmDialect.Media.Adapter`), declaring its `provider_options` namespaces
+   (`@namespaces`, or `namespaces:` on the media macro) and supplying `@path`,
+   `@headers`, `info/0`, `capabilities/0`, the protocol's own
+   `validate_request/2`, and a private `body/2` that returns the wire body.
 2. Protocol-specific request/response/stream fixtures.
 3. Capability declarations for the models/endpoints the codec supports.
 
@@ -1080,7 +1081,8 @@ canonical aliases, `@codec`, and `encode_request/2`; `encode: false` leaves
 `encode_request/2` to the codec when the path or method varies per request. The
 macro reads `@path` and `@headers` once the module finishes and raises at compile
 time if either is missing. The media macro additionally injects the shared
-`validate_request/2` pipeline.
+`validate_request/2` pipeline; its `namespaces:` option is required, so a new
+media codec has to state which `provider_options` keys it reads.
 
 Adapters should not hand-roll the shared rules: `LlmDialect.Protocol.Helpers` is
 the adapter-authoring surface, and reimplementing it produces adapters the

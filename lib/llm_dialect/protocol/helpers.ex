@@ -548,16 +548,6 @@ defmodule LlmDialect.Protocol.Helpers do
   end
 
   @doc """
-  Validates one provider-options namespace and returns its map.
-
-  A missing namespace is the caller's business (`Map.get/3` supplies the
-  default); a present non-map is an error.
-  """
-  @spec namespace_options(term(), codec(), String.t()) :: {:ok, map()} | {:error, Error.t()}
-  def namespace_options(options, _codec, _label) when is_map(options), do: {:ok, options}
-  def namespace_options(_options, codec, label), do: error(codec, "#{label} must be a map")
-
-  @doc """
   Validates a provider-options container against the namespaces a codec consumes.
 
   Three things must hold, or the caller would get a valid-looking request whose
@@ -566,7 +556,7 @@ defmodule LlmDialect.Protocol.Helpers do
     * the container is a map;
     * every key is an atom and one the codec reads (`:openai`, `[:gemini,
       :google]`, ...) — a typo or a string key is an error, not a drop;
-    * every present namespace holds a map, so `Config.deep_merge/2` is never
+    * every present namespace holds a map, so `LlmDialect.Config.deep_merge/2` is never
       handed a non-map.
   """
   @spec validate_option_map(term(), codec(), String.t(), [atom()]) ::

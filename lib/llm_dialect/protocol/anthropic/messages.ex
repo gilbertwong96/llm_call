@@ -369,18 +369,8 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
              "default_provider_options",
              @namespaces
            ),
-         {:ok, request_options} <-
-           Helpers.namespace_options(
-             Map.get(request.provider_options, :anthropic, %{}),
-             @codec,
-             "provider_options.anthropic"
-           ),
-         {:ok, default_options} <-
-           Helpers.namespace_options(
-             Map.get(config.default_provider_options, :anthropic, %{}),
-             @codec,
-             "default_provider_options.anthropic"
-           ),
+         request_options = Map.get(request.provider_options, :anthropic, %{}),
+         default_options = Map.get(config.default_provider_options, :anthropic, %{}),
          :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec) do
       with :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec) do
         validate_native_tool_choice(request_options)
