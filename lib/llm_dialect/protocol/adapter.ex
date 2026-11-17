@@ -58,6 +58,13 @@ defmodule LlmDialect.Protocol.Adapter do
 
   defmacro __before_compile__(env) do
     if Module.get_attribute(env.module, :llm_dialect_encode) do
+      if Module.defines?(env.module, {:encode_request, 2}) or
+           Module.defines?(env.module, {:encode_request, 2}, :defp) do
+        raise ArgumentError,
+              "#{inspect(env.module)} defines encode_request/2 and also uses " <>
+                "LlmDialect.Protocol.Adapter with encode: true; pass encode: false"
+      end
+
       path = Module.get_attribute(env.module, :path)
       headers = Module.get_attribute(env.module, :headers)
 
