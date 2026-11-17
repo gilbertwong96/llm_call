@@ -421,6 +421,34 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
     assert message =~ "canonical field"
   end
 
+  test "reasoning options cannot replace or switch off stream_options" do
+    body =
+      encode(
+        text_request(
+          stream: true,
+          reasoning: %Reasoning{
+            effort: :high,
+            provider_options: %{"stream_options" => %{"include_obfuscation" => true}}
+          }
+        )
+      ).body
+
+    assert body["stream_options"] == %{"include_usage" => true, "include_obfuscation" => true}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(
+                 reasoning: %Reasoning{
+                   effort: :high,
+                   provider_options: %{"stream_options" => %{"include_usage" => false}}
+                 }
+               ),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
+  end
+
   test "a config default may add native stream_options keys" do
     body =
       encode(
@@ -488,6 +516,14 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
     assert {:error, %Error{kind: :validation, message: message}} =
              Chat.validate_request(
                text_request(provider_options: %{openai: %{{:tuple, 1} => 2}}),
+               %Config{}
+             )
+
+    assert message =~ "must be a string"
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(provider_options: %{openai: %{temperature: 0.1}}),
                %Config{}
              )
 

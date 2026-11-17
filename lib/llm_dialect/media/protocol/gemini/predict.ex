@@ -19,7 +19,7 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
 
   @api_version "v1beta"
   @headers [{"content-type", "application/json"}]
-  @reserved_keys ~w(instances)
+  @reserved_keys ~w(model prompt instances)
   @param_keys [:n, :aspect_ratio, :negative_prompt]
   @aspect_ratios ["1:1", "3:4", "4:3", "9:16", "16:9"]
   @max_n 4
@@ -200,8 +200,12 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   defp validate_parameters(_options), do: :ok
 
   defp provider_options(request, config) do
-    options = Config.provider_options(request, config)
-    (Map.get(options, :google) || %{}) |> Config.deep_merge(Map.get(options, :gemini) || %{})
+    Helpers.alias_options(
+      config.default_provider_options,
+      request.provider_options,
+      :gemini,
+      :google
+    )
   end
 
   defp invalid_response(message) do

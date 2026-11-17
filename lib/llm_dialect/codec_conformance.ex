@@ -42,6 +42,14 @@ defmodule LlmDialect.Codec.Conformance do
   @spec assert_info(module()) :: :ok
   def assert_info(codec), do: Shared.assert_info(codec)
 
+  @doc """
+  Couples `capabilities.streaming` to the streaming callbacks.
+
+  `streaming: true` requires all three callbacks; `streaming: false` requires
+  none of them. Capabilities are per codec, not per request, so a protocol that
+  streams only for some models cannot express that here — declare `true` and
+  reject the other requests in `validate_request/2`.
+  """
   @spec assert_capabilities(module(), LlmDialect.Request.t(), Config.t()) :: :ok
   def assert_capabilities(codec, request, config) do
     assert Code.ensure_loaded?(codec), "#{inspect(codec)} is not loaded"
@@ -108,24 +116,31 @@ defmodule LlmDialect.Codec.Conformance do
   implement every streaming callback and still never request SSE, in which case
   the transport receives a buffered response and the decoders are dead code.
 
-  Two things must hold:
+  Three things must hold:
 
     * `stream: true` and `stream: false` must encode to different requests, so the
       flag reaches the wire at all;
     * the streaming request must carry a streaming signal: `body["stream"] == true`,
-      an SSE query value (`alt=sse`), a `stream` query flag, or a path naming the
-      streaming endpoint.
+      an SSE query value (`alt=sse`), a `stream` query flag, or a path that differs
+      from the non-streaming one and names the streaming endpoint;
+    * the non-streaming request must not carry that signal.
 
-  Pass `marker:` when the protocol signals streaming some other way, and
-  `config:` when the codec needs a non-default `LlmDialect.Config` to encode. The
-  base request must be streamable: forcing `stream: true` on a request the codec
-  rejects (Gemini with an image modality, say) is reported as such rather than as
-  a codec defect.
+  A signal is a disjunction, so this cannot tell you that a protocol needs *all*
+  of its signals (Gemini needs both `alt=sse` and the streaming path). Pass
+  `require: [query: %{"alt" => "sse"}]` or `require: [body: %{...}]` to pin the
+  ones your protocol cannot lose.
+
+  Pass `marker:` (1-arity, receives the streaming request) when the protocol
+  signals streaming some other way, and `config:` when the codec needs a
+  non-default `LlmDialect.Config` to encode. The base request must be streamable:
+  forcing `stream: true` on a request the codec rejects (Gemini with an image
+  modality, say) is reported as such, and a codec that declares
+  `streaming: false` is named as the cause.
   """
   @spec assert_stream_request(module(), LlmDialect.Request.t(), keyword()) :: :ok
   def assert_stream_request(codec, request, opts \\ []) do
     label = inspect(codec)
-    marker = Keyword.get(opts, :marker, &streaming_signal?/1)
+    marker = Keyword.get(opts, :marker)
     config = Keyword.get(opts, :config, %Config{})
 
     streaming = encode_for_stream(codec, %{request | stream: true}, config, label, true)
@@ -135,12 +150,24 @@ defmodule LlmDialect.Codec.Conformance do
            "#{label} encodes the same request with stream: true and stream: false, " <>
              "so the provider is never asked to stream"
 
-    assert marker.(streaming),
+    assert signal?(streaming, plain, marker),
            "#{label} does not signal streaming on the encoded request: no " <>
              "body[\"stream\"], no SSE query, no streaming path: #{inspect(streaming)}"
 
-    refute marker.(plain),
+    refute signal?(plain, plain, marker),
            "#{label} signals streaming even with stream: false: #{inspect(plain)}"
+
+    assert_required_signals(streaming, Keyword.get(opts, :require, []), label)
+    assert_credential_free(streaming, label)
+
+    :ok
+  end
+
+  @spec assert_reserved_options(module(), LlmDialect.Request.t(), Config.t(), [map()]) :: :ok
+  def assert_reserved_options(codec, request, config, reserved_options) do
+    for options <- reserved_options do
+      assert_rejects(codec, %{request | provider_options: options}, config)
+    end
 
     :ok
   end
@@ -214,16 +241,21 @@ defmodule LlmDialect.Codec.Conformance do
   @doc """
   Asserts that a provider error envelope decodes to a canonical `%Error{}`.
 
-  The payload must be the codec's own error shape, so the assertion can check the
-  normalized `code` and `retryable?` rather than a hard-coded message.
+  Pass `code:` and `retryable?:` to pin the normalization: without them the
+  assertion only sees that the result is a provider error, and a codec that
+  ignores the payload entirely would pass.
   """
-  @spec assert_decode_error(module(), LlmDialect.wire_value()) :: :ok
-  def assert_decode_error(codec, provider_payload) do
+  @spec assert_decode_error(module(), LlmDialect.wire_value(), keyword()) :: :ok
+  def assert_decode_error(codec, provider_payload, opts \\ []) do
     label = inspect(codec)
 
     case codec.decode_error(provider_payload, %Config{}) do
       %Error{kind: :provider} = error ->
         Shared.assert_error(error, label)
+        assert_error_field(error, :code, Keyword.get(opts, :code, :any), label)
+        assert_error_field(error, :retryable?, Keyword.get(opts, :retryable?, :any), label)
+
+        :ok
 
       %Error{} = error ->
         flunk("#{label}.decode_error/2 must report kind: :provider, got: #{inspect(error)}")
@@ -231,6 +263,18 @@ defmodule LlmDialect.Codec.Conformance do
       other ->
         flunk("#{label}.decode_error/2 must return a %LlmDialect.Error{}, got: #{inspect(other)}")
     end
+  end
+
+  defp assert_error_field(_error, _field, :any, _label), do: :ok
+
+  defp assert_error_field(error, field, expected, label) do
+    actual = Map.fetch!(error, field)
+
+    assert actual === expected,
+           "#{label}.decode_error/2 must normalize #{field} to #{inspect(expected)}, " <>
+             "got: #{inspect(actual)}"
+
+    :ok
   end
 
   @doc """
@@ -706,10 +750,7 @@ defmodule LlmDialect.Codec.Conformance do
         encoded
 
       {:error, %Error{kind: :validation, message: message}} ->
-        flunk(
-          "#{label} cannot encode this request with stream: #{stream?} " <>
-            "(#{message}); pass a base request the codec accepts for both values"
-        )
+        flunk(encode_failure(codec, request, config, label, stream?, message))
 
       other ->
         flunk(
@@ -719,10 +760,31 @@ defmodule LlmDialect.Codec.Conformance do
     end
   end
 
-  defp streaming_signal?(%EncodedRequest{} = encoded) do
-    (is_map(encoded.body) and Map.get(encoded.body, "stream") == true) or
-      query_signal?(encoded.query) or
-      (is_binary(encoded.path) and String.contains?(encoded.path, "stream"))
+  defp encode_failure(codec, request, config, label, true, message) do
+    if codec.capabilities(request, config).streaming do
+      "#{label} cannot encode this request with stream: true (#{message}); " <>
+        "pass a base request the codec accepts for both values"
+    else
+      "#{label}.capabilities/2 declares streaming: false, so stream: true cannot " <>
+        "encode (#{message})"
+    end
+  end
+
+  defp encode_failure(_codec, _request, _config, label, false, message) do
+    "#{label} cannot encode this request at all (#{message})"
+  end
+
+  defp signal?(streaming, plain, nil), do: streaming_signal?(streaming, plain)
+  defp signal?(streaming, _plain, marker), do: marker.(streaming)
+
+  defp streaming_signal?(%EncodedRequest{} = streaming, %EncodedRequest{} = plain) do
+    (is_map(streaming.body) and Map.get(streaming.body, "stream") == true) or
+      query_signal?(streaming.query) or
+      path_signal?(streaming.path, plain.path)
+  end
+
+  defp path_signal?(path, baseline) do
+    is_binary(path) and path != baseline and String.contains?(path, "stream")
   end
 
   defp query_signal?(query) when is_map(query) do
@@ -738,7 +800,32 @@ defmodule LlmDialect.Codec.Conformance do
   defp sse_value?(_value), do: false
 
   defp stream_flag?(key, value) do
-    is_binary(key) and String.downcase(key) == "stream" and value == true
+    is_binary(key) and String.downcase(key) == "stream" and value in [true, "true", 1]
+  end
+
+  defp assert_required_signals(_streaming, [], _label), do: :ok
+
+  defp assert_required_signals(streaming, required, label) do
+    for {field, expected} <- required, is_map(expected) do
+      actual = streaming |> Map.get(field) |> Map.take(Map.keys(expected))
+
+      assert actual == expected,
+             "#{label} streaming #{field} must carry #{inspect(expected)}, " <>
+               "got: #{inspect(actual)}"
+    end
+
+    :ok
+  end
+
+  defp assert_credential_free(%EncodedRequest{headers: headers}, label) do
+    names = Enum.map(headers || [], fn {name, _value} -> String.downcase(name) end)
+
+    for forbidden <- Shared.credential_headers() do
+      refute forbidden in names,
+             "#{label} streaming request contains a credential header #{inspect(forbidden)}"
+    end
+
+    :ok
   end
 
   defp collect_stream(codec, request, chunks, label, config \\ %Config{}) do

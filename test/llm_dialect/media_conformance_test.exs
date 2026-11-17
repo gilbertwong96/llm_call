@@ -210,6 +210,22 @@ defmodule LlmDialect.MediaConformanceTest do
     end
   end
 
+  test "assert_operation/1 rejects a next request that carries a credential" do
+    operation = %Operation{
+      status: :in_progress,
+      next: %LlmDialect.EncodedRequest{
+        method: :get,
+        path: "/jobs/1",
+        headers: [{"authorization", "Bearer nope"}]
+      },
+      next_kind: :poll
+    }
+
+    assert_raise ExUnit.AssertionError, ~r/credential header/, fn ->
+      MediaConformance.assert_operation(operation)
+    end
+  end
+
   test "assert_capability_consistency/3 catches a declared n or reference cap" do
     request = %MediaRequest{modality: :video, model: "sloppy", prompt: "a cat"}
 

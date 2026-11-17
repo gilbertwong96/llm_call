@@ -209,6 +209,54 @@ defmodule LlmDialect.TestCodec.StreamWithoutSignal do
   def finish_stream(state, _config), do: {:ok, [], state}
 end
 
+defmodule LlmDialect.TestCodec.NoStreamAtAll do
+  @moduledoc "Declares `streaming: false` and rejects a streaming request, to check the diagnosis."
+
+  @behaviour LlmDialect.Codec
+
+  alias LlmDialect.{Capabilities, Codec, EncodedRequest, Error, Response, StreamState}
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :no_stream_at_all, protocol: :no_stream_at_all, ir_version: 1}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_request(%{stream: true}, _config) do
+    {:error, %Error{kind: :validation, message: "no_stream_at_all: no streaming"}}
+  end
+
+  def encode_request(request, _config) do
+    {:ok, %EncodedRequest{method: :post, path: "/no-stream", body: %{"model" => request.model}}}
+  end
+
+  @impl true
+  def decode_response(%{"text" => text}, _config) do
+    {:ok, %Response{content: [%LlmDialect.Content.Text{text: text}]}}
+  end
+
+  def decode_response(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "no_stream_at_all"}}
+
+  @impl true
+  def decode_error(_term, _config),
+    do: %Error{kind: :provider, message: "no_stream_at_all"}
+
+  @impl true
+  def capabilities(_request, _config), do: %Capabilities{streaming: false}
+
+  @impl true
+  def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+  @impl true
+  def decode_stream_event(_term, _config, state), do: {:done, state}
+
+  @impl true
+  def finish_stream(state, _config), do: {:ok, [], state}
+end
+
 defmodule LlmDialect.CodecConformanceTest do
   use ExUnit.Case, async: true
 
@@ -362,6 +410,75 @@ defmodule LlmDialect.CodecConformanceTest do
         LlmDialect.TestCodec.DoneThenContent,
         request("done-1", true),
         [%{}]
+      )
+    end
+  end
+
+  test "assert_stream_request/3 ignores a model id that contains \"stream\"" do
+    assert :ok =
+             Conformance.assert_stream_request(
+               LlmDialect.Protocol.Gemini.GenerateContent,
+               request("my-stream-model", false)
+             )
+  end
+
+  test "assert_stream_request/3 pins a signal a protocol cannot lose" do
+    assert :ok =
+             Conformance.assert_stream_request(
+               LlmDialect.Protocol.Gemini.GenerateContent,
+               request("gemini-2.5-pro", false),
+               require: [query: %{"alt" => "sse"}]
+             )
+
+    assert_raise ExUnit.AssertionError, ~r/streaming query must carry/, fn ->
+      Conformance.assert_stream_request(
+        LlmDialect.Protocol.OpenAI.Chat,
+        request("gpt-4o", false),
+        require: [query: %{"alt" => "sse"}]
+      )
+    end
+  end
+
+  test "assert_stream_request/3 names a codec that declares streaming: false" do
+    assert_raise ExUnit.AssertionError, ~r/declares streaming: false/, fn ->
+      Conformance.assert_stream_request(
+        LlmDialect.TestCodec.NoStreamAtAll,
+        request("no-stream-1", false)
+      )
+    end
+  end
+
+  test "assert_decode_error/3 pins the normalized code and retryable hint" do
+    payload = %{"error" => %{"message" => "slow down", "code" => "rate_limit_exceeded"}}
+
+    assert_raise ExUnit.AssertionError, ~r/normalize code/, fn ->
+      Conformance.assert_decode_error(LlmDialect.Protocol.OpenAI.Chat, payload, code: "nope")
+    end
+
+    assert :ok =
+             Conformance.assert_decode_error(LlmDialect.Protocol.OpenAI.Chat, payload,
+               code: "rate_limit_exceeded",
+               retryable?: true
+             )
+  end
+
+  test "assert_reserved_options/4 pins the no-silent-override promise" do
+    request = %{request("gpt-4o", false) | tool_choice: :auto}
+
+    assert :ok =
+             Conformance.assert_reserved_options(
+               LlmDialect.Protocol.OpenAI.Chat,
+               request,
+               %Config{},
+               [%{openai: %{"model" => "evil"}}, %{openai: %{"messages" => []}}]
+             )
+
+    assert_raise ExUnit.AssertionError, fn ->
+      Conformance.assert_reserved_options(
+        LlmDialect.Protocol.OpenAI.Chat,
+        request,
+        %Config{},
+        [%{openai: %{"logprobs" => true}}]
       )
     end
   end

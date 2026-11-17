@@ -136,6 +136,37 @@ defmodule LlmDialect.Media.Protocol.GeminiPredictTest do
            }
   end
 
+  test "a defaulted parameters key survives a request in the other alias" do
+    config = %Config{
+      default_provider_options: %{gemini: %{"parameters" => %{"personGeneration" => "allow"}}}
+    }
+
+    for options <- [
+          %{gemini: %{"parameters" => %{"outputOptions" => %{"mimeType" => "image/jpeg"}}}},
+          %{google: %{"parameters" => %{"outputOptions" => %{"mimeType" => "image/jpeg"}}}}
+        ] do
+      body = encode_body(request(provider_options: options), config)
+
+      assert body["parameters"] == %{
+               "personGeneration" => "allow",
+               "outputOptions" => %{"mimeType" => "image/jpeg"}
+             }
+    end
+  end
+
+  test "the provider_options envelope is reserved" do
+    for options <- [
+          %{gemini: %{"instances" => []}},
+          %{gemini: %{"model" => "evil"}},
+          %{gemini: %{"prompt" => "evil"}}
+        ] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Predict.validate_request(request(provider_options: options), %Config{})
+
+      assert message =~ "canonical field"
+    end
+  end
+
   test "nil knobs mean the provider default and are accepted" do
     assert :ok = Predict.validate_request(request(params: %{size: nil, seed: nil}), %Config{})
     assert :ok = Predict.validate_request(request(references: nil), %Config{})
@@ -214,8 +245,8 @@ defmodule LlmDialect.Media.Protocol.GeminiPredictTest do
     assert %Error{kind: :invalid_response} = Predict.decode_error(%{"weird" => 1}, %Config{})
   end
 
-  defp encode_body(request) do
-    assert {:ok, encoded} = Predict.encode_submit(request, %Config{})
+  defp encode_body(request, config \\ %Config{}) do
+    assert {:ok, encoded} = Predict.encode_submit(request, config)
     encoded.body
   end
 end

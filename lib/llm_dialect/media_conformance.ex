@@ -56,15 +56,30 @@ defmodule LlmDialect.MediaConformance do
 
     assert encoded.method == :post
     assert encoded.path == expected_path
-    assert is_map(encoded.body)
-    assert is_map(encoded.query)
-    assert is_list(encoded.headers)
+
+    assert_encoded_request(encoded, inspect(codec))
+
+    :ok
+  end
+
+  @doc """
+  Asserts the shape of any encoded request: a map body, a map query, a list of
+  headers, and no credential header.
+
+  `assert_operation/1` runs this over `Operation.next`, so a poll or asset-fetch
+  request cannot smuggle an `authorization` header past the submit check.
+  """
+  @spec assert_encoded_request(EncodedRequest.t(), String.t()) :: :ok
+  def assert_encoded_request(%EncodedRequest{} = encoded, label) do
+    assert is_map(encoded.body), "#{label} encoded body must be a map"
+    assert is_map(encoded.query), "#{label} encoded query must be a map"
+    assert is_list(encoded.headers), "#{label} encoded headers must be a list"
 
     names = Enum.map(encoded.headers, fn {name, _value} -> String.downcase(name) end)
 
     for forbidden <- LlmDialect.Conformance.credential_headers() do
       refute forbidden in names,
-             "#{inspect(codec)} encoded request contains a credential header #{inspect(forbidden)}"
+             "#{label} encoded request contains a credential header #{inspect(forbidden)}"
     end
 
     :ok
@@ -147,6 +162,10 @@ defmodule LlmDialect.MediaConformance do
   def assert_operation(%Operation{} = operation) do
     assert_operation_raw(operation)
 
+    if match?(%EncodedRequest{}, operation.next) do
+      assert_encoded_request(operation.next, "Operation.next")
+    end
+
     case operation.status do
       status when status in [:queued, :in_progress] ->
         assert operation.result == nil,
@@ -205,7 +224,8 @@ defmodule LlmDialect.MediaConformance do
   Checks that `capabilities/2` and `validate_request/2` agree.
 
   Every declared `size`, `aspect_ratio`, `duration_s`, and `max_n` must be
-  accepted, and an undeclared non-nil value must be a validation error.
+  accepted, and an undeclared non-nil value must be a validation error. The same
+  holds for the `seed` and `negative_prompt` flags and for `max_references`.
   """
   @spec assert_capability_consistency(module(), MediaRequest.t(), Config.t()) :: :ok
   def assert_capability_consistency(codec, base_request, config) do

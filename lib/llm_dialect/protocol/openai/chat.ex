@@ -72,7 +72,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     |> Helpers.maybe_put("reasoning_effort", encode_reasoning_effort(request.reasoning))
     |> Map.merge(encode_params(request.params))
     |> put_stream(request.stream)
-    |> Map.merge(reasoning_provider_options(request.reasoning))
+    |> Config.deep_merge(reasoning_provider_options(request.reasoning))
     |> Config.deep_merge(provider_options(request, config))
   end
 
@@ -264,7 +264,8 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
              reasoning.provider_options,
              @default_reserved_keys,
              @codec
-           ) do
+           ),
+         :ok <- validate_stream_options(reasoning.provider_options) do
       Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported")
     end
   end

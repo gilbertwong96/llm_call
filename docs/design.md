@@ -1154,10 +1154,15 @@ What they check today:
 - streamed tool-call assembly through `LlmDialect.StreamAssembler`
   (`assert_tool_call_assembly/5`)
 - the *encoding* side of streaming (`assert_stream_request/3`): `stream: true`
-  and `stream: false` must encode differently, and the streaming request must
-  carry a signal — `body["stream"]`, an SSE query, or a streaming path. A codec
-  can implement every streaming callback and still never ask for SSE; nothing
-  else in the suite catches that.
+  and `stream: false` must encode differently, the streaming request must carry
+  a signal — `body["stream"]`, an SSE query, or a path that differs from the
+  plain one — and the non-streaming request must not. A codec can implement every
+  streaming callback and still never ask for SSE; nothing else in the suite
+  catches that. The signal check is a disjunction, so `require:` pins the ones a
+  protocol cannot lose (Gemini needs both `alt=sse` and the streaming path).
+- the reserved-key rule (`assert_reserved_options/4`): each of the codec's own
+  wire keys is rejected as a `provider_options` entry, which is the
+  "no silent override" promise as a test.
 - `capture_raw` on `Response.raw`, `StreamEvent.raw`,
   `LlmDialect.Media.Response.raw`, and `Operation.raw`
 - stream roundtrip and stream-state ownership (the request is passed in, so an

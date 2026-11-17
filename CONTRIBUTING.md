@@ -73,9 +73,12 @@ Every adapter must:
    LlmDialect.Codec.Conformance.assert_capabilities(MyCodec, stream_request, config)
    LlmDialect.Codec.Conformance.assert_path(MyCodec, request, "/v1/my-endpoint")
    LlmDialect.Codec.Conformance.assert_stream_request(MyCodec, request)
+   LlmDialect.Codec.Conformance.assert_reserved_options(MyCodec, request, config, [
+     %{my_codec: %{"model" => "evil"}}
+   ])
    LlmDialect.Codec.Conformance.assert_decode_response(MyCodec, response_fixture)
    LlmDialect.Codec.Conformance.assert_invalid_response(MyCodec, %{"unexpected" => true})
-   LlmDialect.Codec.Conformance.assert_decode_error(MyCodec, error_fixture)
+   LlmDialect.Codec.Conformance.assert_decode_error(MyCodec, error_fixture, code: "rate_limit", retryable?: true)
    LlmDialect.Codec.Conformance.assert_stream(MyCodec, stream_request, chunks)
    LlmDialect.Codec.Conformance.assert_stream_capture_raw(MyCodec, stream_request, chunks)
    LlmDialect.Codec.Conformance.assert_tool_call_assembly(MyCodec, stream_request, tool_chunks, 1)

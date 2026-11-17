@@ -265,21 +265,12 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   defp reasoning_options(%Reasoning{provider_options: options}) when is_map(options), do: options
 
   defp provider_options(request, config) do
-    config.default_provider_options
-    |> native_options()
-    |> Config.deep_merge(native_options(request.provider_options))
-  end
-
-  defp native_options(options) do
-    google = Map.get(options, :google)
-    gemini = Map.get(options, :gemini)
-
-    case {google, gemini} do
-      {nil, nil} -> %{}
-      {google, nil} -> google
-      {nil, gemini} -> gemini
-      {google, gemini} -> Config.deep_merge(google, gemini)
-    end
+    Helpers.alias_options(
+      config.default_provider_options,
+      request.provider_options,
+      :gemini,
+      :google
+    )
   end
 
   defp validate_output_modalities(modalities) do
@@ -465,7 +456,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   end
 
   defp validate_native_options(options, label) do
-    native = native_options(options)
+    native = Helpers.alias_options(%{}, options, :gemini, :google)
 
     with :ok <- Helpers.validate_option_keys(native, @envelope_keys, @codec) do
       validate_generation_config(native, label)

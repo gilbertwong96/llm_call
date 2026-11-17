@@ -13,7 +13,9 @@ defmodule LlmDialect.Protocol.Helpers do
   (`validate_model/2`, `validate_modalities/3`, `validate_option_map/4`,
   `validate_tool_call_arguments/2`, ...) are public so a codec with an unusual
   pipeline can compose them instead of copying them; only some of them are used
-  by every adapter.
+  by every adapter. Four exist for a codec that reimplements a pipeline step:
+  `capture_event/2`, `reserved_key?/2`, `validate_modality/3`, and
+  `validate_prompt/2`.
 
   A codec's own name is injected as `@codec` by the adapter macros; pass it to
   `error/2`, `reject/3`, and `validate_options/3`, so every validation message is
@@ -548,8 +550,8 @@ defmodule LlmDialect.Protocol.Helpers do
     |> Map.keys()
     |> first_error(fn key ->
       cond do
-        not (is_binary(key) or is_atom(key)) ->
-          error(codec, "provider option key #{inspect(key)} must be a string or an atom")
+        not is_binary(key) ->
+          error(codec, "provider option key #{inspect(key)} must be a string")
 
         reserved_key?(key, reserved_keys) ->
           error(codec, "provider option #{inspect(key)} would replace a canonical field")
@@ -562,6 +564,31 @@ defmodule LlmDialect.Protocol.Helpers do
 
   def validate_option_keys(_options, _reserved_keys, codec),
     do: error(codec, "provider options must be a map")
+
+  @doc """
+  Collapses an alias namespace into its primary and deep-merges the two sources.
+
+  Gemini accepts both `:gemini` and its `:google` alias, and each source may use
+  either spelling. Collapsing per source before merging keeps the documented
+  rule — a request value wins over a config default — even when the two disagree
+  on the name, and deep-merging lets a request extend a defaulted native object
+  instead of replacing it.
+  """
+  @spec alias_options(map(), map(), atom(), atom()) :: map()
+  def alias_options(defaults, request, primary, alias) do
+    defaults
+    |> collapse_alias(primary, alias)
+    |> Config.deep_merge(collapse_alias(request, primary, alias))
+  end
+
+  defp collapse_alias(options, primary, alias) do
+    case {Map.get(options, primary), Map.get(options, alias)} do
+      {nil, nil} -> %{}
+      {primary_value, nil} -> primary_value
+      {nil, alias_value} -> alias_value
+      {primary_value, alias_value} -> Config.deep_merge(alias_value, primary_value)
+    end
+  end
 
   @doc """
   Validates a provider-options container against the namespaces a codec consumes.
