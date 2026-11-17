@@ -160,6 +160,55 @@ defmodule LlmDialect.TestCodec.DoneThenContent do
   end
 end
 
+defmodule LlmDialect.TestCodec.StreamWithoutSignal do
+  @moduledoc "Encodes stream: true differently but never signals streaming, so conformance must catch it."
+
+  @behaviour LlmDialect.Codec
+
+  alias LlmDialect.{Capabilities, Codec, EncodedRequest, Error, Response, StreamState}
+
+  @impl true
+  def info,
+    do: %Codec.Info{name: :stream_without_signal, protocol: :stream_without_signal, ir_version: 1}
+
+  @impl true
+  def validate_request(_request, _config), do: :ok
+
+  @impl true
+  def encode_request(request, _config) do
+    {:ok,
+     %EncodedRequest{
+       method: :post,
+       path: "/v1/no-signal",
+       body: %{"model" => request.model, "transport" => request.stream}
+     }}
+  end
+
+  @impl true
+  def decode_response(%{"text" => text}, _config) do
+    {:ok, %Response{content: [%LlmDialect.Content.Text{text: text}]}}
+  end
+
+  def decode_response(_term, _config),
+    do: {:error, %Error{kind: :invalid_response, message: "stream_without_signal"}}
+
+  @impl true
+  def decode_error(_term, _config),
+    do: %Error{kind: :provider, message: "stream_without_signal"}
+
+  @impl true
+  def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+  @impl true
+  def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+  @impl true
+  def decode_stream_event(_term, _config, state), do: {:done, state}
+
+  @impl true
+  def finish_stream(state, _config), do: {:ok, [], state}
+end
+
 defmodule LlmDialect.CodecConformanceTest do
   use ExUnit.Case, async: true
 
@@ -201,6 +250,7 @@ defmodule LlmDialect.CodecConformanceTest do
       assert :ok = Conformance.assert_info(codec)
       assert :ok = Conformance.assert_capabilities(codec, request(model, true), %Config{})
       assert :ok = Conformance.assert_path(codec, request(model, false), path)
+      assert :ok = Conformance.assert_stream_request(codec, request(model, false))
       assert :ok = Conformance.assert_capture_raw(codec, response)
       assert :ok = Conformance.assert_decode_response(codec, response)
       assert :ok = Conformance.assert_invalid_response(codec, %{"unexpected" => true})
@@ -314,6 +364,50 @@ defmodule LlmDialect.CodecConformanceTest do
         [%{}]
       )
     end
+  end
+
+  test "assert_stream_request/3 catches a codec that never asks to stream" do
+    assert_raise ExUnit.AssertionError, ~r/never asked to stream/, fn ->
+      Conformance.assert_stream_request(LlmDialect.TestCodec.Fake, request("fake-1", false))
+    end
+
+    assert_raise ExUnit.AssertionError, ~r/does not signal streaming/, fn ->
+      Conformance.assert_stream_request(
+        LlmDialect.TestCodec.StreamWithoutSignal,
+        request("no-signal-1", false)
+      )
+    end
+  end
+
+  test "assert_stream_request/3 accepts a custom streaming marker" do
+    assert :ok =
+             Conformance.assert_stream_request(
+               LlmDialect.TestCodec.StreamWithoutSignal,
+               request("no-signal-1", false),
+               marker: fn encoded -> encoded.body["transport"] == true end
+             )
+  end
+
+  test "the reference codecs signal streaming in their own way" do
+    openai = LlmDialect.Protocol.OpenAI.Chat.encode_request(request("gpt-4o", true), %Config{})
+    assert {:ok, %{body: %{"stream" => true}}} = openai
+
+    anthropic =
+      LlmDialect.Protocol.Anthropic.Messages.encode_request(
+        request("claude-sonnet-4-5", true),
+        %Config{}
+      )
+
+    assert {:ok, %{body: %{"stream" => true}}} = anthropic
+
+    gemini =
+      LlmDialect.Protocol.Gemini.GenerateContent.encode_request(
+        request("gemini-2.5-pro", true),
+        %Config{}
+      )
+
+    assert {:ok, %{query: %{"alt" => "sse"}, path: path}} = gemini
+    assert path =~ "streamGenerateContent"
   end
 
   test "conformance assertions catch a violating codec" do

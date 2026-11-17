@@ -72,6 +72,7 @@ Every adapter must:
    LlmDialect.Codec.Conformance.assert_info(MyCodec)
    LlmDialect.Codec.Conformance.assert_capabilities(MyCodec, stream_request, config)
    LlmDialect.Codec.Conformance.assert_path(MyCodec, request, "/v1/my-endpoint")
+   LlmDialect.Codec.Conformance.assert_stream_request(MyCodec, request)
    LlmDialect.Codec.Conformance.assert_decode_response(MyCodec, response_fixture)
    LlmDialect.Codec.Conformance.assert_invalid_response(MyCodec, %{"unexpected" => true})
    LlmDialect.Codec.Conformance.assert_decode_error(MyCodec, error_fixture)
@@ -93,9 +94,10 @@ Every adapter must:
 
    The suites check the IR boundary (canonical parts, stop reasons, usage
    shapes), typed invalid-response and provider-error decoding, stream event
-   shape and order, tool-call assembly through `LlmDialect.StreamAssembler`,
-   `capture_raw` on responses and operations, and capability declarations
-   agreeing with validation in both directions. What they cannot check is usage
+   shape and order, that a streaming request actually asks the provider to
+   stream, tool-call assembly through `LlmDialect.StreamAssembler`, `capture_raw`
+   on responses and operations, and capability declarations agreeing with
+   validation in both directions. What they cannot check is usage
    *mapping* — which provider field lands in which counter — so pin that with
    your own fixture assertions.
 

@@ -33,6 +33,7 @@ First release, not yet published to Hex.
   (BytePlus ModelArk), MiniMax Hailuo.
 - Conformance suites published from `lib/`: `LlmDialect.Codec.Conformance` and
   `LlmDialect.MediaConformance`, covering response/error decoding, stream order,
-  tool-call assembly, `capture_raw`, and capability↔validation consistency.
+  the streaming signal on an encoded request, tool-call assembly, `capture_raw`,
+  and capability↔validation consistency.
 - Documentation: `docs/design.md` (canonical spec), `CONTRIBUTING.md` (adapter
   bar), and the dated decision records under `docs/superpowers/specs/`.

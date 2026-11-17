@@ -1153,6 +1153,11 @@ What they check today:
   unmapped provider field, and `{:done, state}` must not be followed by content
 - streamed tool-call assembly through `LlmDialect.StreamAssembler`
   (`assert_tool_call_assembly/5`)
+- the *encoding* side of streaming (`assert_stream_request/3`): `stream: true`
+  and `stream: false` must encode differently, and the streaming request must
+  carry a signal — `body["stream"]`, an SSE query, or a streaming path. A codec
+  can implement every streaming callback and still never ask for SSE; nothing
+  else in the suite catches that.
 - `capture_raw` on `Response.raw`, `StreamEvent.raw`,
   `LlmDialect.Media.Response.raw`, and `Operation.raw`
 - stream roundtrip and stream-state ownership (the request is passed in, so an

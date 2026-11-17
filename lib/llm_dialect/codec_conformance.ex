@@ -101,6 +101,46 @@ defmodule LlmDialect.Codec.Conformance do
     :ok
   end
 
+  @doc """
+  Asserts that a streaming request actually asks the provider to stream.
+
+  This is the encoding-side counterpart to `assert_stream/3`. A codec can
+  implement every streaming callback and still never request SSE, in which case
+  the transport receives a buffered response and the decoders are dead code.
+
+  Two things must hold:
+
+    * `stream: true` and `stream: false` must encode to different requests, so the
+      flag reaches the wire at all;
+    * the streaming request must carry a streaming signal: `body["stream"] == true`,
+      an SSE query value (`alt=sse`), a `stream` query flag, or a path naming the
+      streaming endpoint.
+
+  Pass `marker:` when the protocol signals streaming some other way. The base
+  request must be valid; it is re-encoded with both flag values.
+  """
+  @spec assert_stream_request(module(), LlmDialect.Request.t(), keyword()) :: :ok
+  def assert_stream_request(codec, request, opts \\ []) do
+    label = inspect(codec)
+    marker = Keyword.get(opts, :marker, &streaming_signal?/1)
+
+    streaming = encode_for_stream(codec, %{request | stream: true}, label, true)
+    plain = encode_for_stream(codec, %{request | stream: false}, label, false)
+
+    assert streaming != plain,
+           "#{label} encodes the same request with stream: true and stream: false, " <>
+             "so the provider is never asked to stream"
+
+    assert marker.(streaming),
+           "#{label} does not signal streaming on the encoded request: no " <>
+             "body[\"stream\"], no SSE query, no streaming path: #{inspect(streaming)}"
+
+    refute marker.(plain),
+           "#{label} signals streaming even with stream: false: #{inspect(plain)}"
+
+    :ok
+  end
+
   @spec assert_capture_raw(module(), LlmDialect.wire_value()) :: :ok
   def assert_capture_raw(codec, provider_payload) do
     for {capture, expected} <- [none: nil, response: provider_payload, all: provider_payload] do
@@ -654,6 +694,41 @@ defmodule LlmDialect.Codec.Conformance do
     flunk(
       "#{label} StreamAssembler must produce %LlmDialect.ToolCall{} structs, got: #{inspect(other)}"
     )
+  end
+
+  defp encode_for_stream(codec, request, label, stream?) do
+    case codec.encode_request(request, %Config{}) do
+      {:ok, %EncodedRequest{} = encoded} ->
+        encoded
+
+      other ->
+        flunk(
+          "#{label}.encode_request/2 must succeed with stream: #{stream?}, " <>
+            "got: #{inspect(other)}"
+        )
+    end
+  end
+
+  defp streaming_signal?(%EncodedRequest{} = encoded) do
+    (is_map(encoded.body) and Map.get(encoded.body, "stream") == true) or
+      query_signal?(encoded.query) or
+      (is_binary(encoded.path) and String.contains?(encoded.path, "stream"))
+  end
+
+  defp query_signal?(query) when is_map(query) do
+    Enum.any?(query, fn
+      {key, value} -> sse_value?(value) or stream_flag?(key, value)
+      _entry -> false
+    end)
+  end
+
+  defp query_signal?(_query), do: false
+
+  defp sse_value?(value) when is_binary(value), do: String.downcase(value) == "sse"
+  defp sse_value?(_value), do: false
+
+  defp stream_flag?(key, value) do
+    is_binary(key) and String.downcase(key) == "stream" and value == true
   end
 
   defp collect_stream(codec, request, chunks, label, config \\ %Config{}) do
