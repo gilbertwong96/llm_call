@@ -14,6 +14,7 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   use LlmDialect.Media.Adapter,
     codec: :gemini_predict,
     modality: :image,
+    namespaces: [:gemini, :google],
     model_fun: &Helpers.validate_model_id/2
 
   @api_version "v1beta"
@@ -177,25 +178,10 @@ defmodule LlmDialect.Media.Protocol.Gemini.Predict do
   end
 
   defp validate_provider_options(request, config) do
-    with :ok <-
-           Helpers.validate_namespaces(
-             request.provider_options,
-             [:gemini, :google],
-             @codec,
-             "provider_options"
-           ),
-         :ok <-
-           Helpers.validate_namespaces(
-             config.default_provider_options,
-             [:gemini, :google],
-             @codec,
-             "default_provider_options"
-           ) do
-      options = provider_options(request, config)
+    options = provider_options(request, config)
 
-      with :ok <- Helpers.validate_option_keys(options, @reserved_keys, @codec) do
-        validate_parameters(options)
-      end
+    with :ok <- Helpers.validate_option_keys(options, @reserved_keys, @codec) do
+      validate_parameters(options)
     end
   end
 

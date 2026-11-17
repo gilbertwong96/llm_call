@@ -14,7 +14,7 @@ defmodule LlmDialect.Media.Protocol.OpenAI.Images do
   catalog, so a size a specific model rejects surfaces as a provider error.
   """
 
-  use LlmDialect.Media.Adapter, codec: :openai_images, modality: :image
+  use LlmDialect.Media.Adapter, codec: :openai_images, modality: :image, namespaces: [:openai]
 
   @path "/v1/images/generations"
   @headers [{"content-type", "application/json"}]

@@ -346,7 +346,15 @@ is a validation error. Parameter-level native keys stay reachable:
 the canonical values. `Config.default_provider_options` may not override a
 parameter-level canonical field, so a default cannot silently beat an explicit
 request. Reasoning-specific native controls belong on
-`Reasoning.provider_options`, which merges into the protocol's reasoning object.
+`Reasoning.provider_options`, which merges into the protocol's reasoning object
+(and is therefore subject to the same reserved-key rule, because OpenAI Chat
+merges it into the body root).
+
+The namespace keys are checked, not just their values: a codec names the
+namespaces it reads (`:openai`, `[:gemini, :google]`, ...) and rejects any other
+key, so `provider_options: %{openai_chat: ...}` or a string key is a validation
+error rather than a silently ignored option. Every present namespace must be a
+map.
 
 ### 8.2 Message
 
@@ -1929,11 +1937,16 @@ error, not a fabricated local guess.
 `params` keys outside the canonical set in §23.1 are validation errors, ignoring
 keys whose value is `nil` (a `nil` knob is "provider default", not a request).
 A codec rejects a non-nil knob it cannot express. `provider_options` is namespaced
-and merged like the completion side; a key that would replace `model`, `prompt`,
-`instances`, or `modality` is a validation error. A protocol's own nested
-parameter object stays reachable: `parameters` is not reserved, because
+and merged like the completion side; the namespace is declared when the adapter
+`use`s `LlmDialect.Media.Adapter` (`namespaces: [:openai]`), so an unknown key is a
+validation error. A key that would replace `model`, `prompt`, `instances`, or
+`modality` — or a canonical param such as `size`, `n`, or `duration` — is a
+validation error too, which is what keeps a `Config` default from beating an
+explicit `params` entry. A protocol's own nested parameter object stays
+reachable: `parameters` is not reserved, because
 `LlmDialect.Config.deep_merge/2` recurses into it, so a native Imagen knob such as
-`personGeneration` merges beside the canonical `sampleCount`.
+`personGeneration` merges beside the canonical `sampleCount` (but the canonical
+keys inside it are reserved).
 
 ### 23.4 Operation state machine
 

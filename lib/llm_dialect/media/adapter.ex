@@ -11,6 +11,10 @@ defmodule LlmDialect.Media.Adapter do
   `decode_submit/2`, `validate_params/1`, `validate_references/1`, and
   `validate_provider_options/2`.
 
+  `namespaces:` names the `provider_options` namespaces this codec reads. It is
+  required: a namespace outside the list is a validation error, so a typo cannot
+  silently drop the caller's options.
+
   `model_fun:` replaces the model check for protocols that constrain the model id
   itself (Gemini's predict path rejects bare ids containing `/` or `:`).
   """
@@ -18,6 +22,7 @@ defmodule LlmDialect.Media.Adapter do
   defmacro __using__(opts) do
     codec = Keyword.fetch!(opts, :codec)
     modality = Keyword.fetch!(opts, :modality)
+    namespaces = Keyword.fetch!(opts, :namespaces)
 
     model_fun =
       Keyword.get(opts, :model_fun, quote(do: &LlmDialect.Protocol.Helpers.validate_model/2))
@@ -31,6 +36,7 @@ defmodule LlmDialect.Media.Adapter do
 
       @codec unquote(codec)
       @modality unquote(modality)
+      @namespaces unquote(namespaces)
 
       @doc """
       Runs the shared media validation pipeline with the codec's own checks.
@@ -39,12 +45,18 @@ defmodule LlmDialect.Media.Adapter do
       @spec validate_request(Request.t(), Config.t()) :: :ok | {:error, Error.t()}
       def validate_request(%Request{} = request, %Config{} = config) do
         with :ok <-
-               Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+               Helpers.validate_option_map(
+                 request.provider_options,
+                 @codec,
+                 "provider_options",
+                 @namespaces
+               ),
              :ok <-
                Helpers.validate_option_map(
                  config.default_provider_options,
                  @codec,
-                 "default_provider_options"
+                 "default_provider_options",
+                 @namespaces
                ) do
           Helpers.validate_media_request(
             request,

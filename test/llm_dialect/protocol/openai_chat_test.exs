@@ -404,6 +404,16 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
                %Config{}
              )
 
+    for namespace <- [:openai_chat, :gemini, :foo] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Chat.validate_request(
+                 text_request(provider_options: %{namespace => %{}}),
+                 %Config{}
+               )
+
+      assert message =~ "is not used by this codec"
+    end
+
     assert {:error, %Error{kind: :validation, message: message}} =
              Chat.validate_request(text_request(), %Config{
                default_provider_options: %{openai: %{"max_tokens" => 1}}

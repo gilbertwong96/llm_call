@@ -60,7 +60,10 @@ Every adapter must:
    conformance suites check these in both directions.
 5. **Use `LlmDialect.Protocol.Helpers`** for error formatting, `maybe_put`,
    reserved-key checks, and the `capture_raw` policy, so the suite can assert
-   behaviour consistently.
+   behaviour consistently. Declare the namespaces you read (`@namespaces`, or
+   `namespaces:` on `use LlmDialect.Media.Adapter`) and validate them with
+   `Helpers.validate_option_map/4`: an unknown namespace is a validation error,
+   because a silently ignored `provider_options` key is a silent drop.
 6. **Keep fixtures honest.** Elixir maps, no JSON strings, no network. Copy the
    provider's documented response shape; do not invent one.
 7. **Run the conformance suite** in your own tests:

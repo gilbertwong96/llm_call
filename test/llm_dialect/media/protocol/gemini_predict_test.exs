@@ -102,6 +102,11 @@ defmodule LlmDialect.Media.Protocol.GeminiPredictTest do
                ),
                %Config{}
              )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Predict.validate_request(request(provider_options: %{deepseek: %{}}), %Config{})
+
+    assert message =~ "is not used by this codec"
   end
 
   test "a malformed parameters object is a typed error" do

@@ -20,7 +20,7 @@ defmodule LlmDialect.Media.Protocol.MiniMax.Video do
   is not implemented.
   """
 
-  use LlmDialect.Media.Adapter, codec: :minimax_video, modality: :video
+  use LlmDialect.Media.Adapter, codec: :minimax_video, modality: :video, namespaces: [:minimax]
 
   @api_version "v1"
   @submit_path "/v1/video_generation"

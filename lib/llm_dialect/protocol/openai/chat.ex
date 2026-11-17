@@ -24,6 +24,8 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   @known_message_keys ["role", "content", "tool_calls", "reasoning_content", "refusal"]
   @known_delta_keys ["content", "reasoning_content", "tool_calls"]
 
+  @namespaces [:openai]
+
   use LlmDialect.Protocol.Adapter, codec: :openai_chat
 
   @impl true
@@ -379,12 +381,19 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
-    with :ok <- Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+    with :ok <-
+           Helpers.validate_option_map(
+             request.provider_options,
+             @codec,
+             "provider_options",
+             @namespaces
+           ),
          :ok <-
            Helpers.validate_option_map(
              config.default_provider_options,
              @codec,
-             "default_provider_options"
+             "default_provider_options",
+             @namespaces
            ),
          {:ok, request_options} <-
            Helpers.namespace_options(

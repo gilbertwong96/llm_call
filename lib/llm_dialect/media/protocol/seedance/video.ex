@@ -15,7 +15,7 @@ defmodule LlmDialect.Media.Protocol.Seedance.Video do
   catalog, so a model-specific limit surfaces as a provider error.
   """
 
-  use LlmDialect.Media.Adapter, codec: :seedance_video, modality: :video
+  use LlmDialect.Media.Adapter, codec: :seedance_video, modality: :video, namespaces: [:seedance]
 
   @api_version "v3"
   @path "/api/v3/contents/generations/tasks"

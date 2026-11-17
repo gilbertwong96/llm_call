@@ -19,6 +19,8 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
+  @namespaces [:anthropic]
+
   use LlmDialect.Protocol.Adapter, codec: :anthropic_messages
 
   @impl true
@@ -353,12 +355,19 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
-    with :ok <- Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+    with :ok <-
+           Helpers.validate_option_map(
+             request.provider_options,
+             @codec,
+             "provider_options",
+             @namespaces
+           ),
          :ok <-
            Helpers.validate_option_map(
              config.default_provider_options,
              @codec,
-             "default_provider_options"
+             "default_provider_options",
+             @namespaces
            ),
          {:ok, request_options} <-
            Helpers.namespace_options(

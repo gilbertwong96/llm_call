@@ -60,6 +60,11 @@ defmodule LlmDialect.Media.Protocol.OpenAIImagesTest do
              Images.validate_request(request(provider_options: %{"openai" => %{}}), %Config{})
 
     assert message =~ "namespace"
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Images.validate_request(request(provider_options: %{google: %{}}), %Config{})
+
+    assert message =~ "is not used by this codec"
   end
 
   test "response_format is only sent to models that accept it" do

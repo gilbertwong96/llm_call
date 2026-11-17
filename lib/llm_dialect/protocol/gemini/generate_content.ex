@@ -28,6 +28,8 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
 
+  @namespaces [:gemini, :google]
+
   use LlmDialect.Protocol.Adapter, codec: :gemini_generate_content, encode: false
 
   @impl true
@@ -432,26 +434,19 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
     do: Helpers.validate_tool_result_content(content, @codec)
 
   defp validate_provider_options(request, config) do
-    with :ok <- Helpers.validate_option_map(request.provider_options, @codec, "provider_options"),
+    with :ok <-
+           Helpers.validate_option_map(
+             request.provider_options,
+             @codec,
+             "provider_options",
+             @namespaces
+           ),
          :ok <-
            Helpers.validate_option_map(
              config.default_provider_options,
              @codec,
-             "default_provider_options"
-           ),
-         :ok <-
-           Helpers.validate_namespaces(
-             request.provider_options,
-             [:gemini, :google],
-             @codec,
-             "provider_options"
-           ),
-         :ok <-
-           Helpers.validate_namespaces(
-             config.default_provider_options,
-             [:gemini, :google],
-             @codec,
-             "default_provider_options"
+             "default_provider_options",
+             @namespaces
            ),
          :ok <-
            Helpers.validate_option_keys(

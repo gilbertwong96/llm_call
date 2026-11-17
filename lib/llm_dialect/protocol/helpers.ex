@@ -558,13 +558,50 @@ defmodule LlmDialect.Protocol.Helpers do
   def namespace_options(_options, codec, label), do: error(codec, "#{label} must be a map")
 
   @doc """
-  Validates that every listed provider-options namespace holds a map.
+  Validates a provider-options container against the namespaces a codec consumes.
 
-  A namespace the codec reads must be a map; a non-map there would raise inside
-  `Config.deep_merge/2` instead of returning a typed error.
+  Three things must hold, or the caller would get a valid-looking request whose
+  options are silently ignored or would raise later:
+
+    * the container is a map;
+    * every key is an atom and one the codec reads (`:openai`, `[:gemini,
+      :google]`, ...) — a typo or a string key is an error, not a drop;
+    * every present namespace holds a map, so `Config.deep_merge/2` is never
+      handed a non-map.
   """
-  @spec validate_namespaces(map(), [atom()], codec(), String.t()) :: :ok | {:error, Error.t()}
-  def validate_namespaces(options, namespaces, codec, label) do
+  @spec validate_option_map(term(), codec(), String.t(), [atom()]) ::
+          :ok | {:error, Error.t()}
+  def validate_option_map(options, codec, label, namespaces) when is_map(options) do
+    options
+    |> Map.keys()
+    |> first_error(fn key -> validate_namespace_key(key, namespaces, codec, label) end)
+    |> then(fn
+      :ok -> validate_namespace_values(options, namespaces, codec, label)
+      error -> error
+    end)
+  end
+
+  def validate_option_map(_options, codec, label, _namespaces),
+    do: error(codec, "#{label} must be a map")
+
+  defp validate_namespace_key(key, namespaces, codec, label) do
+    cond do
+      not is_atom(key) ->
+        error(codec, "#{label} namespace #{inspect(key)} must be an atom")
+
+      key not in namespaces ->
+        error(
+          codec,
+          "#{label} namespace #{inspect(key)} is not used by this codec " <>
+            "(expected #{inspect(namespaces)})"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_namespace_values(options, namespaces, codec, label) do
     first_error(namespaces, fn key ->
       case Map.get(options, key) do
         nil -> :ok
@@ -573,26 +610,6 @@ defmodule LlmDialect.Protocol.Helpers do
       end
     end)
   end
-
-  @doc """
-  Validates a provider-options container: a map of namespace to map.
-
-  A non-map is an error, so a malformed container cannot reach
-  `Config.provider_options/2` and raise instead of returning a typed error.
-  """
-  @spec validate_option_map(term(), codec(), String.t()) :: :ok | {:error, Error.t()}
-  def validate_option_map(options, codec, label) when is_map(options) do
-    options
-    |> Map.keys()
-    |> first_error(fn key ->
-      if is_atom(key),
-        do: :ok,
-        else: error(codec, "#{label} namespace #{inspect(key)} must be an atom")
-    end)
-  end
-
-  def validate_option_map(_options, codec, label),
-    do: error(codec, "#{label} must be a map")
 
   @doc """
   Normalizes a provider's error code to a string or `nil`.

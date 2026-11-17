@@ -338,6 +338,14 @@ defmodule LlmDialect.Protocol.GeminiGenerateContentTest do
              )
 
     assert message =~ "gemini must be a map"
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(
+               text_request(provider_options: %{deepseek: %{}}),
+               %Config{}
+             )
+
+    assert message =~ "is not used by this codec"
   end
 
   test "malformed json_schema output is rejected" do
