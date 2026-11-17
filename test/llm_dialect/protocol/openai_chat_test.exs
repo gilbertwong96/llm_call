@@ -797,6 +797,23 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
       assert [%ToolCall{name: "alpha"}, %ToolCall{name: "beta"}] = calls ++ final
     end
 
+    test "reasoning_content becomes a thinking delta, not a Raw fallback" do
+      chunk = %{
+        "choices" => [
+          %{
+            "index" => 0,
+            "delta" => %{"reasoning_content" => "step 1"},
+            "finish_reason" => nil
+          }
+        ]
+      }
+
+      {_state, events} = run_stream([chunk])
+
+      assert [%LlmDialect.StreamEvent{type: :thinking_delta, delta: delta} | _rest] = events
+      assert %LlmDialect.StreamDelta.Thinking{text: "step 1", signature: nil} = delta
+    end
+
     test "usage merges instead of overwriting previously seen fields" do
       {_state, events} = run_stream(Fx.usage_split_chunks())
 

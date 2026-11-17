@@ -478,8 +478,6 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
     with :ok <- validate_request(request, config) do
       {:ok,
        StreamState.new(__MODULE__, %{
-         id: nil,
-         model: nil,
          usage: nil,
          tool_indexes: [],
          finished?: false
@@ -496,7 +494,6 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
 
   def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
     data = StreamState.data(state)
-    data = %{data | id: term["id"] || data.id, model: term["model"] || data.model}
     {events, data} = chunk_events(term, config, data)
     {:ok, events, StreamState.new(__MODULE__, data)}
   end

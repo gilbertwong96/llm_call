@@ -445,8 +445,6 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
     with :ok <- validate_request(request, config) do
       {:ok,
        StreamState.new(__MODULE__, %{
-         id: nil,
-         model: nil,
          blocks: %{},
          pending_tools: [],
          usage: %Usage{},
@@ -537,13 +535,7 @@ defmodule LlmDialect.Protocol.Anthropic.Messages do
 
   defp stream_events(%{"type" => "message_start"} = term, config, data) do
     message = term["message"] || %{}
-
-    data = %{
-      data
-      | id: message["id"] || data.id,
-        model: message["model"] || data.model,
-        usage: merge_usage(data.usage, message["usage"])
-    }
+    data = %{data | usage: merge_usage(data.usage, message["usage"])}
 
     {[Helpers.event(:message_start, nil, nil, term, config)], data}
   end

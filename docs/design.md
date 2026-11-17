@@ -401,6 +401,12 @@ data, echoes (`choices[].index`, `candidates[].index`), discriminators
 requires the canonical struct to change, or the leaf to be listed with a reason.
 Adding a field to a provider fixture without mapping it fails that test.
 
+The streaming path has the same rule one level down:
+`test/llm_dialect/stream_delta_audit_test.exs` deletes each chunk leaf and
+compares the whole `{type, delta, index}` event list, so every `StreamDelta` field
+and every `StreamEvent.index` has a provider source. The same mutation applied to
+a field the codec does not know about must produce a `Raw` event, never silence.
+
 ### 8.2 Message
 
 ```elixir
@@ -1767,8 +1773,12 @@ For each protocol:
    - decode: deleting any single provider field either changes the canonical
      struct or is listed as an ignored envelope/echo field; deleting any field
      never raises; an absent field is `nil`/`:unknown`, never a fabricated value
-     (`test/llm_dialect/write_path_audit_test.exs` and
-     `decode_path_audit_test.exs`)
+   - streaming deltas: the same mutation audit over stream chunks, so every
+     `StreamDelta` field (`text`, `thinking`/`signature`, tool-call
+     `id`/`name`/`arguments`/`index`, `stop_reason`/`usage`) and every
+     `StreamEvent.index` has a provider source, and an unmapped field becomes a
+     `Raw` event (`test/llm_dialect/write_path_audit_test.exs`,
+     `decode_path_audit_test.exs`, `stream_delta_audit_test.exs`)
 
 ## 18. Failure and compatibility policy
 

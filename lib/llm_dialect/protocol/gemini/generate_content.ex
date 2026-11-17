@@ -556,8 +556,6 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
     with :ok <- validate_request(request, config) do
       {:ok,
        StreamState.new(__MODULE__, %{
-         id: nil,
-         model: nil,
          next_tool_index: 0,
          usage: nil,
          stop_reason: nil,
@@ -573,13 +571,7 @@ defmodule LlmDialect.Protocol.Gemini.GenerateContent do
 
   def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
     data = StreamState.data(state)
-
-    data = %{
-      data
-      | id: term["responseId"] || data.id,
-        model: term["modelVersion"] || data.model,
-        usage: accumulate_usage(data.usage, term["usageMetadata"])
-    }
+    data = %{data | usage: accumulate_usage(data.usage, term["usageMetadata"])}
 
     {events, data} = chunk_events(term, config, data)
     {:ok, events, StreamState.new(__MODULE__, data)}
