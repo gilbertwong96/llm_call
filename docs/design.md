@@ -1099,6 +1099,7 @@ The conformance suites are published from `lib/` so adapter packages can call
 them:
 
 ```text
+lib/llm_dialect/conformance.ex          # shared assertions
 lib/llm_dialect/codec_conformance.ex    # LlmDialect.Codec.Conformance
 lib/llm_dialect/media_conformance.ex    # LlmDialect.MediaConformance
 ```
@@ -1113,21 +1114,29 @@ What they check today:
 - streaming-callback presence matching `capabilities.streaming` (and
   `decode_operation/2` matching `LlmDialect.Media.Capabilities.async`)
 - encoded path/method/body, a map-shaped query, and credential-free headers
-- `capture_raw` on `Response.raw` and `LlmDialect.Media.Response.raw` (core's unit tests also
-  cover `Operation.raw`; the published suite does not)
+- response decoding at the IR boundary: canonical parts, a stop reason from the
+  closed union, canonical usage, and `raw` as a map or `nil`
+- a malformed response as a typed `:invalid_response` error, never a raise or a
+  fabricated response
+- provider error envelopes as a canonical `%Error{}`: string-or-nil code, `status:
+  nil`, boolean `retryable?`
+- stream event shape and order, driven over the caller's chunks
+  (`assert_stream/3`)
+- streamed tool-call assembly through `LlmDialect.StreamAssembler`
+  (`assert_tool_call_assembly/5`)
+- `capture_raw` on `Response.raw`, `LlmDialect.Media.Response.raw`, and
+  `Operation.raw`
 - stream roundtrip and stream-state ownership (the request is passed in, so an
   out-of-tree codec is checkable)
 - `Operation` state-machine invariants
 - capability declarations matching validation, in both directions, for **media**
-  codecs
+  and **chat** codecs (`assert_capability_consistency/3` on both sides)
 - rejection of a request with a field the codec cannot express
   (`assert_rejects/3`) — the "no silent drops" promise as a test
 
-Not yet checked, tracked as a follow-up (C1): response and error decoding,
-streaming event order, tool-call fragment assembly, usage/stop-reason mapping,
-and a chat-side capability↔validation check. An adapter can verify its shapes,
-capture policy, stream plumbing, capabilities, rejection of unsupported fields,
-and operation states — not its decoders.
+What no generic suite can check is usage *mapping* (which provider field lands in
+which counter) and whether a decoded text matches the provider's semantics; an
+adapter covers those with its own fixture assertions. C1 is closed.
 
 ## 11. Encoded request boundary
 
