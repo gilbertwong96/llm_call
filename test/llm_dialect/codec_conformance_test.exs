@@ -410,6 +410,15 @@ defmodule LlmDialect.CodecConformanceTest do
     assert path =~ "streamGenerateContent"
   end
 
+  test "assert_stream_request/3 names a non-streamable base request" do
+    assert_raise ExUnit.AssertionError, ~r/cannot encode this request with stream: true/, fn ->
+      Conformance.assert_stream_request(
+        LlmDialect.Protocol.Gemini.GenerateContent,
+        %{request("gemini-2.5-pro", false) | modalities: [:text, :image]}
+      )
+    end
+  end
+
   test "conformance assertions catch a violating codec" do
     codec = LlmDialect.Protocol.OpenAI.Chat
 

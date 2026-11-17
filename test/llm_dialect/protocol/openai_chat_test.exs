@@ -421,6 +421,29 @@ defmodule LlmDialect.Protocol.OpenAIChatTest do
     assert message =~ "canonical field"
   end
 
+  test "a config default may add native stream_options keys" do
+    body =
+      encode(
+        text_request(stream: true),
+        %Config{
+          default_provider_options: %{
+            openai: %{"stream_options" => %{"include_obfuscation" => true}}
+          }
+        }
+      ).body
+
+    assert body["stream_options"] == %{"include_usage" => true, "include_obfuscation" => true}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(text_request(), %Config{
+               default_provider_options: %{
+                 openai: %{"stream_options" => %{"include_usage" => false}}
+               }
+             })
+
+    assert message =~ "canonical field"
+  end
+
   test "unencodable tool call arguments are a typed error" do
     messages = [
       %Message{

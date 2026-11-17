@@ -2,11 +2,18 @@ defmodule LlmDialect.Protocol.Helpers do
   @moduledoc """
   Validation and encoding primitives shared by protocol adapters.
 
-  This is the public adapter-authoring surface: core's reference adapters and
-  every adapter package use it, so a change to the error shape, the reserved-key
-  rule, or the `capture_raw` policy lands in one place. Reimplementing these in a
-  package would produce adapters that `LlmDialect.Codec.Conformance` cannot check
-  consistently.
+  This is the public adapter-authoring surface: core's reference adapters and the
+  vendored media adapters call it, so a change to the error shape, the
+  reserved-key rule, or the `capture_raw` policy lands in one place.
+  Reimplementing these in a package would produce adapters that
+  `LlmDialect.Codec.Conformance` cannot check consistently.
+
+  The composite entry points — `encode_completion/6`, `validate_media_request/8`,
+  and `validate_parts/3` — are what most adapters call. The individual checks
+  (`validate_model/2`, `validate_modalities/3`, `validate_option_map/4`,
+  `validate_tool_call_arguments/2`, ...) are public so a codec with an unusual
+  pipeline can compose them instead of copying them; only some of them are used
+  by every adapter.
 
   A codec's own name is injected as `@codec` by the adapter macros; pass it to
   `error/2`, `reject/3`, and `validate_options/3`, so every validation message is

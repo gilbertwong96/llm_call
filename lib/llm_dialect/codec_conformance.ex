@@ -116,16 +116,20 @@ defmodule LlmDialect.Codec.Conformance do
       an SSE query value (`alt=sse`), a `stream` query flag, or a path naming the
       streaming endpoint.
 
-  Pass `marker:` when the protocol signals streaming some other way. The base
-  request must be valid; it is re-encoded with both flag values.
+  Pass `marker:` when the protocol signals streaming some other way, and
+  `config:` when the codec needs a non-default `LlmDialect.Config` to encode. The
+  base request must be streamable: forcing `stream: true` on a request the codec
+  rejects (Gemini with an image modality, say) is reported as such rather than as
+  a codec defect.
   """
   @spec assert_stream_request(module(), LlmDialect.Request.t(), keyword()) :: :ok
   def assert_stream_request(codec, request, opts \\ []) do
     label = inspect(codec)
     marker = Keyword.get(opts, :marker, &streaming_signal?/1)
+    config = Keyword.get(opts, :config, %Config{})
 
-    streaming = encode_for_stream(codec, %{request | stream: true}, label, true)
-    plain = encode_for_stream(codec, %{request | stream: false}, label, false)
+    streaming = encode_for_stream(codec, %{request | stream: true}, config, label, true)
+    plain = encode_for_stream(codec, %{request | stream: false}, config, label, false)
 
     assert streaming != plain,
            "#{label} encodes the same request with stream: true and stream: false, " <>
@@ -696,10 +700,16 @@ defmodule LlmDialect.Codec.Conformance do
     )
   end
 
-  defp encode_for_stream(codec, request, label, stream?) do
-    case codec.encode_request(request, %Config{}) do
+  defp encode_for_stream(codec, request, config, label, stream?) do
+    case codec.encode_request(request, config) do
       {:ok, %EncodedRequest{} = encoded} ->
         encoded
+
+      {:error, %Error{kind: :validation, message: message}} ->
+        flunk(
+          "#{label} cannot encode this request with stream: #{stream?} " <>
+            "(#{message}); pass a base request the codec accepts for both values"
+        )
 
       other ->
         flunk(

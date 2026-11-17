@@ -15,7 +15,7 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
   @headers [{"content-type", "application/json"}]
   @envelope_keys ~w(model messages tools tool_choice response_format reasoning_effort stream)
   @default_reserved_keys @envelope_keys ++
-                           ~w(temperature top_p max_tokens stop seed stream_options)
+                           ~w(temperature top_p max_tokens stop seed)
   @stream_reserved_keys ~w(include_usage)
   @tool_reserved_keys ~w(name description parameters strict)
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
@@ -402,8 +402,9 @@ defmodule LlmDialect.Protocol.OpenAI.Chat do
          request_options = Map.get(request.provider_options, :openai, %{}),
          default_options = Map.get(config.default_provider_options, :openai, %{}),
          :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec),
-         :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec) do
-      validate_stream_options(request_options)
+         :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec),
+         :ok <- validate_stream_options(request_options) do
+      validate_stream_options(default_options)
     end
   end
 
