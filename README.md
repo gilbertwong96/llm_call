@@ -94,6 +94,22 @@ It runs before the reducer, including for `finish_stream/2` output; the return
 value is ignored, and it is not called after the reducer halts. `LlmCall.HTTP` is
 the only HTTP transport, so raw bytes are not exposed as a hook.
 
+### Responses over WebSocket
+
+The Responses protocol also has a multiplexed WebSocket session: one connection,
+named `stream_id` lanes, decoded events, and reconnect before the 60-minute
+limit.
+
+```elixir
+{:ok, session} = LlmCall.Protocol.OpenAI.Responses.Session.start_link(client: client)
+{:ok, stream} = LlmCall.Protocol.OpenAI.Responses.Session.create(session, request, stream_id: "main")
+
+Enum.to_list(stream)
+```
+
+An in-flight response cannot resume across a reconnect; its stream raises
+`LlmCall.WS.Error` and new creates work on the new connection.
+
 Tool-call fragments are assembled into complete calls by a pure helper, which never
 runs them:
 

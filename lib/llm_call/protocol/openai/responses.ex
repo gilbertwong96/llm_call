@@ -12,6 +12,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
   no `[DONE]` sentinel: the stream ends after `response.completed`,
   `response.failed`, `response.incomplete`, or `error`.
 
+  For a persistent WebSocket connection with `stream_id` lanes, see
+  `LlmCall.Protocol.OpenAI.Responses.Session`.
+
   Reasoning items are decoded as `Content.Thinking`, with `encrypted_content`
   kept in `signature`. Replaying a reasoning item is not supported: a canonical
   `Content.Thinking` carries no item id, so sending it as input is a validation
@@ -35,6 +38,10 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
   @namespaces [:openai]
 
   use LlmCall.Protocol.Adapter, codec: :openai_responses
+
+  @doc "The path used by both the HTTP and WebSocket transports."
+  @spec path() :: String.t()
+  def path, do: @path
 
   @impl true
   @spec info() :: LlmCall.Codec.Info.t()

@@ -1642,6 +1642,7 @@ lib/llm_call/http.ex
 lib/llm_call/http/error.ex
 lib/llm_call/ws.ex
 lib/llm_call/ws/mint.ex
+lib/llm_call/ws/error.ex
 lib/llm_call/sse.ex
 lib/llm_call/stream.ex
 lib/llm_call/media/codec.ex
@@ -1656,6 +1657,8 @@ lib/llm_call/protocol/adapter.ex
 lib/llm_call/protocol/helpers.ex
 lib/llm_call/protocol/openai/chat.ex
 lib/llm_call/protocol/openai/responses.ex
+lib/llm_call/protocol/openai/responses/session.ex
+lib/llm_call/protocol/openai/responses/stream.ex
 lib/llm_call/protocol/anthropic/messages.ex
 lib/llm_call/protocol/gemini/generate_content.ex
 lib/llm_call/media.ex
@@ -2297,10 +2300,11 @@ project actually uses; Sora and Veo are not implemented.
 ## 24. WebSocket transport
 
 WebSocket is a **transport**, not a completion protocol. `LlmCall.WS` is a
-behaviour with four synchronous operations:
+behaviour with five operations:
 
 ```elixir
 @callback connect(url, headers, opts) :: {:ok, conn} | {:error, term}
+@callback feed(conn, socket_message) :: {:ok, [frame], conn} | {:error, term}
 @callback send_frame(conn, {:text | :binary, binary}) :: {:ok, conn} | {:error, term}
 @callback recv(conn, timeout) ::
             {:ok, {:text | :binary, binary} | {:close, code, reason}, conn} | {:error, term}
@@ -2308,12 +2312,36 @@ behaviour with four synchronous operations:
 ```
 
 `LlmCall.WS.Mint` implements it with `Mint.WebSocket`: it performs the upgrade,
-owns the socket in the calling process, answers pings inside `recv/2`, and
-returns a peer close as `{:close, code, reason}`. Connections are HTTP/1.1;
+owns the socket in the calling process, answers pings inside `recv/2` and
+`feed/2`, and returns a peer close as `{:close, code, reason}`. `recv/2` is the
+blocking form; `feed/2` lets a process that already owns the socket (a session)
+decode the messages Mint delivers in active mode. Connections are HTTP/1.1;
 Mint's HTTP/2 extended CONNECT is not used.
 
-Scope in 0.1 is the transport only. There is no realtime session API, no audio
-format handling, no VAD, and no `stream_id` multiplexing: a realtime layer would
-be a separate subsystem built on these four calls. The OpenAI and Azure
-Responses WebSocket transport also sits above this behaviour, not inside the
-codec.
+### 24.1 Responses session
+
+`LlmCall.Protocol.OpenAI.Responses.Session` is a `GenServer` that owns one
+connection and multiplexes `response.create` calls:
+
+```elixir
+{:ok, session} = Session.start_link(client: client)
+{:ok, stream} = Session.create(session, request, stream_id: "main")
+Enum.to_list(stream)
+```
+
+- Each create names a `stream_id` lane (generated when omitted). Events are
+  decoded per lane by the Responses codec and delivered as `StreamEvent`s to the
+  `%Stream{}` returned by `create/3`.
+- `steer/3` sends `response.steer`; `cancel/2` sends `response.cancel` and ends
+  the lane.
+- `store` and `previous_response_id` stay in the request's `provider_options`;
+  the session does not model server-side conversation state.
+- The session reconnects before the 60-minute limit (`:max_age_ms`, default 55
+  minutes) and on an unexpected close. An in-flight response cannot be resumed:
+  its subscriber receives a `:transport` error, and new creates work on the new
+  connection. Continuing a conversation is the caller's decision.
+- The URL is built from the client's `base_url` plus the Responses path, with
+  `http`/`https` mapped to `ws`/`wss`; Azure's `/openai` base path is preserved.
+
+Scope is the Responses protocol. There is no realtime audio session, audio
+format handling, VAD, or WebRTC in 0.1.
