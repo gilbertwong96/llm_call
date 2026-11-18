@@ -30,11 +30,11 @@ defmodule LlmCall.Provider do
   `MyProvider.client(api_key: key, base_url: System.fetch_env!("OPENAI_URL"))` —
   or set `config :llm_call, ...`.
 
-  ## Seams
+  ## Resolution
 
-  `http`, `http_opts`, `json` and `timeout` may be declared here, and each
-  resolves call option → provider → `config :llm_call, ...` → built-in default. The
-  JSON module is written into the client's `%LlmCall.Config{}`, so the codecs use
+  `http_opts`, `json` and `timeout` may be declared here, and each resolves call
+  option → provider → `config :llm_call, ...` → built-in default. The JSON module
+  is written into the client's `%LlmCall.Config{}`, so the codecs use
   the same implementation as the transport. A `config:` call option supplies the
   base config; a `json:` call option still wins over it, and the declaration's
   `json:` applies only when the caller passes neither.
@@ -48,7 +48,7 @@ defmodule LlmCall.Provider do
   @doc """
   Builds a `%LlmCall.Client{}` from a provider module's declaration and options.
 
-  Options: `api_key:`, `base_url:`, `headers:`, `http:`, `http_opts:`, `timeout:`,
+  Options: `api_key:`, `base_url:`, `headers:`, `http_opts:`, `timeout:`,
   `json:`, `config:`.
   """
   @spec build(module(), keyword()) :: Client.t()
@@ -65,7 +65,6 @@ defmodule LlmCall.Provider do
       codecs: Map.new(declaration.codecs),
       base_url: opts[:base_url] || declaration.base_url,
       headers: headers(declaration, opts),
-      http: resolve(:http, opts, declaration, HTTP.Finch),
       http_opts: resolve(:http_opts, opts, declaration, []),
       timeout: resolve(:timeout, opts, declaration, @default_timeout),
       config: config
@@ -183,14 +182,13 @@ defmodule LlmCall.Provider do
       codecs: codecs,
       auth: expand(Keyword.get(opts, :auth, :none), __CALLER__),
       headers: headers,
-      http: expand(Keyword.get(opts, :http), __CALLER__),
       http_opts: http_opts,
       timeout: timeout,
       json: expand(Keyword.get(opts, :json), __CALLER__)
     }
 
     quote do
-      @doc "The provider declaration: base URL, auth shape, codecs and seam defaults."
+      @doc "The provider declaration: base URL, auth shape, codecs and defaults."
       @spec __provider__() :: map()
       def __provider__, do: unquote(Macro.escape(declaration))
 

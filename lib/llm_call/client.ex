@@ -20,7 +20,6 @@ defmodule LlmCall.Client do
           codecs: %{atom() => module()},
           base_url: String.t(),
           headers: [{String.t(), String.t()}],
-          http: module(),
           http_opts: keyword(),
           timeout: timeout(),
           config: Config.t()

@@ -62,7 +62,7 @@ defmodule LlmCall.Stream do
       halted?: false
     }
 
-    case stream.client.http.stream(
+    case HTTP.stream(
            stream.http_request,
            state,
            &handle_event/2,
@@ -70,7 +70,6 @@ defmodule LlmCall.Stream do
          ) do
       {:ok, state} -> finish(state)
       {:error, reason} -> raise HTTP.Error, error: transport_error(reason)
-      {:error, reason, _state} -> raise HTTP.Error, error: transport_error(reason)
     end
   end
 

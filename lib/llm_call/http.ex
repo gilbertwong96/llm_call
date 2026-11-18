@@ -1,11 +1,10 @@
 defmodule LlmCall.HTTP do
   @moduledoc """
-  The HTTP seam.
+  HTTP transport, backed by Finch.
 
-  A transport adapter performs one request, or streams one. The library ships
-  `LlmCall.HTTP.Finch` as the default and reads the configured module from the
-  call option, the provider declaration, `config :llm_call, http: Mod`, or that
-  default — resolved at client-build time.
+  There is one transport. The pool is named `LlmCall.Finch` and started by the
+  application; pass `http_opts: [name: MyPool]` to a provider or client to use a
+  pool from your own supervision tree.
 
   ## Streaming events
 
@@ -89,21 +88,63 @@ defmodule LlmCall.HTTP do
     |> Enum.reverse()
   end
 
+  @default_pool LlmCall.Finch
+
   @doc "Performs one request and returns the whole response."
-  @callback request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}
+  @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}
+  def request(%Request{} = request, opts \\ []) do
+    pool = Keyword.get(opts, :name, @default_pool)
+
+    case Finch.request(build(request), pool, forward(opts, request)) do
+      {:ok, %Finch.Response{status: status, headers: headers, body: body}} ->
+        {:ok, %{status: status, headers: headers, body: body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   @doc """
   Performs one request, delivering `event()`s to `fun`.
 
   `acc` is threaded through the callback; `{:halt, acc}` stops the request. The
-  last argument carries adapter options (a pool name, a pool timeout); the client
-  forwards `http_opts` here.
+  last argument carries transport options (a pool name, a pool timeout); the
+  client forwards `http_opts` here.
   """
-  @callback stream(
-              Request.t(),
-              acc,
-              (event(), acc -> {:cont, acc} | {:halt, acc}),
-              keyword()
-            ) :: {:ok, acc} | {:error, term()}
-            when acc: term()
+  @spec stream(
+          Request.t(),
+          acc,
+          (event(), acc -> {:cont, acc} | {:halt, acc}),
+          keyword()
+        ) :: {:ok, acc} | {:error, term()}
+        when acc: term()
+  def stream(%Request{} = request, acc, fun, opts) when is_function(fun, 2) do
+    pool = Keyword.get(opts, :name, @default_pool)
+
+    reducer = fn
+      {:status, status}, acc -> fun.({:status, status}, acc)
+      {:headers, headers}, acc -> fun.({:headers, headers}, acc)
+      {:data, data}, acc -> fun.({:data, data}, acc)
+      {:trailers, _trailers}, acc -> {:cont, acc}
+    end
+
+    case Finch.stream_while(build(request), pool, acc, reducer, forward(opts, request)) do
+      {:ok, acc} -> {:ok, acc}
+      {:error, reason, _acc} -> {:error, reason}
+    end
+  end
+
+  defp build(%Request{} = request) do
+    headers = Enum.map(request.headers, fn {name, value} -> {to_string(name), value} end)
+
+    Finch.build(request.method, request.url, headers, request.body)
+  end
+
+  defp forward(opts, %Request{receive_timeout: nil}), do: Keyword.take(opts, [:pool_timeout])
+
+  defp forward(opts, %Request{receive_timeout: timeout}) do
+    opts
+    |> Keyword.take([:pool_timeout])
+    |> Keyword.put(:receive_timeout, timeout)
+  end
 end

@@ -1,7 +1,7 @@
 # LlmCall
 
 A call-oriented SDK for LLM APIs: a canonical IR, protocol codecs, and a one-call
-client whose HTTP and JSON layers you can replace.
+client on Finch whose JSON layer you can replace.
 
 ```elixir
 defmodule MyApp.OpenAI do
@@ -91,8 +91,8 @@ To observe events without owning the reduce, pass `on_event:`:
 ```
 
 It runs before the reducer, including for `finish_stream/2` output; the return
-value is ignored, and it is not called after the reducer halts. To see raw bytes,
-replace `LlmCall.HTTP` instead.
+value is ignored, and it is not called after the reducer halts. `LlmCall.HTTP` is
+the only HTTP transport, so raw bytes are not exposed as a hook.
 
 Tool-call fragments are assembled into complete calls by a pure helper, which never
 runs them:
@@ -153,22 +153,20 @@ waits, or downloads on its own.
 :unsupported` means no `n`, `max_references` is the reference count. A knob the
 codec cannot express is a validation error, never a silent drop.
 
-## Replaceable layers
+## Replaceable JSON layer
 
-HTTP and JSON are behaviours with defaults, resolved at client-build time in this
-order: the call option, the provider declaration, `config :llm_call, ...`, the
-built-in default.
+HTTP is Finch, one implementation. JSON is a behaviour resolved at client-build
+time in this order: the call option, the provider declaration,
+`config :llm_call, ...`, the built-in default.
 
 | Layer | Behaviour | Default |
 | --- | --- | --- |
-| HTTP | `LlmCall.HTTP` | `LlmCall.HTTP.Finch` |
 | JSON | `LlmCall.JSON` | OTP `:json` |
 
 ```elixir
 # config/config.exs of the host application
 config :llm_call,
   json: Jason,
-  http: MyApp.HTTP,
   http_opts: [name: MyApp.Finch],
   timeout: 30_000
 ```
