@@ -57,6 +57,29 @@ defmodule LlmCall.WritePathAuditTest do
         reasoning_base: %Reasoning{effort: :high}
       },
       %{
+        name: :openai_responses,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        namespace: :openai,
+        request: %Request{
+          model: "gpt-4.1",
+          system: "sys",
+          messages: message(),
+          tools: tools(true),
+          tool_choice: {:tool, "f"},
+          output: {:json_schema, "s", %{"type" => "object"}, true},
+          reasoning: %Reasoning{effort: :high, summary: :auto},
+          params: %{temperature: 0.2, top_p: 0.9, max_tokens: 64},
+          stream: true
+        },
+        envelope: ~w(model input instructions tools tool_choice text reasoning stream),
+        parameters: ~w(max_output_tokens temperature top_p),
+        tool_keys: ~w(name description parameters strict),
+        tool_native: "x-native",
+        reasoning_keys: ~w(effort summary),
+        reasoning_base: %Reasoning{effort: :high},
+        reasoning_native: %{"x-native" => true}
+      },
+      %{
         name: :anthropic_messages,
         codec: LlmCall.Protocol.Anthropic.Messages,
         namespace: :anthropic,

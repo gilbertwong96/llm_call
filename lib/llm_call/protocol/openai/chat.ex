@@ -163,11 +163,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     end
   end
 
-  defp encode_call_arguments(%ToolCall{raw_arguments: raw}, _json) when is_binary(raw),
-    do: {:ok, raw}
-
-  defp encode_call_arguments(%ToolCall{arguments: arguments}, json),
-    do: Helpers.encode_arguments(arguments || %{}, @codec, json)
+  defp encode_call_arguments(call, json), do: Helpers.encode_call_arguments(call, @codec, json)
 
   defp encode_tool_result(%ToolResult{} = result) do
     %{
@@ -253,19 +249,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
 
-  defp validate_output(:text), do: :ok
-  defp validate_output(:json_object), do: :ok
-
-  defp validate_output({:json_schema, name, schema, strict})
-       when is_binary(name) and name != "" and is_map(schema) and
-              (is_boolean(strict) or is_nil(strict)),
-       do: :ok
-
-  defp validate_output({:json_schema, _name, schema, _strict}) when not is_map(schema),
-    do: Helpers.error(@codec, "json_schema output requires a map schema")
-
-  defp validate_output(output),
-    do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
+  defp validate_output(output), do: Helpers.validate_output(output, @codec)
 
   defp validate_reasoning(nil), do: :ok
 
@@ -297,13 +281,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   defp validate_reasoning(_reasoning),
     do: Helpers.error(@codec, "reasoning must be a LlmCall.Reasoning struct")
 
-  defp validate_effort(nil), do: :ok
-
-  defp validate_effort(effort) when effort in @efforts, do: :ok
-
-  defp validate_effort(effort) do
-    Helpers.error(@codec, "reasoning effort #{inspect(effort)} is not supported")
-  end
+  defp validate_effort(effort), do: Helpers.validate_effort(effort, @efforts, @codec)
 
   defp validate_tool_spec(spec) do
     with :ok <- Helpers.validate_tool_spec(spec, @codec, strict: true, options: true) do
@@ -311,32 +289,8 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     end
   end
 
-  defp validate_tool_choice(:auto, _tools), do: :ok
-  defp validate_tool_choice(:none, _tools), do: :ok
-
-  defp validate_tool_choice(choice, tools) when choice in [:required] or is_tuple(choice) do
-    if tools == [] do
-      Helpers.error(@codec, "tool_choice requires at least one tool")
-    else
-      validate_tool_choice_value(choice)
-    end
-  end
-
-  defp validate_tool_choice(choice, _tools) do
-    Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
-  end
-
-  defp validate_tool_choice_value(:required), do: :ok
-  defp validate_tool_choice_value({:tool, name}) when is_binary(name) and name != "", do: :ok
-
-  defp validate_tool_choice_value({:tool, _name}),
-    do: Helpers.error(@codec, "tool_choice tool name is required")
-
-  defp validate_tool_choice_value({:allowed, _names}),
-    do: Helpers.error(@codec, "tool_choice {:allowed, names} is not supported")
-
-  defp validate_tool_choice_value(choice),
-    do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
+  defp validate_tool_choice(choice, tools),
+    do: Helpers.validate_tool_choice(choice, tools, @codec)
 
   defp validate_parts(messages, json) do
     Helpers.first_error(messages, fn %Message{role: role, content: content} ->
@@ -608,14 +562,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     }
   end
 
-  defp decode_arguments(nil, _json), do: {nil, nil}
-
-  defp decode_arguments(raw, json) when is_binary(raw) do
-    case json.decode(raw) do
-      {:ok, decoded} when is_map(decoded) -> {decoded, nil}
-      _not_a_map -> {nil, {:invalid_json, raw}}
-    end
-  end
+  defp decode_arguments(raw, json), do: Helpers.decode_arguments(raw, json)
 
   defp extra_choices(term) do
     term

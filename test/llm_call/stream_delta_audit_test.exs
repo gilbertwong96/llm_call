@@ -134,6 +134,110 @@ defmodule LlmCall.StreamDeltaAuditTest do
         ignored: [{0, ["candidates", "content", "role"]}, {0, ["candidates", "index"]}]
       },
       %{
+        name: :openai_responses_text,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        model: "gpt-4.1",
+        chunks: [
+          %{"type" => "response.created"},
+          %{
+            "type" => "response.output_item.added",
+            "output_index" => 0,
+            "item" => %{"type" => "message"}
+          },
+          %{
+            "type" => "response.content_part.added",
+            "output_index" => 0,
+            "part" => %{"type" => "output_text"}
+          },
+          %{"type" => "response.output_text.delta", "output_index" => 0, "delta" => "Hello"},
+          %{"type" => "response.content_part.done", "output_index" => 0},
+          %{
+            "type" => "response.completed",
+            "response" => %{
+              "status" => "completed",
+              "usage" => %{"input_tokens" => 1, "output_tokens" => 2, "total_tokens" => 3}
+            }
+          }
+        ],
+        ignored: [
+          # a message item emitted no event, so its own fields are not read
+          {1, ["output_index"]},
+          {1, ["item"]},
+          {1, ["item", "type"]},
+          # the part's type is not consulted; the event itself starts the block
+          {2, ["part"]},
+          {2, ["part", "type"]}
+        ]
+      },
+      %{
+        name: :openai_responses_tool_calls,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        model: "gpt-4.1",
+        chunks: [
+          %{"type" => "response.created"},
+          %{
+            "type" => "response.output_item.added",
+            "output_index" => 0,
+            "item" => %{"type" => "function_call", "call_id" => "call_1", "name" => "f"}
+          },
+          %{
+            "type" => "response.function_call_arguments.delta",
+            "output_index" => 0,
+            "delta" => "{"
+          },
+          %{
+            "type" => "response.function_call_arguments.done",
+            "output_index" => 0,
+            "call_id" => "call_1",
+            "name" => "f",
+            "arguments" => "{}"
+          },
+          %{
+            "type" => "response.output_item.done",
+            "output_index" => 0,
+            "item" => %{"type" => "function_call"}
+          },
+          %{
+            "type" => "response.completed",
+            "response" => %{"status" => "completed"}
+          }
+        ],
+        ignored: [
+          # the tool was already stopped by arguments.done
+          {4, ["output_index"]},
+          {4, ["item"]},
+          {4, ["item", "type"]},
+          # a function call already decided :tool_calls
+          {5, ["response"]},
+          {5, ["response", "status"]}
+        ]
+      },
+      %{
+        name: :openai_responses_reasoning,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        model: "gpt-4.1",
+        chunks: [
+          %{"type" => "response.created"},
+          %{
+            "type" => "response.output_item.added",
+            "output_index" => 0,
+            "item" => %{"type" => "reasoning"}
+          },
+          %{
+            "type" => "response.reasoning_summary_text.delta",
+            "output_index" => 0,
+            "delta" => "why"
+          },
+          %{"type" => "response.completed", "response" => %{"status" => "completed"}}
+        ],
+        ignored: [
+          # a reasoning item emits no event on its own
+          {1, ["output_index"]},
+          {1, ["item"]},
+          {1, ["item", "type"]}
+        ]
+      },
+      %{
         name: :gemini_thought,
         codec: LlmCall.Protocol.Gemini.GenerateContent,
         model: "gemini-2.5-pro",
