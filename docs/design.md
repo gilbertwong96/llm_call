@@ -73,8 +73,7 @@ Providers do not agree on:
 
 `LlmCall` is not:
 
-- an HTTP client
-- an SSE/WebSocket parser
+- a provider gateway: it does not route by model name or keep a model catalog
 - a model registry or pricing database
 - a tokenizer or context-window planner
 - a retry/rate-limit/circuit-breaker layer
@@ -86,6 +85,10 @@ Providers do not agree on:
 - a provider catalog, or a promise to support every provider. Beyond the
   reference and vendored adapters in this repository, an adapter is an
   application's own module or a third-party package (see §14)
+
+Its HTTP execution, SSE parsing and JSON encoding are in the core **behind
+behaviours**: Finch and OTP `:json` are the defaults, and an application can
+replace either one.
 
 ### 2.3 Relationship to `tool_call`
 
@@ -116,18 +119,20 @@ per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
 |------------------|--------------------------------------------------------------------------|
 | LangChain Elixir | Chains, conversation flow, tool execution, callbacks                     |
 | ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools |
-| `LlmCall`     | Protocol codec and canonical wire IR                                     |
+| `LlmCall`     | Protocol codecs, canonical wire IR, one-call client                     |
 
-`LlmCall` can be used underneath those systems. It should not grow into another
-full client: HTTP, auth, model metadata, and tool execution belong elsewhere.
+`LlmCall` can be used underneath those systems. Its client is deliberately narrow
+— one call, no model metadata, no tool execution, no retry policy — and the
+transport is replaceable.
 
 ## 3. Goals
 
 - Provide a small, explicit canonical wire IR.
 - Support multiple native protocol families with independent codecs.
 - Preserve provider-specific data through raw/escape-hatch fields.
-- Keep the core dependency-free (Elixir standard library only).
-- Keep transport, auth, model registry, and tool execution out of the core.
+- Ship a one-call client whose transport and JSON layers are replaceable.
+- Keep auth keys caller-supplied, and keep model registries, tool execution,
+  approval/audit policies and retries out of the core.
 - Let applications plug in any tool-call framework.
 - Make protocol adapters testable with fixtures, without network access.
 - Make capability differences explicit instead of silently dropping fields.
@@ -137,19 +142,17 @@ full client: HTTP, auth, model metadata, and tool execution belong elsewhere.
 
 The core must not contain:
 
-- HTTP request execution
-- SSE or WebSocket parsing
-- API key storage or OAuth/AWS signing
+- API key storage, key lookup, OAuth or AWS signing
 - model registry or capability database
 - retry/backoff/rate-limit policy
 - tool execution or callbacks
 - approval, audit, or timeout policies
 - conversation persistence or server-side state management
 - prompt templates, chains, memory, or agent loops
-- a JSON encoder dependency
 
-The core may define the **data** needed by those layers, but not implement the
-behavior.
+HTTP execution and SSE parsing are in the core behind `LlmCall.HTTP`, and JSON
+encoding behind `LlmCall.JSON`; both have defaults and both can be replaced. The
+core may define the **data** needed by the layers above, but not implement them.
 
 ## 5. Design principles
 
@@ -161,12 +164,12 @@ behavior.
    protocol, fail with a protocol/capability error or require an explicit
    provider option.
 4. **Terms, not JSON strings.** Codecs return JSON-compatible Elixir terms.
-   The transport owns JSON encoding.
+   The client encodes them with `Config.json`.
 5. **No hidden state.** Streaming and continuation state are explicit.
 6. **Tool execution is outside.** Tool calls are data; running them is the
    application's job.
-7. **Small core, optional adapters.** HTTP and tool integrations live in
-   separate packages.
+7. **Small core, replaceable edges.** HTTP and JSON sit behind behaviours with
+   defaults; a tool framework is used directly, not wrapped.
 8. **No `term()` in canonical public fields.** Canonical fields use explicit
    unions/structs. `term()` is reserved for genuinely opaque adapter state (for
    example, a protocol stream state) and transport-decoded input at the
@@ -174,40 +177,41 @@ behavior.
 
 ## 6. Approaches considered
 
-### A. Full LLM client
+### A. Transport-free codec library
 
-Include HTTP, auth, model registry, streaming transport, tool callbacks, and
-high-level `generate_text`.
+Canonical IR and codecs only; the application owns HTTP, SSE and JSON.
 
-Advantages:
+- smallest dependency surface; usable from any stack
+- every caller re-implements SSE framing, `[DONE]` handling and error mapping
 
-- easy first call
-- broad functionality in one package
+This was the first shape of the library. Superseded because duplicating that
+layer in every application cost more than shipping it.
 
-Rejected because it duplicates ReqLLM and expands the maintenance surface
-without a clear differentiation.
+### B. SDK with replaceable seams (chosen)
 
-### B. Pure codec plus optional transport
+Canonical IR and codecs plus a one-call client; HTTP and JSON live behind
+behaviours, with Finch and OTP `:json` as defaults; providers are user modules.
 
-Core contains canonical IR and protocol codecs. A transport package can use
-Req/Finch, or applications can use their own client.
+- one call works after `mix deps.get`
+- either seam can be replaced per application, provider or client
+- costs one runtime dependency (Finch)
 
-Advantages:
+### C. Provider gateway
 
-- small dependency surface
-- usable from any HTTP stack
-- easy fixture testing
-- independent of tool frameworks
-- allows provider/protocol separation
+Built-in provider catalog, routing by model name.
 
-Chosen approach.
+- the most convenient first call
+- the library inherits every base URL, auth shape and model rename, and it
+  contradicts "no model catalog"
 
-### C. Framework-specific adapters only
+Rejected.
 
-Implement only adapters for one agent framework.
+### D. Framework-specific adapters only
 
-Rejected because it duplicates protocol work across frameworks and does not
-create a reusable foundation.
+Implement adapters for one agent framework.
+
+Rejected: duplicates protocol work across frameworks and creates no reusable
+foundation.
 
 ## 7. Architecture
 
@@ -1699,7 +1703,7 @@ config = %LlmCall.Config{capture_raw: :none}
 {:ok, encoded} =
   LlmCall.encode(LlmCall.Protocol.Anthropic.Messages, request, config)
 
-# transport performs HTTP + JSON
+# client performs HTTP + JSON (or your own transport does)
 
 {:ok, response} =
   LlmCall.decode_response(
@@ -2121,8 +2125,8 @@ keys inside it are reserved).
 
 One rule governs every operation:
 
-- `next` is always the encoded request the transport executes next, built by the
-  codec. There is no "encode a poll request from an id" callback.
+- `next` is always the encoded request the client (or your transport) executes
+  next, built by the codec. There is no "encode a poll request from an id" callback.
 - `decode_operation/3` receives only the payload and the config. A codec is
   stateless, so every continuation value — a file id, a cursor, a page token —
   must travel inside `next` (path, query, or headers). A protocol whose cursor
@@ -2145,17 +2149,26 @@ One rule governs every operation:
 payload does not repeat the job id (MiniMax's file-retrieve step) cannot supply
 it.
 
-The core never polls, sleeps, retries, or downloads. A caller loop is:
+The library never polls, sleeps, retries, or downloads beyond the request the
+caller asks for. The client loop is:
 
 ```elixir
 {:ok, %LlmCall.Media.Response{operation: %Operation{status: :in_progress} = op}} =
-  LlmCall.decode_media(codec, submit_term, config)
+  LlmCall.generate(client, media_request, codec: :video)
 
-execute(op.next)
 {:ok, %Operation{status: :completed, next: next, next_kind: :asset}} =
-  LlmCall.decode_operation(codec, poll_term, config)
+  LlmCall.poll(client, op, codec: :video)
 
-execute(next)  # body is the media bytes
+{:ok, %{body: bytes}} = LlmCall.fetch(client, next)
+```
+
+`poll/3` executes `op.next` and decodes the body with `decode_operation/2`; an
+`:asset` operation is rejected with a pointer at `fetch/2`. A caller that owns a
+transport can call the codec functions directly, as before:
+
+```elixir
+{:ok, encoded} = LlmCall.encode_media(codec, media_request, config)
+{:ok, %Operation{} = op} = LlmCall.decode_operation(codec, poll_term, config)
 ```
 
 `Operation.raw` follows `capture_raw` (`:response` and `:all`).
@@ -2182,11 +2195,11 @@ end
 ```
 
 ```elixir
-LlmCall.encode_media(codec, media_request, config \\ %LlmCall.Config{})
-LlmCall.decode_media(codec, term, config \\ %LlmCall.Config{})
-LlmCall.decode_operation(codec, term, config \\ %LlmCall.Config{})
-LlmCall.validate_media(codec, media_request, config \\ %LlmCall.Config{})
-LlmCall.media_capabilities(codec, media_request, config \\ %LlmCall.Config{})
+LlmCall.encode_media(codec, media_request, config \\ LlmCall.Config.new())
+LlmCall.decode_media(codec, term, config \\ LlmCall.Config.new())
+LlmCall.decode_operation(codec, term, config \\ LlmCall.Config.new())
+LlmCall.validate_media(codec, media_request, config \\ LlmCall.Config.new())
+LlmCall.media_capabilities(codec, media_request, config \\ LlmCall.Config.new())
 ```
 
 `encode_media/3` delegates to the codec, which validates first. `decode_operation/3`

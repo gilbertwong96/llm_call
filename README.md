@@ -256,7 +256,7 @@ callers that already own a transport:
 
 ```elixir
 {:ok, encoded} = LlmCall.encode(LlmCall.Protocol.Anthropic.Messages, request)
-# transport: POST base_url <> encoded.path with encoded.body
+# transport: encoded.method to base_url <> encoded.path, JSON-encode encoded.body
 {:ok, response} = LlmCall.decode_response(LlmCall.Protocol.Anthropic.Messages, payload)
 ```
 

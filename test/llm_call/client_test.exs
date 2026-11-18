@@ -207,6 +207,65 @@ defmodule LlmCall.ClientTest do
     end
   end
 
+  test "headers: nil is treated as no headers" do
+    defmodule NoHeadersProvider do
+      @moduledoc false
+      use LlmCall.Provider,
+        base_url: "https://x.test",
+        auth: :none,
+        headers: nil,
+        codecs: [chat: LlmCall.TestCodec.Fake]
+    end
+
+    assert NoHeadersProvider.client(api_key: "k").headers == []
+  end
+
+  test "a function auth shape returns headers" do
+    defmodule FunctionAuth do
+      @moduledoc false
+      def headers(key), do: [{"x-key", key}]
+    end
+
+    defmodule FunctionAuthProvider do
+      @moduledoc false
+      use LlmCall.Provider,
+        base_url: "https://x.test",
+        auth: {FunctionAuth, :headers},
+        codecs: [chat: LlmCall.TestCodec.Fake]
+    end
+
+    assert FunctionAuthProvider.client(api_key: "k").headers == [{"x-key", "k"}]
+  end
+
+  test "a non-string base_url is a compile error" do
+    assert_raise ArgumentError, ~r/:base_url must be a string/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.BadBaseProvider do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: 123,
+          auth: :none,
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
+  test "a non-list headers value is a compile error" do
+    assert_raise ArgumentError, ~r/:headers must be a list/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.BadHeadersProvider do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          headers: "authorization: x",
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
   test "duplicate codec names are a compile error" do
     assert_raise ArgumentError, ~r/same codec name twice/, fn ->
       Code.compile_string("""

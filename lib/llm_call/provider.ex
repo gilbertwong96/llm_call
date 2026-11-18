@@ -96,7 +96,7 @@ defmodule LlmCall.Provider do
   defp auth_headers({:header, name}, key), do: [{name, require_key(key)}]
 
   defp auth_headers({module, function}, key) when is_atom(module) and is_atom(function) do
-    module.function(require_key(key))
+    apply(module, function, [require_key(key)])
   end
 
   defp require_key(nil) do
@@ -148,9 +148,23 @@ defmodule LlmCall.Provider do
     end
 
     base_url = required_literal!(opts, :base_url, __CALLER__)
-    headers = literal!(opts, :headers, __CALLER__, [])
-    http_opts = literal!(opts, :http_opts, __CALLER__, nil)
+    headers = literal!(opts, :headers, __CALLER__, []) || []
+    http_opts = literal!(opts, :http_opts, __CALLER__, []) || []
     timeout = literal!(opts, :timeout, __CALLER__, nil)
+
+    unless is_binary(base_url) do
+      raise ArgumentError, "provider option :base_url must be a string, got: #{inspect(base_url)}"
+    end
+
+    unless is_list(headers), do: raise(ArgumentError, "provider option :headers must be a list")
+
+    unless is_list(http_opts),
+      do: raise(ArgumentError, "provider option :http_opts must be a list")
+
+    unless is_nil(timeout) or is_integer(timeout) or timeout == :infinity do
+      raise ArgumentError,
+            "provider option :timeout must be a positive integer or :infinity, got: #{inspect(timeout)}"
+    end
 
     declaration = %{
       base_url: base_url,
