@@ -32,7 +32,7 @@ defmodule LlmCall.MediaApiTest do
       assert {:error, %Error{kind: :validation, message: message}} =
                apply(LlmCall, fun, [LlmCall.TestCodec.Fake, request()])
 
-      assert message =~ "does not support"
+      assert message =~ "does not export"
     end
   end
 
@@ -57,7 +57,7 @@ defmodule LlmCall.MediaApiTest do
     assert {:error, %Error{kind: :validation, message: message}} =
              LlmCall.decode_operation(FakeMedia, %{"status" => "completed"})
 
-    assert message =~ "does not support"
+    assert message =~ "does not export"
     assert message =~ "decode_operation/2"
   end
 

@@ -67,7 +67,7 @@ defmodule LlmCall.ApiTest do
       assert {:error, %Error{kind: :validation, message: message}} =
                apply(LlmCall, fun, [LlmCall.TestCodec.FakeMedia, request()])
 
-      assert message =~ "does not support"
+      assert message =~ "does not export"
     end
   end
 
@@ -110,11 +110,18 @@ defmodule LlmCall.ApiTest do
              LlmCall.decode_stream_event(Fake, %{"delta" => "a"}, %Config{}, text_state)
   end
 
+  test "an unknown codec module is a typed error" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.encode(LlmCall.TestCodec.DoesNotExist, request())
+
+    assert message =~ "does not export"
+  end
+
   test "a codec without streaming callbacks returns a typed error" do
     assert {:error, %Error{kind: :validation, message: message}} =
              LlmCall.init_stream(TextOnly, request())
 
-    assert message =~ "does not support"
+    assert message =~ "does not export"
     assert message =~ "init_stream/2"
 
     {:ok, state} = LlmCall.init_stream(Fake, request())

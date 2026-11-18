@@ -55,13 +55,15 @@ defmodule LlmCall.Stream do
          ) do
       {:ok, state} -> finish(state)
       {:error, reason} -> raise HTTP.Error, error: transport_error(reason)
+      {:error, reason, _state} -> raise HTTP.Error, error: transport_error(reason)
     end
   end
 
   defp handle_event({:status, status}, state), do: {:cont, %{state | status: status}}
   defp handle_event({:headers, _headers}, state), do: {:cont, state}
 
-  defp handle_event({:data, chunk}, %{status: status} = state) when status not in 200..299 do
+  defp handle_event({:data, chunk}, %{status: status} = state)
+       when is_integer(status) and status not in 200..299 do
     {:cont, %{state | error_body: state.error_body <> chunk}}
   end
 
@@ -152,7 +154,7 @@ defmodule LlmCall.Stream do
 
   defp finish(%{halted?: true} = state), do: {:halted, untag(state.downstream)}
 
-  defp finish(%{status: status} = state) when status not in 200..299 do
+  defp finish(%{status: status} = state) when is_integer(status) and status not in 200..299 do
     error =
       case state.client.config.json.decode(state.error_body) do
         {:ok, payload} when is_map(payload) ->
@@ -162,7 +164,7 @@ defmodule LlmCall.Stream do
           transport_error("HTTP #{status}: body is not JSON")
       end
 
-    raise HTTP.Error, error: %{error | status: status || error.status}
+    raise HTTP.Error, error: %{error | status: status}
   end
 
   defp finish(%{done?: true} = state), do: {:done, untag(state.downstream)}

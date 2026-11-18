@@ -45,6 +45,17 @@ defmodule LlmCall.SSETest do
     assert {[], %SSE{buffer: ""}} = SSE.flush(state)
   end
 
+  test "a CRLF split across chunks is normalised" do
+    {first, state} = SSE.parse(SSE.new(), "data: [DONE]\r")
+    assert first == []
+
+    assert {["[DONE]"], _state} = SSE.parse(state, "\n\r\n")
+  end
+
+  test "an empty data line is not a payload" do
+    assert {[], _state} = SSE.parse(SSE.new(), "data:\n\n")
+  end
+
   test "normalises CRLF" do
     assert {["a"], _state} = SSE.parse(SSE.new(), "data: a\r\n\r\n")
   end

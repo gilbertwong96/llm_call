@@ -458,7 +458,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
        %Response{
          id: term["id"],
          model: term["model"],
-         content: message_content(message) ++ extra_choices(term),
+         content: message_content(message, config) ++ extra_choices(term),
          stop_reason: stop_reason(choice["finish_reason"]),
          usage: decode_usage(term["usage"]),
          raw: Helpers.capture_response(config, term)
@@ -527,7 +527,9 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     {:ok, events, StreamState.new(__MODULE__, data)}
   end
 
-  def decode_stream_event(_term, _config, %StreamState{} = state), do: {:done, state}
+  def decode_stream_event(term, _config, _state) do
+    {:error, invalid_response("stream chunk is not an object: #{inspect(term)}")}
+  end
 
   @impl true
   def finish_stream(%StreamState{} = state, %Config{} = config) do
@@ -554,10 +556,10 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     %Error{kind: :invalid_response, message: "openai_chat: " <> message}
   end
 
-  defp message_content(message) do
+  defp message_content(message, config) do
     thinking_content(message) ++
       text_content(message) ++
-      Enum.map(message["tool_calls"] || [], &decode_tool_call/1) ++
+      Enum.map(message["tool_calls"] || [], &decode_tool_call(&1, config)) ++
       refusal_content(message) ++
       unknown_content(message)
   end
@@ -592,10 +594,10 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
         do: %Content.Raw{type: key, data: %{key => value}}
   end
 
-  defp decode_tool_call(entry) do
+  defp decode_tool_call(entry, config) do
     function = entry["function"] || %{}
     raw = function["arguments"]
-    {arguments, arguments_error} = decode_arguments(raw)
+    {arguments, arguments_error} = decode_arguments(raw, config.json)
 
     %ToolCall{
       id: entry["id"],
@@ -606,15 +608,13 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     }
   end
 
-  defp decode_arguments(nil), do: {nil, nil}
+  defp decode_arguments(nil, _json), do: {nil, nil}
 
-  defp decode_arguments(raw) when is_binary(raw) do
-    case :json.decode(raw) do
-      decoded when is_map(decoded) -> {decoded, nil}
+  defp decode_arguments(raw, json) when is_binary(raw) do
+    case json.decode(raw) do
+      {:ok, decoded} when is_map(decoded) -> {decoded, nil}
       _not_a_map -> {nil, {:invalid_json, raw}}
     end
-  rescue
-    _decode_error -> {nil, {:invalid_json, raw}}
   end
 
   defp extra_choices(term) do

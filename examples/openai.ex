@@ -7,7 +7,7 @@ defmodule LlmCall.Examples.OpenAI do
   """
 
   use LlmCall.Provider,
-    base_url: "https://api.openai.com/v1",
+    base_url: "https://api.openai.com",
     auth: :bearer,
     codecs: [
       chat: LlmCall.Protocol.OpenAI.Chat,

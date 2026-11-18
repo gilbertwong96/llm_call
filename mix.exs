@@ -13,7 +13,7 @@ defmodule LlmCall.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
-        "LLM wire-protocol codecs with a canonical IR, a one-call client, and replaceable HTTP, JSON and tool layers.",
+        "LLM wire-protocol codecs with a canonical IR, a one-call client, and replaceable HTTP and JSON layers.",
       package: package(),
       docs: docs(),
       dialyzer: [

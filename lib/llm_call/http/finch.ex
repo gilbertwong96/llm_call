@@ -44,9 +44,13 @@ defmodule LlmCall.HTTP.Finch do
       {:status, status}, acc -> fun.({:status, status}, acc)
       {:headers, headers}, acc -> fun.({:headers, headers}, acc)
       {:data, data}, acc -> fun.({:data, data}, acc)
+      {:trailers, _trailers}, acc -> {:cont, acc}
     end
 
-    Finch.stream_while(build(request), pool, acc, reducer, forward(opts, request))
+    case Finch.stream_while(build(request), pool, acc, reducer, forward(opts, request)) do
+      {:ok, acc} -> {:ok, acc}
+      {:error, reason, _acc} -> {:error, reason}
+    end
   end
 
   defp build(%Request{} = request) do

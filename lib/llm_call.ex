@@ -7,8 +7,8 @@ defmodule LlmCall do
   provider-neutral response.
 
   It ships a one-call client (`complete/3`, `stream/3`, `generate/3`, `poll/3`) on
-  top of replaceable HTTP, JSON and tool layers, and keeps the encode/decode
-  functions for callers that already own a transport.
+  top of replaceable HTTP and JSON layers, and keeps the encode/decode functions
+  for callers that already own a transport.
 
       client = MyApp.Anthropic.client(api_key: System.fetch_env!("ANTHROPIC_API_KEY"))
       {:ok, response} = LlmCall.complete(client, request)
@@ -89,6 +89,8 @@ defmodule LlmCall do
 
     with {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :init_stream, 2),
+         :ok <- require_callback(codec, :decode_stream_event, 3),
+         :ok <- require_callback(codec, :finish_stream, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config),
          {:ok, http_request} <- build_http_request(client, encoded),
          {:ok, state} <- codec.init_stream(request, client.config) do
@@ -132,6 +134,14 @@ defmodule LlmCall do
           {:ok, LlmCall.Operation.t()} | {:error, Error.t()}
   def poll(client, operation_or_encoded, opts \\ [])
 
+  def poll(%Client{}, %LlmCall.Operation{next_kind: :asset}, _opts) do
+    {:error,
+     invalid(
+       "this operation's next request returns media bytes; use fetch/2",
+       :validation
+     )}
+  end
+
   def poll(%Client{} = client, %LlmCall.Operation{} = operation, opts) do
     case operation.next do
       %EncodedRequest{} = encoded ->
@@ -156,10 +166,10 @@ defmodule LlmCall do
   `:transport` with the status. Use `complete/3` when you want the codec to decode
   a provider error envelope.
   """
-  @spec execute(Client.t(), EncodedRequest.t(), keyword()) ::
+  @spec execute(Client.t(), EncodedRequest.t()) ::
           {:ok, %{status: non_neg_integer(), headers: list(), body: term()}}
           | {:error, Error.t()}
-  def execute(%Client{} = client, %EncodedRequest{} = encoded, _opts \\ []) do
+  def execute(%Client{} = client, %EncodedRequest{} = encoded) do
     case perform(client, encoded) do
       {:ok, %{status: status} = response} when status in 200..299 ->
         decode_json_body(client, response)
@@ -177,10 +187,10 @@ defmodule LlmCall do
 
   For `Operation.next_kind: :asset`, where the body is media.
   """
-  @spec fetch(Client.t(), EncodedRequest.t(), keyword()) ::
+  @spec fetch(Client.t(), EncodedRequest.t()) ::
           {:ok, %{status: non_neg_integer(), headers: list(), body: binary()}}
           | {:error, Error.t()}
-  def fetch(%Client{} = client, %EncodedRequest{} = encoded, _opts \\ []) do
+  def fetch(%Client{} = client, %EncodedRequest{} = encoded) do
     case perform(client, encoded) do
       {:ok, %{status: status} = response} when status in 200..299 ->
         {:ok, response}
@@ -208,6 +218,10 @@ defmodule LlmCall do
       {:ok,
        HTTP.Request.post(url(client, encoded), headers(client, encoded), body, client.timeout)}
     end
+  end
+
+  defp build_http_request(_client, %EncodedRequest{method: method}) do
+    {:error, invalid("unsupported request method #{inspect(method)}", :validation)}
   end
 
   defp url(%Client{} = client, %EncodedRequest{} = encoded) do
@@ -257,12 +271,23 @@ defmodule LlmCall do
         {:error, _reason} -> nil
       end
 
-    if is_map(payload) do
-      case codec.decode_error(payload, client.config) do
-        %Error{} = error -> {:error, %{error | status: status}}
-      end
-    else
-      {:error, transport_error("HTTP #{status}: body is not JSON", status)}
+    case payload do
+      %{} = payload ->
+        case codec.decode_error(payload, client.config) do
+          %Error{} = error ->
+            {:error, %{error | status: status}}
+
+          other ->
+            {:error,
+             invalid(
+               "#{inspect(codec)}.decode_error/2 must return a %LlmCall.Error{}, " <>
+                 "got: #{inspect(other)}",
+               :invalid_response
+             )}
+        end
+
+      _not_an_object ->
+        {:error, transport_error("HTTP #{status}: body is not a JSON object", status)}
     end
   end
 
@@ -476,15 +501,13 @@ defmodule LlmCall do
   end
 
   defp require_callback(codec, function, arity) do
-    Code.ensure_loaded!(codec)
-
-    if function_exported?(codec, function, arity) do
+    if Code.ensure_loaded?(codec) and function_exported?(codec, function, arity) do
       :ok
     else
       {:error,
        %Error{
          kind: :validation,
-         message: "#{inspect(codec)} does not support #{function}/#{arity}"
+         message: "#{inspect(codec)} does not export #{function}/#{arity}"
        }}
     end
   end

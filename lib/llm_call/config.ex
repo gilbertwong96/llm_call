@@ -28,7 +28,11 @@ defmodule LlmCall.Config do
   def new(opts \\ []) do
     json = Keyword.get(opts, :json) || Application.get_env(:llm_call, :json) || LlmCall.JSON
 
-    %__MODULE__{json: json, capture_raw: Keyword.get(opts, :capture_raw, :none)}
+    %__MODULE__{
+      json: json,
+      capture_raw: Keyword.get(opts, :capture_raw, :none),
+      default_provider_options: Keyword.get(opts, :default_provider_options, %{})
+    }
   end
 
   @doc """

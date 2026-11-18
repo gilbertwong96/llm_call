@@ -24,7 +24,7 @@ defmodule LlmCall.SSE do
   @doc "Parses one body chunk into the events it completes."
   @spec parse(t(), binary()) :: {[String.t()], t()}
   def parse(%__MODULE__{buffer: buffer}, chunk) when is_binary(chunk) do
-    data = buffer <> normalise(chunk)
+    data = normalise(buffer <> chunk)
     blocks = String.split(data, "\n\n")
     {complete, [rest]} = Enum.split(blocks, -1)
 
@@ -68,6 +68,7 @@ defmodule LlmCall.SSE do
 
     case data do
       [] -> nil
+      [""] -> nil
       lines -> Enum.join(lines, "\n")
     end
   end

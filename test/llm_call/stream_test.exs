@@ -1,7 +1,7 @@
 defmodule LlmCall.StreamTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Config, Error, HTTP, Request, StreamEvent, TestProvider}
+  alias LlmCall.{Error, HTTP, Request, StreamEvent}
   alias LlmCall.HTTP.Test, as: FakeHTTP
 
   defmodule StreamingCodec do
@@ -72,6 +72,69 @@ defmodule LlmCall.StreamTest do
   end
 
   defp sse(payload), do: "data: #{payload}\n\n"
+
+  test "a transport failure mid-body raises LlmCall.HTTP.Error" do
+    defmodule FailingStreamHTTP do
+      @moduledoc false
+      @behaviour LlmCall.HTTP
+      @impl true
+      def request(_request, _opts), do: {:ok, %{status: 200, headers: [], body: "{}"}}
+      @impl true
+      def stream(_request, acc, fun, _opts) do
+        {:cont, acc} = fun.({:status, 200}, acc)
+        {:error, :closed, acc}
+      end
+    end
+
+    defmodule FailingStreamProvider do
+      @moduledoc false
+      use LlmCall.Provider,
+        base_url: "https://x.test",
+        auth: :none,
+        http: LlmCall.StreamTest.FailingStreamHTTP,
+        codecs: [chat: LlmCall.StreamTest.StreamingCodec]
+    end
+
+    {:ok, stream} = LlmCall.stream(FailingStreamProvider.client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{kind: :transport, message: message} = HTTP.Error.error(exception)
+    assert message =~ "closed"
+  end
+
+  test "an adapter that never sends a status is treated as success" do
+    defmodule NoStatusHTTP do
+      @moduledoc false
+      @behaviour LlmCall.HTTP
+      @impl true
+      def request(_request, _opts), do: {:ok, %{status: 200, headers: [], body: "{}"}}
+      @impl true
+      def stream(_request, acc, fun, _opts) do
+        chunks = ["data: {\"text\":\"a\"}\n\n"]
+
+        Enum.reduce_while(chunks, {:ok, acc}, fn chunk, {:ok, acc} ->
+          case fun.({:data, chunk}, acc) do
+            {:cont, acc} -> {:cont, {:ok, acc}}
+            {:halt, acc} -> {:halt, {:ok, acc}}
+          end
+        end)
+      end
+    end
+
+    defmodule NoStatusProvider do
+      @moduledoc false
+      use LlmCall.Provider,
+        base_url: "https://x.test",
+        auth: :none,
+        http: LlmCall.StreamTest.NoStatusHTTP,
+        codecs: [chat: LlmCall.StreamTest.StreamingCodec]
+    end
+
+    {:ok, stream} = LlmCall.stream(NoStatusProvider.client(), request())
+
+    assert [%StreamEvent{type: :text_delta}, %StreamEvent{type: :message_stop}] =
+             Enum.to_list(stream)
+  end
 
   test "yields events in order and finishes the stream" do
     FakeHTTP.put_events([
