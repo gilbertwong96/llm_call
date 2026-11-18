@@ -1291,7 +1291,8 @@ end
 
 ## 12. Streaming
 
-The core defines normalized events; it does not parse SSE.
+The client parses SSE (`LlmCall.SSE`) and yields normalized events; codecs see
+provider event terms only.
 
 ```elixir
 defmodule LlmCall.StreamEvent do
