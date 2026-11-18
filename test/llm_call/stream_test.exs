@@ -213,6 +213,63 @@ defmodule LlmCall.StreamTest do
     assert [%StreamEvent{type: :text_delta}] = events
   end
 
+  test "on_event observes every event before the reducer, including finish_stream" do
+    FakeHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"text":"one"}))},
+      {:data, sse(~s({"text":"two"}))}
+    ])
+
+    parent = self()
+
+    assert {:ok, stream} =
+             LlmCall.stream(client(), request(),
+               on_event: fn event -> send(parent, {:observed, event.type}) end
+             )
+
+    assert [
+             %StreamEvent{type: :text_delta},
+             %StreamEvent{type: :text_delta},
+             %StreamEvent{type: :message_stop}
+           ] = Enum.to_list(stream)
+
+    assert_received {:observed, :text_delta}
+    assert_received {:observed, :text_delta}
+    assert_received {:observed, :message_stop}
+    refute_received {:observed, _}
+  end
+
+  test "on_event ignores its return value and stops after a halt" do
+    FakeHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"text":"one"}))},
+      {:data, sse(~s({"text":"two"}))}
+    ])
+
+    parent = self()
+
+    assert {:ok, stream} =
+             LlmCall.stream(client(), request(),
+               on_event: fn event ->
+                 send(parent, {:observed, event.type})
+                 :ignored
+               end
+             )
+
+    assert {:halted, [_]} =
+             LlmCall.Stream.reduce(stream, [], fn event, acc -> {:halt, [event | acc]} end)
+
+    assert_received {:observed, :text_delta}
+    refute_received {:observed, _}
+  end
+
+  test "a non-function on_event is a validation error" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.stream(client(), request(), on_event: :log)
+
+    assert message =~ "on_event"
+  end
+
   test "a trailing event without a blank line is flushed" do
     FakeHTTP.put_events([{:status, 200}, {:data, ~s(data: {"text":"tail"})}])
 

@@ -81,13 +81,19 @@ defmodule LlmCall do
   `codec:` names an entry in the provider's `codecs` map (`:chat` by default).
   Events are yielded as `LlmCall.StreamEvent` structs; a failure while reading the
   body raises `LlmCall.HTTP.Error`, because an `Enumerable` cannot return a tuple.
+
+  `on_event:` takes a 1-arity function called for every event before the reducer
+  sees it, including events flushed by `finish_stream/2`. It observes only: the
+  return value is ignored, it cannot filter or replace events, and it is not
+  called after the reducer halts.
   """
   @spec stream(Client.t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Stream.t()} | {:error, Error.t()}
   def stream(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
     request = %{request | stream: true}
 
-    with {:ok, codec} <- fetch_codec(client, opts),
+    with :ok <- validate_on_event(opts[:on_event]),
+         {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :init_stream, 2),
          :ok <- require_callback(codec, :decode_stream_event, 3),
          :ok <- require_callback(codec, :finish_stream, 2),
@@ -99,7 +105,8 @@ defmodule LlmCall do
          client: client,
          codec: codec,
          http_request: http_request,
-         state: state
+         state: state,
+         on_event: opts[:on_event]
        }}
     end
   end
@@ -300,6 +307,13 @@ defmodule LlmCall do
       {:ok, term} -> {:ok, %{response | body: term}}
       {:error, _reason} -> {:error, invalid("response body is not JSON", :invalid_response)}
     end
+  end
+
+  defp validate_on_event(nil), do: :ok
+  defp validate_on_event(fun) when is_function(fun, 1), do: :ok
+
+  defp validate_on_event(other) do
+    {:error, invalid("on_event: must be a 1-arity function, got: #{inspect(other)}", :validation)}
   end
 
   defp fetch_codec(%Client{} = client, opts) do

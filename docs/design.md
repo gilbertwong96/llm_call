@@ -1464,7 +1464,15 @@ Provider timing differs:
 Early execution is an application decision. `LlmCall` only exposes complete
 calls; it does not run them or insert results into an active response.
 
-`LlmCall.stream/3` owns the transport side:
+`LlmCall.stream/3` owns the transport side.
+
+`on_event:` is an observer, not a middleware: a 1-arity function called for every
+event before the reducer, including `finish_stream/2` output. Its return value is
+ignored, it cannot filter or replace events, and it stops being called after the
+reducer halts. An application that needs to modify the stream combines the
+`Enumerable` with `Stream.map/2`; one that needs raw bytes replaces
+`LlmCall.HTTP`. There is no tee: reducing a `%LlmCall.Stream{}` twice issues the
+request twice.
 
 - parse SSE framing (`LlmCall.SSE`)
 - decode JSON payloads with `Config.json`
@@ -1740,7 +1748,7 @@ The one-call API is the default:
 
 ```elixir
 LlmCall.complete(client, request, opts \\ [])
-LlmCall.stream(client, request, opts \\ [])
+LlmCall.stream(client, request, opts \\ [])  # opts: codec:, on_event:
 LlmCall.generate(client, media_request, opts)
 LlmCall.poll(client, operation_or_encoded, opts)
 LlmCall.execute(client, encoded)

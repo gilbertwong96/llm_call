@@ -20,17 +20,28 @@ defmodule LlmCall.Stream do
   `{:halt, acc}` from the reducer stops the request and closes the connection;
   `finish_stream/2` is not called for a halted consumer. Suspension
   (`{:suspend, acc}`) is not supported and raises.
+
+  ## `on_event`
+
+  `LlmCall.stream/3` accepts `on_event: fun` with `fun :: (StreamEvent.t() -> any())`.
+  It runs for every event before the reducer sees it, including events flushed by
+  `finish_stream/2`. The return value is ignored: it observes, it cannot filter or
+  replace events, and it is not called after the reducer halts. If it raises, the
+  exception propagates and the reducer does not see that event.
   """
 
   alias LlmCall.{Error, HTTP, SSE}
 
-  defstruct [:client, :codec, :http_request, :state]
+  defstruct [:client, :codec, :http_request, :state, :on_event]
+
+  @type on_event :: (LlmCall.StreamEvent.t() -> any()) | nil
 
   @type t :: %__MODULE__{
           client: LlmCall.Client.t(),
           codec: module(),
           http_request: HTTP.Request.t(),
-          state: LlmCall.StreamState.t()
+          state: LlmCall.StreamState.t(),
+          on_event: on_event()
         }
 
   @doc false
@@ -44,6 +55,7 @@ defmodule LlmCall.Stream do
       fun: fun,
       sse: SSE.new(),
       stream_state: stream.state,
+      on_event: stream.on_event,
       status: nil,
       error_body: "",
       done?: false,
@@ -126,12 +138,17 @@ defmodule LlmCall.Stream do
 
   defp yield_all(events, state) do
     Enum.reduce_while(events, state, fn event, state ->
+      observe(state, event)
+
       case apply_downstream(state.fun, event, state.downstream) do
         {:cont, downstream} -> {:cont, %{state | downstream: downstream}}
         {:halt, downstream} -> {:halt, %{state | downstream: downstream, halted?: true}}
       end
     end)
   end
+
+  defp observe(%{on_event: nil}, _event), do: :ok
+  defp observe(%{on_event: fun}, event), do: fun.(event)
 
   defp apply_downstream(fun, event, {:cont, acc}) do
     case fun.(event, acc) do

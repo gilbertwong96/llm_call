@@ -17,7 +17,8 @@ back to `llm_call` because it now ships the client that name promised.
   (`LlmCall.HTTP`, `LlmCall.JSON`) resolved call option →
   provider → `config :llm_call, ...` → default.
 - Streaming in the library: `LlmCall.SSE` framing, `LlmCall.Stream` as a lazy
-  `Enumerable`, and `LlmCall.HTTP.Error` for mid-stream failures.
+  `Enumerable`, `stream/3`'s `on_event:` observer, and `LlmCall.HTTP.Error` for
+  mid-stream failures.
 - Provider-hosted tools: `ToolSpec{kind: :builtin}` forwarded verbatim and
   `Capabilities.builtin_tools`.
 - Canonical wire IR: `Request`, `Message`, `Content`, `ToolSpec`, `ToolCall`,
