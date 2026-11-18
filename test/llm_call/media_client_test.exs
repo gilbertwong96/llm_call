@@ -53,6 +53,35 @@ defmodule LlmCall.MediaClientTest do
     assert List.last(FakeHTTP.requests()).url == "https://media.example.test/fake/jobs/1"
   end
 
+  test "poll/3 sends the operation's own method, not always POST" do
+    FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"status":"in_progress"})}})
+
+    operation = %Operation{
+      status: :in_progress,
+      next: %LlmCall.EncodedRequest{method: :get, path: "/jobs/1"},
+      next_kind: :poll
+    }
+
+    assert {:ok, %Operation{status: :in_progress}} =
+             LlmCall.poll(client(), operation, codec: :async)
+
+    assert [sent] = FakeHTTP.requests()
+    assert sent.method == :get
+    assert sent.body == nil
+  end
+
+  test "fetch/3 sends a GET for an asset request and returns bytes" do
+    FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: <<1, 2>>}})
+
+    encoded = %LlmCall.EncodedRequest{method: :get, path: "/assets/1"}
+
+    assert {:ok, %{status: 200, body: <<1, 2>>}} = LlmCall.fetch(client(), encoded)
+
+    assert [sent] = FakeHTTP.requests()
+    assert sent.method == :get
+    assert sent.body == nil
+  end
+
   test "poll/3 accepts an encoded request directly" do
     FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"status":"in_progress"})}})
 
