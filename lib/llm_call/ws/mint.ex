@@ -1,0 +1,263 @@
+defmodule LlmCall.WS.Mint do
+  @moduledoc """
+  The default WebSocket transport, backed by `Mint.WebSocket`.
+
+  The connection is passive and owned by the process that calls `connect/3`:
+  Mint delivers socket messages to that process, and `recv/2` feeds them to
+  `Mint.WebSocket.stream/2`. A caller that moves the connection to another
+  process must do so after `connect/3` returns.
+
+  Pings are answered inside `recv/2`; pongs are ignored. A peer close is
+  returned as `{:close, code, reason}` and the socket is closed.
+  """
+
+  @behaviour LlmCall.WS
+
+  @default_timeout 15_000
+
+  @impl true
+  def connect(url, headers, opts \\ []) do
+    with {:ok, uri, scheme} <- parse_url(url),
+         {:ok, conn} <-
+           Mint.HTTP.connect(transport_scheme(scheme), uri.host, uri.port, connect_opts(opts)) do
+      start_upgrade(conn, scheme, uri, headers, opts)
+    end
+  end
+
+  @impl true
+  def send_frame(state, {:text, _data} = frame), do: write(state, frame)
+  def send_frame(state, {:binary, _data} = frame), do: write(state, frame)
+
+  @impl true
+  def recv(state, timeout \\ @default_timeout) do
+    deadline = now() + timeout
+    do_recv(state, deadline)
+  end
+
+  @impl true
+  def close(state, code \\ 1000, reason \\ "") do
+    state =
+      case write(state, {:close, code, reason}) do
+        {:ok, state} -> state
+        {:error, _reason} -> state
+      end
+
+    Mint.HTTP.close(state.conn)
+    :ok
+  end
+
+  defp start_upgrade(conn, scheme, uri, headers, opts) do
+    headers = ensure_host(headers, uri)
+
+    case Mint.WebSocket.upgrade(scheme, conn, path(uri), headers) do
+      {:ok, conn, ref} ->
+        await_upgrade(
+          %{conn: conn, ref: ref, websocket: nil, pending: []},
+          now() + timeout(opts)
+        )
+
+      {:error, conn, reason} ->
+        Mint.HTTP.close(conn)
+        {:error, reason}
+    end
+  end
+
+  defp await_upgrade(state, deadline) do
+    case receive_stream(state, deadline) do
+      {:ok, state, responses} ->
+        status =
+          Enum.find_value(responses, fn
+            {:status, _, status} -> status
+            _ -> nil
+          end)
+
+        headers =
+          Enum.find_value(responses, fn
+            {:headers, _, headers} -> headers
+            _ -> nil
+          end)
+
+        cond do
+          status == 101 and is_list(headers) ->
+            upgrade(state, headers)
+
+          is_integer(status) ->
+            Mint.HTTP.close(state.conn)
+            {:error, {:upgrade_failed, status}}
+
+          true ->
+            await_upgrade(state, deadline)
+        end
+
+      {:error, reason} ->
+        Mint.HTTP.close(state.conn)
+        {:error, reason}
+    end
+  end
+
+  # Dialyzer cannot see Mint.WebSocket.new/4's HTTP/1 success branch through
+  # Mint's opaque connection type; the status and protocol are checked here.
+  @dialyzer {:nowarn_function, upgrade: 2}
+  defp upgrade(%{conn: %Mint.HTTP1{}} = state, headers) do
+    case Mint.WebSocket.new(state.conn, state.ref, 101, headers) do
+      {:ok, conn, websocket} ->
+        {:ok, %{state | conn: conn, websocket: websocket}}
+
+      {:error, conn, reason} ->
+        Mint.HTTP.close(conn)
+        {:error, reason}
+    end
+  end
+
+  defp upgrade(state, _headers) do
+    Mint.HTTP.close(state.conn)
+    {:error, :unsupported_protocol}
+  end
+
+  defp do_recv(state, deadline) do
+    case drain(state) do
+      {:frame, frame, state} ->
+        {:ok, frame, state}
+
+      {:cont, state} ->
+        case receive_stream(state, deadline) do
+          {:ok, state, responses} -> decode(responses, state, deadline)
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp decode(responses, state, deadline) do
+    result =
+      Enum.reduce_while(responses, {:cont, state}, fn
+        {:data, _ref, data}, {:cont, state} ->
+          case Mint.WebSocket.decode(state.websocket, data) do
+            {:ok, websocket, frames} ->
+              state = %{state | websocket: websocket, pending: state.pending ++ frames}
+              {:cont, {:cont, state}}
+
+            {:error, _websocket, reason} ->
+              {:halt, {:error, reason}}
+          end
+
+        {:error, _ref, reason}, _acc ->
+          {:halt, {:error, reason}}
+
+        {:done, _ref}, _acc ->
+          {:halt, {:error, :closed}}
+
+        _other, acc ->
+          {:cont, acc}
+      end)
+
+    case result do
+      {:cont, state} -> do_recv(state, deadline)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp drain(%{pending: []} = state), do: {:cont, state}
+
+  defp drain(%{pending: [frame | rest]} = state) do
+    drain_frame(frame, %{state | pending: rest})
+  end
+
+  defp drain_frame({:text, _data} = frame, state), do: {:frame, frame, state}
+  defp drain_frame({:binary, _data} = frame, state), do: {:frame, frame, state}
+  defp drain_frame({:close, code, reason}, state), do: {:frame, {:close, code, reason}, state}
+
+  defp drain_frame(:ping, state), do: reply_pong(state)
+  defp drain_frame({:ping, _data}, state), do: reply_pong(state)
+
+  defp drain_frame(pong, state) when pong in [:pong, {:pong, ""}], do: drain(state)
+  defp drain_frame({:error, reason}, _state), do: {:error, reason}
+  defp drain_frame(_other, state), do: drain(state)
+
+  defp reply_pong(state) do
+    case write(state, :pong) do
+      {:ok, state} -> drain(state)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp write(state, frame) do
+    case Mint.WebSocket.encode(state.websocket, frame) do
+      {:ok, websocket, data} ->
+        case Mint.WebSocket.stream_request_body(state.conn, state.ref, data) do
+          {:ok, conn} -> {:ok, %{state | websocket: websocket, conn: conn}}
+          {:error, _conn, reason} -> {:error, reason}
+        end
+
+      {:error, _websocket, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp receive_stream(state, deadline) do
+    receive do
+      message ->
+        case Mint.WebSocket.stream(state.conn, message) do
+          {:ok, conn, responses} -> {:ok, %{state | conn: conn}, responses}
+          {:error, _conn, reason, _responses} -> {:error, reason}
+          :unknown -> receive_stream(state, deadline)
+        end
+    after
+      remaining(deadline) -> {:error, :timeout}
+    end
+  end
+
+  defp parse_url(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host} = uri when scheme in ["ws", "wss"] and is_binary(host) ->
+        {:ok, %{uri | port: uri.port || default_port(scheme)}, String.to_atom(scheme)}
+
+      _other ->
+        {:error, {:invalid_url, url}}
+    end
+  end
+
+  defp default_port("ws"), do: 80
+  defp default_port("wss"), do: 443
+
+  defp transport_scheme(:ws), do: :http
+  defp transport_scheme(:wss), do: :https
+
+  defp path(%URI{} = uri) do
+    path = uri.path || "/"
+
+    if uri.query, do: path <> "?" <> uri.query, else: path
+  end
+
+  defp ensure_host(headers, uri) do
+    if Enum.any?(headers, fn {name, _value} -> String.downcase(name) == "host" end) do
+      headers
+    else
+      [{"host", host_header(uri)} | headers]
+    end
+  end
+
+  defp host_header(%URI{scheme: scheme, host: host, port: port}) do
+    if port == default_port(scheme), do: host, else: "#{host}:#{port}"
+  end
+
+  defp connect_opts(opts) do
+    timeout = timeout(opts)
+
+    transport_opts =
+      opts
+      |> Keyword.get(:transport_opts, [])
+      |> Keyword.put_new(:timeout, timeout)
+
+    [transport_opts: transport_opts, protocols: [:http1]] ++
+      Keyword.take(opts, [:mode, :proxy, :proxy_headers, :log])
+  end
+
+  defp timeout(opts), do: Keyword.get(opts, :timeout, @default_timeout)
+
+  defp now, do: System.monotonic_time(:millisecond)
+
+  defp remaining(deadline), do: max(deadline - now(), 0)
+end

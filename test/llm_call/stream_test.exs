@@ -2,7 +2,7 @@ defmodule LlmCall.StreamTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.{Error, HTTP, Request, StreamEvent}
-  alias LlmCall.HTTP.Test, as: FakeHTTP
+  alias LlmCall.TestHTTPServer, as: TestHTTP
 
   defmodule StreamingCodec do
     @moduledoc "Codec fake whose stream is driven by JSON payloads."
@@ -62,7 +62,15 @@ defmodule LlmCall.StreamTest do
       codecs: [chat: LlmCall.StreamTest.StreamingCodec]
   end
 
-  defp client(opts \\ []), do: StreamingProvider.client(Keyword.merge([http: FakeHTTP], opts))
+  setup do
+    TestHTTP.start()
+    on_exit(&TestHTTP.stop/0)
+    :ok
+  end
+
+  defp client(opts \\ []) do
+    StreamingProvider.client(Keyword.merge([base_url: TestHTTP.url()], opts))
+  end
 
   defp request do
     %Request{
@@ -74,70 +82,21 @@ defmodule LlmCall.StreamTest do
   defp sse(payload), do: "data: #{payload}\n\n"
 
   test "a transport failure mid-body raises LlmCall.HTTP.Error" do
-    defmodule FailingStreamHTTP do
-      @moduledoc false
-      @behaviour LlmCall.HTTP
-      @impl true
-      def request(_request, _opts), do: {:ok, %{status: 200, headers: [], body: "{}"}}
-      @impl true
-      def stream(_request, acc, fun, _opts) do
-        {:cont, acc} = fun.({:status, 200}, acc)
-        {:error, :closed, acc}
-      end
-    end
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"text":"x"}))},
+      {:error, :closed}
+    ])
 
-    defmodule FailingStreamProvider do
-      @moduledoc false
-      use LlmCall.Provider,
-        base_url: "https://x.test",
-        auth: :none,
-        http: LlmCall.StreamTest.FailingStreamHTTP,
-        codecs: [chat: LlmCall.StreamTest.StreamingCodec]
-    end
-
-    {:ok, stream} = LlmCall.stream(FailingStreamProvider.client(), request())
+    assert {:ok, stream} = LlmCall.stream(client(), request())
 
     exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
     assert %Error{kind: :transport, message: message} = HTTP.Error.error(exception)
     assert message =~ "closed"
   end
 
-  test "an adapter that never sends a status is treated as success" do
-    defmodule NoStatusHTTP do
-      @moduledoc false
-      @behaviour LlmCall.HTTP
-      @impl true
-      def request(_request, _opts), do: {:ok, %{status: 200, headers: [], body: "{}"}}
-      @impl true
-      def stream(_request, acc, fun, _opts) do
-        chunks = ["data: {\"text\":\"a\"}\n\n"]
-
-        Enum.reduce_while(chunks, {:ok, acc}, fn chunk, {:ok, acc} ->
-          case fun.({:data, chunk}, acc) do
-            {:cont, acc} -> {:cont, {:ok, acc}}
-            {:halt, acc} -> {:halt, {:ok, acc}}
-          end
-        end)
-      end
-    end
-
-    defmodule NoStatusProvider do
-      @moduledoc false
-      use LlmCall.Provider,
-        base_url: "https://x.test",
-        auth: :none,
-        http: LlmCall.StreamTest.NoStatusHTTP,
-        codecs: [chat: LlmCall.StreamTest.StreamingCodec]
-    end
-
-    {:ok, stream} = LlmCall.stream(NoStatusProvider.client(), request())
-
-    assert [%StreamEvent{type: :text_delta}, %StreamEvent{type: :message_stop}] =
-             Enum.to_list(stream)
-  end
-
   test "yields events in order and finishes the stream" do
-    FakeHTTP.put_events([
+    TestHTTP.put_events([
       {:status, 200},
       {:data, sse(~s({"text":"Hel"}))},
       {:data, sse(~s({"text":"lo"}))},
@@ -157,17 +116,17 @@ defmodule LlmCall.StreamTest do
   end
 
   test "an invalid request is a tagged error before any request is made" do
-    FakeHTTP.put_events([])
+    TestHTTP.put_events([])
 
     assert {:error, %Error{kind: :validation, message: message}} =
              LlmCall.stream(client(), request(), codec: :vision)
 
     assert message =~ ":vision"
-    assert FakeHTTP.requests() == []
+    assert TestHTTP.requests() == []
   end
 
   test "stream: false is overridden, because the function is the intent" do
-    FakeHTTP.put_events([{:status, 200}, {:data, sse(~s("DONE"))}])
+    TestHTTP.put_events([{:status, 200}, {:data, sse(~s("DONE"))}])
 
     assert {:ok, stream} = LlmCall.stream(client(), %{request() | stream: false})
 
@@ -176,7 +135,7 @@ defmodule LlmCall.StreamTest do
   end
 
   test "a 401 raises with the decoded provider error and status" do
-    FakeHTTP.put_events([
+    TestHTTP.put_events([
       {:status, 401},
       {:data, ~s({"error":{"message":"bad key"}})}
     ])
@@ -190,7 +149,7 @@ defmodule LlmCall.StreamTest do
   end
 
   test "an unparseable payload raises :invalid_response" do
-    FakeHTTP.put_events([{:status, 200}, {:data, "data: not json\n\n"}])
+    TestHTTP.put_events([{:status, 200}, {:data, "data: not json\n\n"}])
 
     assert {:ok, stream} = LlmCall.stream(client(), request())
 
@@ -199,7 +158,7 @@ defmodule LlmCall.StreamTest do
   end
 
   test "halting stops the request and skips finish_stream" do
-    FakeHTTP.put_events([
+    TestHTTP.put_events([
       {:status, 200},
       {:data, sse(~s({"text":"one"}))},
       {:data, sse(~s({"text":"two"}))}
@@ -214,7 +173,7 @@ defmodule LlmCall.StreamTest do
   end
 
   test "on_event observes every event before the reducer, including finish_stream" do
-    FakeHTTP.put_events([
+    TestHTTP.put_events([
       {:status, 200},
       {:data, sse(~s({"text":"one"}))},
       {:data, sse(~s({"text":"two"}))}
@@ -240,7 +199,7 @@ defmodule LlmCall.StreamTest do
   end
 
   test "on_event ignores its return value and stops after a halt" do
-    FakeHTTP.put_events([
+    TestHTTP.put_events([
       {:status, 200},
       {:data, sse(~s({"text":"one"}))},
       {:data, sse(~s({"text":"two"}))}
@@ -271,7 +230,7 @@ defmodule LlmCall.StreamTest do
   end
 
   test "a trailing event without a blank line is flushed" do
-    FakeHTTP.put_events([{:status, 200}, {:data, ~s(data: {"text":"tail"})}])
+    TestHTTP.put_events([{:status, 200}, {:data, ~s(data: {"text":"tail"})}])
 
     assert {:ok, stream} = LlmCall.stream(client(), request())
 

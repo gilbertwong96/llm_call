@@ -13,9 +13,12 @@ back to `llm_call` because it now ships the client that name promised.
 
 - One-call client: `LlmCall.complete/3`, `stream/3`, `generate/3`, `poll/3`,
   `execute/2`, `fetch/2`, with `LlmCall.Provider` (`use LlmCall.Provider`) and
-  `%LlmCall.Client{}`. The HTTP and JSON layers are behaviours
-  (`LlmCall.HTTP`, `LlmCall.JSON`) resolved call option →
-  provider → `config :llm_call, ...` → default.
+  `%LlmCall.Client{}`. HTTP is Finch; JSON is a behaviour (`LlmCall.JSON`)
+  resolved call option → provider → `config :llm_call, ...` → default. The
+  transport is not replaceable.
+- WebSocket transport: the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, with
+  the upgrade, text/binary frames, ping handling and peer close. No realtime
+  session API.
 - Streaming in the library: `LlmCall.SSE` framing, `LlmCall.Stream` as a lazy
   `Enumerable`, `stream/3`'s `on_event:` observer, and `LlmCall.HTTP.Error` for
   mid-stream failures.

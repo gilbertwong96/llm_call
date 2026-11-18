@@ -7,7 +7,7 @@ defmodule LlmCall do
   provider-neutral response.
 
   It ships a one-call client (`complete/3`, `stream/3`, `generate/3`, `poll/3`) on
-  top of replaceable HTTP and JSON layers, and keeps the encode/decode functions
+  top of Finch and a replaceable JSON layer, and keeps the encode/decode functions
   for callers that already own a transport.
 
       client = MyApp.Anthropic.client(api_key: System.fetch_env!("ANTHROPIC_API_KEY"))
@@ -216,7 +216,7 @@ defmodule LlmCall do
 
   defp perform(%Client{} = client, %EncodedRequest{} = encoded) do
     with {:ok, request} <- build_http_request(client, encoded) do
-      normalize(client, client.http.request(request, client.http_opts))
+      normalize(client, HTTP.request(request, client.http_opts))
     end
   end
 

@@ -8,10 +8,10 @@ Module namespace: `LlmCall`
 ## 1. Summary
 
 `LlmCall` is a **call-oriented SDK** for LLM APIs: a canonical wire IR, protocol
-codecs, and a one-call client whose HTTP and JSON layers are replaceable.
+codecs, and a one-call client on Finch whose JSON layer is replaceable.
 
 The library ships the canonical IR, the codec behaviours, the conformance
-suites, three **reference adapters** — the dialect families the IR is written
+suites, four **reference adapters** — the dialect families the IR is written
 against — and a set of **vendored media adapters**. Provider coverage is still
 not a goal: the IR's value comes from the breadth of knowledge behind it, not
 from the breadth of shipped code. A vendored adapter tracks its provider's API;
@@ -30,7 +30,7 @@ The core idea:
 canonical request
       |
       v
-LlmCall.Client (provider + endpoint + seams)
+LlmCall.Client (provider + endpoint + defaults)
       |
       v
 LlmCall.Codec.encode_request/2
@@ -86,10 +86,11 @@ Providers do not agree on:
   reference and vendored adapters in this repository, an adapter is an
   application's own module or a third-party package (see §14)
 
-Its HTTP execution and JSON encoding are in the core **behind behaviours**:
-Finch and OTP `:json` are the defaults, and an application can replace either
-one. SSE framing (`LlmCall.SSE`) is a core module with no seam: a custom
-`LlmCall.HTTP` may deliver pre-framed events, but the parser itself is fixed.
+Its HTTP execution is in the core on Finch; JSON encoding is behind
+`LlmCall.JSON` (OTP `:json` by default). SSE framing (`LlmCall.SSE`) is a core
+module, and WebSocket sessions go through the `LlmCall.WS` behaviour with
+`LlmCall.WS.Mint` as the implementation. HTTP and SSE are not replaceable seams;
+WebSocket has a behaviour, but no config-level transport resolution.
 
 ### 2.3 Relationship to `tool_call`
 
@@ -123,15 +124,14 @@ per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
 | `LlmCall`     | Protocol codecs, canonical wire IR, one-call client                     |
 
 `LlmCall` can be used underneath those systems. Its client is deliberately narrow
-— one call, no model metadata, no tool execution, no retry policy — and the
-transport is replaceable.
+— one call, no model metadata, no tool execution, no retry policy.
 
 ## 3. Goals
 
 - Provide a small, explicit canonical wire IR.
 - Support multiple native protocol families with independent codecs.
 - Preserve provider-specific data through raw/escape-hatch fields.
-- Ship a one-call client whose transport and JSON layers are replaceable.
+- Ship a one-call client on Finch whose JSON layer is replaceable.
 - Keep auth keys caller-supplied, and keep model registries, tool execution,
   approval/audit policies and retries out of the core.
 - Let applications plug in any tool-call framework.
@@ -151,10 +151,10 @@ The core must not contain:
 - conversation persistence or server-side state management
 - prompt templates, chains, memory, or agent loops
 
-HTTP execution is in the core behind `LlmCall.HTTP` and JSON encoding behind
-`LlmCall.JSON`; both have defaults and both can be replaced. SSE framing lives in
-`LlmCall.SSE` and is not a seam. The
-core may define the **data** needed by the layers above, but not implement them.
+HTTP execution is in the core on Finch; JSON encoding is behind `LlmCall.JSON`
+and can be replaced. SSE framing lives in `LlmCall.SSE`, and WebSocket sessions
+use the `LlmCall.WS` behaviour; neither is part of the completion transport. The core may define the **data**
+needed by the layers above, but not implement them.
 
 ## 5. Design principles
 
@@ -170,8 +170,8 @@ core may define the **data** needed by the layers above, but not implement them.
 5. **No hidden state.** Streaming and continuation state are explicit.
 6. **Tool execution is outside.** Tool calls are data; running them is the
    application's job.
-7. **Small core, replaceable edges.** HTTP and JSON sit behind behaviours with
-   defaults; a tool framework is used directly, not wrapped.
+7. **Small core, one replaceable edge.** HTTP is Finch; JSON sits behind a
+   behaviour with a default. A tool framework is used directly, not wrapped.
 8. **No `term()` in canonical public fields.** Canonical fields use explicit
    unions/structs. `term()` is reserved for genuinely opaque adapter state (for
    example, a protocol stream state) and transport-decoded input at the
@@ -189,14 +189,14 @@ Canonical IR and codecs only; the application owns HTTP, SSE and JSON.
 This was the first shape of the library. Superseded because duplicating that
 layer in every application cost more than shipping it.
 
-### B. SDK with replaceable seams (chosen)
+### B. SDK with a replaceable JSON edge (chosen)
 
-Canonical IR and codecs plus a one-call client; HTTP and JSON live behind
-behaviours, with Finch and OTP `:json` as defaults; providers are user modules.
+Canonical IR and codecs plus a one-call client on Finch; JSON lives behind
+`LlmCall.JSON`, with OTP `:json` as the default; providers are user modules.
 
 - one call works after `mix deps.get`
-- either seam can be replaced per application, provider or client
-- costs one runtime dependency (Finch)
+- the JSON module can be replaced per application, provider or client
+- costs two runtime dependencies (Finch, Mint.WebSocket)
 
 ### C. Provider gateway
 
@@ -237,8 +237,8 @@ foundation.
                   encoded request / events
                                |
                     +----------v-----------+
-                    |  LlmCall.HTTP seam   |
-                    | Finch / your adapter |
+                    |   LlmCall.HTTP      |
+                    |       Finch         |
                     +----------+-----------+
                                |
                          HTTP / JSON
@@ -256,8 +256,8 @@ foundation.
    terms.
 3. **Capabilities** — explicit protocol/model capability description.
 4. **Client** — provider declaration, endpoint, auth shape, and the HTTP scope.
-5. **Seams** — `LlmCall.HTTP` and `LlmCall.JSON`, each a behaviour with a
-   default, replaceable per application, provider, or call.
+5. **Transport** — `LlmCall.HTTP` on Finch, and the `LlmCall.WS` behaviour for
+   WebSocket sessions. `LlmCall.JSON` is the one replaceable seam.
 
 ## 8. Canonical IR
 
@@ -1471,9 +1471,8 @@ calls; it does not run them or insert results into an active response.
 event before the reducer, including `finish_stream/2` output. Its return value is
 ignored, it cannot filter or replace events, and it stops being called after the
 reducer halts. An application that needs to modify the stream combines the
-`Enumerable` with `Stream.map/2`; one that needs raw bytes replaces
-`LlmCall.HTTP`. There is no tee: reducing a `%LlmCall.Stream{}` twice issues the
-request twice.
+`Enumerable` with `Stream.map/2`; raw HTTP bytes are not exposed as a hook.
+There is no tee: reducing a `%LlmCall.Stream{}` twice issues the request twice.
 
 - parse SSE framing (`LlmCall.SSE`)
 - decode JSON payloads with `Config.json`
@@ -1640,8 +1639,9 @@ lib/llm_call/client.ex
 lib/llm_call/provider.ex
 lib/llm_call/application.ex
 lib/llm_call/http.ex
-lib/llm_call/http/finch.ex
 lib/llm_call/http/error.ex
+lib/llm_call/ws.ex
+lib/llm_call/ws/mint.ex
 lib/llm_call/sse.ex
 lib/llm_call/stream.ex
 lib/llm_call/media/codec.ex
@@ -1676,8 +1676,8 @@ llm_call_cost         optional pricing/cost calculation
 llm_call_langchain    LangChain adapter
 ```
 
-`LlmCall.HTTP.Finch` is the default for that behaviour, not an optional package.
-There is no tool behaviour: `tool_call` is a companion the application adds
+`LlmCall.HTTP` is Finch, not an optional package; `LlmCall.WS.Mint` is the
+WebSocket implementation. There is no tool behaviour: `tool_call` is a companion the application adds
 itself.
 
 Test support (core's own suite):
@@ -1685,7 +1685,8 @@ Test support (core's own suite):
 ```text
 test/support/codecs/      completing and non-conforming codec fakes
 test/support/fixtures/    reference-adapter payloads
-test/support/http_test.ex canned HTTP adapter (no socket)
+test/support/test_http_server.ex minimal HTTP server for transport tests
+test/support/test_ws_server.ex  minimal WebSocket server for transport tests
 test/support/marker_json.ex    JSON double that proves the seam is honoured
 ```
 
@@ -1887,8 +1888,8 @@ No longer anti-goals:
 
 - **A `Finch` dependency.** It is a required runtime dependency, because the
   one-call path must work after `mix deps.get`.
-- **A default HTTP client.** `LlmCall.HTTP.Finch` is the default and is
-  replaceable through the `LlmCall.HTTP` behaviour.
+- **A fixed HTTP client.** `LlmCall.HTTP` is Finch; it is not a seam. JSON
+  remains replaceable through `LlmCall.JSON`.
 - **A tool runner.** Still an anti-goal, and now there is no tool adapter either:
   schema derivation and dispatch belong to `tool_call` or an application module,
   and building the follow-up request stays with the caller.
@@ -1909,8 +1910,9 @@ Still anti-goals; if they appear, the design has drifted:
 
 Settled:
 
-1. **Core transport:** the library ships a default client (`LlmCall.HTTP.Finch`)
-   behind a behaviour; a caller can replace it. Was "stay transport-free".
+1. **Core transport:** the library ships one HTTP client on Finch; there is no
+   HTTP behaviour. Was "stay transport-free", then "replaceable transport";
+   now fixed. JSON remains the replaceable edge.
 2. **JSON encoding:** the client encodes and decodes with the configured module;
    codecs use the same module for tool-call arguments. Was "transport encodes".
 3. **Tool data in core:** neutral `ToolSpec`, `ToolCall`, `ToolResult`; no schema
@@ -1932,7 +1934,7 @@ Settled:
 4. Implement Anthropic Messages codec.
 5. Implement Gemini GenerateContent codec.
 6. Add generic OpenAI-compatible configuration.
-7. Add the `LlmCall.HTTP` behaviour, the Finch adapter and the default pool.
+7. Add `LlmCall.HTTP` on Finch and the default pool.
 8. Add `LlmCall.JSON` as a behaviour, thread it through the codecs, and resolve
    it (with `http`, `http_opts`, `timeout`) from call option, provider,
    application environment and default.
@@ -1953,6 +1955,8 @@ Settled:
     Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
 16. Add the OpenAI Responses codec (`POST /v1/responses`) on the HTTP/SSE
     transport.
+17. Add the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, and the test servers
+    that exercise them.
 
 ## 22. Design success criteria
 
@@ -1966,8 +1970,8 @@ This design is working if:
   allowed to change with its provider without changing the IR.
 - A caller reaches a provider with one function, without assembling a request or
   parsing SSE.
-- The HTTP and JSON layers can each be replaced without touching a codec, per
-  application, per provider, or per client.
+- The JSON layer can be replaced without touching a codec, per application, per
+  provider, or per client; HTTP is Finch.
 - A tool framework can be used directly; the library models tool wire data only
   and depends on no tool library.
 - Adding a protocol adapter does not require changing canonical messages.
@@ -2289,3 +2293,27 @@ project actually uses; Sora and Veo are not implemented.
 - multipart uploads (image edits/variations from a local file);
 - downloading media bytes, polling loops, retries, timeouts, or job persistence;
 - cost and model catalogs for media models.
+
+## 24. WebSocket transport
+
+WebSocket is a **transport**, not a completion protocol. `LlmCall.WS` is a
+behaviour with four synchronous operations:
+
+```elixir
+@callback connect(url, headers, opts) :: {:ok, conn} | {:error, term}
+@callback send_frame(conn, {:text | :binary, binary}) :: {:ok, conn} | {:error, term}
+@callback recv(conn, timeout) ::
+            {:ok, {:text | :binary, binary} | {:close, code, reason}, conn} | {:error, term}
+@callback close(conn, code, reason) :: :ok
+```
+
+`LlmCall.WS.Mint` implements it with `Mint.WebSocket`: it performs the upgrade,
+owns the socket in the calling process, answers pings inside `recv/2`, and
+returns a peer close as `{:close, code, reason}`. Connections are HTTP/1.1;
+Mint's HTTP/2 extended CONNECT is not used.
+
+Scope in 0.1 is the transport only. There is no realtime session API, no audio
+format handling, no VAD, and no `stream_id` multiplexing: a realtime layer would
+be a separate subsystem built on these four calls. The OpenAI and Azure
+Responses WebSocket transport also sits above this behaviour, not inside the
+codec.

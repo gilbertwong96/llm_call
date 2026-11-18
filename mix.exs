@@ -13,7 +13,7 @@ defmodule LlmCall.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
-        "LLM wire-protocol codecs with a canonical IR, a one-call client, and replaceable HTTP and JSON layers.",
+        "LLM wire-protocol codecs with a canonical IR, a one-call client on Finch, and a replaceable JSON layer.",
       package: package(),
       docs: docs(),
       dialyzer: [
@@ -45,6 +45,7 @@ defmodule LlmCall.MixProject do
   defp deps do
     [
       {:finch, "~> 0.24"},
+      {:mint_web_socket, "~> 1.0"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},

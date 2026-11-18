@@ -46,16 +46,15 @@ stream
 |> Stream.run()
 ```
 
-## Seams
+## JSON and transport
 
-HTTP and JSON are behaviours with defaults, resolved call option →
+HTTP is Finch. JSON is a behaviour with a default, resolved call option →
 provider → `config :llm_call, ...` → default:
 
 ```elixir
 # config/config.exs
 config :llm_call,
   json: Jason,
-  http: MyApp.HTTP,
   http_opts: [name: MyApp.Finch],
   timeout: 30_000
 ```
