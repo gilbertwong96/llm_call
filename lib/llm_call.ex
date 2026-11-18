@@ -90,13 +90,13 @@ defmodule LlmCall do
     with {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :init_stream, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config),
-         {:ok, body} <- encode_body(client, encoded.body),
+         {:ok, http_request} <- build_http_request(client, encoded),
          {:ok, state} <- codec.init_stream(request, client.config) do
       {:ok,
        %LlmCall.Stream{
          client: client,
          codec: codec,
-         http_request: build_http_request(client, encoded, body),
+         http_request: http_request,
          state: state
        }}
     end
@@ -194,17 +194,28 @@ defmodule LlmCall do
   end
 
   defp perform(%Client{} = client, %EncodedRequest{} = encoded) do
-    with {:ok, body} <- encode_body(client, encoded.body) do
-      request = build_http_request(client, encoded, body)
+    with {:ok, request} <- build_http_request(client, encoded) do
       normalize(client, client.http.request(request, client.http_opts))
     end
   end
 
-  defp build_http_request(%Client{} = client, %EncodedRequest{} = encoded, body) do
-    url = client.base_url <> encoded.path <> encode_query(encoded.query)
-    headers = client.headers ++ encoded.headers
+  defp build_http_request(%Client{} = client, %EncodedRequest{method: :get} = encoded) do
+    {:ok, HTTP.Request.get(url(client, encoded), headers(client, encoded), client.timeout)}
+  end
 
-    HTTP.Request.post(url, headers, body, client.timeout)
+  defp build_http_request(%Client{} = client, %EncodedRequest{method: :post} = encoded) do
+    with {:ok, body} <- encode_body(client, encoded.body) do
+      {:ok,
+       HTTP.Request.post(url(client, encoded), headers(client, encoded), body, client.timeout)}
+    end
+  end
+
+  defp url(%Client{} = client, %EncodedRequest{} = encoded) do
+    client.base_url <> encoded.path <> encode_query(encoded.query)
+  end
+
+  defp headers(%Client{} = client, %EncodedRequest{} = encoded) do
+    client.headers ++ encoded.headers
   end
 
   defp encode_body(_client, nil), do: {:ok, ""}
