@@ -229,7 +229,7 @@ defmodule LlmCall do
   end
 
   defp headers(%Client{} = client, %EncodedRequest{} = encoded) do
-    client.headers ++ encoded.headers
+    HTTP.merge_headers([client.headers, encoded.headers])
   end
 
   defp encode_body(_client, nil), do: {:ok, ""}
