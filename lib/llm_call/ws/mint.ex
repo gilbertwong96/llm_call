@@ -131,54 +131,91 @@ defmodule LlmCall.WS.Mint do
   end
 
   defp decode(responses, state, deadline) do
-    result =
-      Enum.reduce_while(responses, {:cont, state}, fn
-        {:data, _ref, data}, {:cont, state} ->
-          case Mint.WebSocket.decode(state.websocket, data) do
-            {:ok, websocket, frames} ->
-              state = %{state | websocket: websocket, pending: state.pending ++ frames}
-              {:cont, {:cont, state}}
+    case collect_responses(responses, state) do
+      {:ok, [], state} ->
+        do_recv(state, deadline)
 
-            {:error, _websocket, reason} ->
-              {:halt, {:error, reason}}
-          end
+      {:ok, [frame | rest], state} ->
+        {:ok, frame, %{state | pending: rest}}
 
-        {:error, _ref, reason}, _acc ->
-          {:halt, {:error, reason}}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-        {:done, _ref}, _acc ->
-          {:halt, {:error, :closed}}
+  @impl true
+  def feed(state, message) do
+    case Mint.WebSocket.stream(state.conn, message) do
+      {:ok, conn, responses} ->
+        collect_responses(responses, %{state | conn: conn})
 
-        _other, acc ->
-          {:cont, acc}
-      end)
+      {:error, _conn, reason, _responses} ->
+        {:error, reason}
 
-    case result do
-      {:cont, state} -> do_recv(state, deadline)
-      {:error, reason} -> {:error, reason}
+      :unknown ->
+        {:ok, [], state}
+    end
+  end
+
+  defp collect_responses(responses, state) do
+    Enum.reduce_while(responses, {:ok, [], state}, fn
+      {:data, _ref, data}, {:ok, frames, state} ->
+        case collect_data(data, state) do
+          {:ok, new_frames, state} -> {:cont, {:ok, frames ++ new_frames, state}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      {:error, _ref, reason}, _acc ->
+        {:halt, {:error, reason}}
+
+      {:done, _ref}, _acc ->
+        {:halt, {:error, :closed}}
+
+      _other, acc ->
+        {:cont, acc}
+    end)
+  end
+
+  defp collect_data(data, state) do
+    case Mint.WebSocket.decode(state.websocket, data) do
+      {:ok, websocket, decoded} -> collect(decoded, %{state | websocket: websocket}, [])
+      {:error, _websocket, reason} -> {:error, reason}
+    end
+  end
+
+  defp collect([], state, acc), do: {:ok, Enum.reverse(acc), state}
+
+  defp collect([frame | rest], state, acc) do
+    case frame do
+      {:text, _data} ->
+        collect(rest, state, [frame | acc])
+
+      {:binary, _data} ->
+        collect(rest, state, [frame | acc])
+
+      {:close, code, reason} ->
+        collect(rest, state, [{:close, code, reason} | acc])
+
+      ping when ping in [:ping, {:ping, ""}] or elem(ping, 0) == :ping ->
+        with {:ok, state} <- write(state, :pong), do: collect(rest, state, acc)
+
+      pong when pong in [:pong, {:pong, ""}] ->
+        collect(rest, state, acc)
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _other ->
+        collect(rest, state, acc)
     end
   end
 
   defp drain(%{pending: []} = state), do: {:cont, state}
 
-  defp drain(%{pending: [frame | rest]} = state) do
-    drain_frame(frame, %{state | pending: rest})
-  end
-
-  defp drain_frame({:text, _data} = frame, state), do: {:frame, frame, state}
-  defp drain_frame({:binary, _data} = frame, state), do: {:frame, frame, state}
-  defp drain_frame({:close, code, reason}, state), do: {:frame, {:close, code, reason}, state}
-
-  defp drain_frame(:ping, state), do: reply_pong(state)
-  defp drain_frame({:ping, _data}, state), do: reply_pong(state)
-
-  defp drain_frame(pong, state) when pong in [:pong, {:pong, ""}], do: drain(state)
-  defp drain_frame({:error, reason}, _state), do: {:error, reason}
-  defp drain_frame(_other, state), do: drain(state)
-
-  defp reply_pong(state) do
-    case write(state, :pong) do
-      {:ok, state} -> drain(state)
+  defp drain(state) do
+    case collect(state.pending, state, []) do
+      {:ok, [], state} -> {:cont, %{state | pending: []}}
+      {:ok, [frame | rest], state} -> {:frame, frame, %{state | pending: rest}}
       {:error, reason} -> {:error, reason}
     end
   end

@@ -1,44 +1,49 @@
 defmodule LlmCall.TestWSServer do
   @moduledoc """
-  A minimal RFC 6455 echo server for `LlmCall.WS.Mint` tests.
+  A minimal RFC 6455 server for transport and session tests.
 
-  The server performs the upgrade handshake, echoes client data frames, answers
-  pings, and lets the test push frames with `send_frame/2` or close with
-  `close/3`.
+  In `:echo` mode it echoes data frames (the `LlmCall.WS.Mint` tests). In
+  `:responses` mode it answers a `response.create` frame with a full Responses
+  event sequence; `:hold` mode sends only `response.created`, leaving the lane
+  in flight for reconnect tests. It records every text frame it receives.
   """
 
   @key :llm_call_test_ws_server
+  @listen_key :llm_call_test_ws_listen
   @guid "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-  def start do
+  def start(opts \\ []) do
     parent = self()
+    mode = Keyword.get(opts, :mode, :echo)
 
     pid =
       spawn_link(fn ->
         {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
         {:ok, port} = :inet.port(listen)
-        send(parent, {:ws_port, self(), port})
-        {:ok, socket} = :gen_tcp.accept(listen)
-        :gen_tcp.close(listen)
-        upgrade(socket)
-        loop(socket, "", true, [])
+        send(parent, {:ws_port, self(), port, listen})
+        serve(listen, %{buffer: "", mode: mode, pongs: [], frames: []})
       end)
 
-    port =
+    {port, listen} =
       receive do
-        {:ws_port, ^pid, port} -> port
+        {:ws_port, ^pid, port, listen} -> {port, listen}
       after
         5_000 -> raise "the test WebSocket server did not start"
       end
 
     Process.put(@key, {pid, port})
+    Process.put(@listen_key, listen)
     {pid, port}
   end
 
   def stop do
     case Process.get(@key) do
-      nil -> :ok
-      {pid, _port} -> send(pid, :stop)
+      nil ->
+        :ok
+
+      {pid, _port} ->
+        if listen = Process.get(@listen_key), do: :gen_tcp.close(listen)
+        send(pid, :stop)
     end
   end
 
@@ -47,14 +52,37 @@ defmodule LlmCall.TestWSServer do
     "ws://127.0.0.1:#{port}/ws"
   end
 
+  def set_mode(mode) when mode in [:echo, :responses, :hold] do
+    send(pid(), {:mode, mode, self()})
+
+    receive do
+      {:mode_set, ^mode} -> :ok
+    after
+      2_000 -> raise "the test WebSocket server did not switch mode"
+    end
+  end
+
+  def frames do
+    send(pid(), {:frames, self()})
+
+    receive do
+      {:frames, frames} -> frames
+    after
+      2_000 -> raise "the test WebSocket server did not answer frames/0"
+    end
+  end
+
   def send_frame(frame) do
-    {pid, _port} = Process.get(@key) || raise "LlmCall.TestWSServer.start/0 was not called"
-    send(pid, {:send, frame})
+    send(pid(), {:send, frame})
   end
 
   def close(code \\ 1000, reason \\ "") do
+    send(pid(), {:close, code, reason})
+  end
+
+  defp pid do
     {pid, _port} = Process.get(@key) || raise "LlmCall.TestWSServer.start/0 was not called"
-    send(pid, {:close, code, reason})
+    pid
   end
 
   defp upgrade(socket) do
@@ -95,60 +123,187 @@ defmodule LlmCall.TestWSServer do
     end
   end
 
-  defp loop(socket, buffer, echo?, pongs) do
+  defp serve(listen, state) do
+    owner = self()
+    acceptor = spawn_link(fn -> accept_loop(listen, owner) end)
+    control(listen, acceptor, state)
+  end
+
+  defp accept_loop(listen, owner) do
+    case :gen_tcp.accept(listen) do
+      {:ok, socket} ->
+        :gen_tcp.controlling_process(socket, owner)
+        send(owner, {:accepted, socket})
+        accept_loop(listen, owner)
+
+      {:error, :closed} ->
+        :ok
+    end
+  end
+
+  defp control(listen, acceptor, state) do
+    receive do
+      {:accepted, socket} ->
+        upgrade(socket)
+
+        case loop(socket, state) do
+          {:continue, state} -> control(listen, acceptor, state)
+          {:stop, _state} -> :gen_tcp.close(listen)
+        end
+
+      {:mode, mode, from} ->
+        send(from, {:mode_set, mode})
+        control(listen, acceptor, %{state | mode: mode})
+
+      {:frames, from} ->
+        send(from, {:frames, Enum.reverse(state.frames)})
+        control(listen, acceptor, state)
+
+      :stop ->
+        :gen_tcp.close(listen)
+        Process.exit(acceptor, :kill)
+    end
+  end
+
+  defp loop(socket, state) do
     receive do
       {:tcp, ^socket, data} ->
-        {frames, rest} = parse_frames(buffer <> data, [])
+        {frames, rest} = parse_frames(state.buffer <> data, [])
 
-        {echo?, pongs} =
-          Enum.reduce(frames, {echo?, pongs}, fn frame, acc ->
-            handle_frame(socket, frame, acc)
+        state =
+          Enum.reduce(frames, %{state | buffer: rest}, fn frame, state ->
+            handle_frame(socket, frame, state)
           end)
 
         :inet.setopts(socket, active: :once)
-        loop(socket, rest, echo?, pongs)
+        loop(socket, state)
+
+      {:tcp_closed, ^socket} ->
+        {:continue, state}
+
+      {:tcp_error, ^socket, _reason} ->
+        {:continue, state}
+
+      {:mode, mode, from} ->
+        send(from, {:mode_set, mode})
+        loop(socket, %{state | mode: mode})
+
+      {:frames, from} ->
+        send(from, {:frames, Enum.reverse(state.frames)})
+        loop(socket, state)
+
+      {:pongs, from} ->
+        send(from, {:pongs, Enum.reverse(state.pongs)})
+        loop(socket, state)
 
       {:send, frame} ->
         :gen_tcp.send(socket, encode_frame(frame))
-        loop(socket, buffer, echo?, pongs)
-
-      {:pongs, from} ->
-        send(from, {:pongs, Enum.reverse(pongs)})
-        loop(socket, buffer, echo?, pongs)
+        loop(socket, state)
 
       {:close, code, reason} ->
         :gen_tcp.send(socket, encode_frame({:close, code, reason}))
         :gen_tcp.close(socket)
+        {:continue, state}
 
       :stop ->
         :gen_tcp.close(socket)
+        {:stop, state}
     end
   end
 
-  defp handle_frame(socket, {:text, data}, {true, pongs}) do
-    :gen_tcp.send(socket, encode_frame({:text, data}))
-    {true, pongs}
+  defp handle_frame(socket, {:text, data}, state) do
+    state = %{state | frames: [{:text, data} | state.frames]}
+
+    case state.mode do
+      :echo -> :gen_tcp.send(socket, encode_frame({:text, data}))
+      mode -> respond(socket, data, mode)
+    end
+
+    state
   end
 
-  defp handle_frame(socket, {:binary, data}, {true, pongs}) do
-    :gen_tcp.send(socket, encode_frame({:binary, data}))
-    {true, pongs}
+  defp handle_frame(socket, {:binary, data}, state) do
+    state = %{state | frames: [{:binary, data} | state.frames]}
+    if state.mode == :echo, do: :gen_tcp.send(socket, encode_frame({:binary, data}))
+    state
   end
 
-  defp handle_frame(socket, :ping, {echo?, pongs}) do
+  defp handle_frame(socket, :ping, state) do
     :gen_tcp.send(socket, encode_frame({:pong, ""}))
-    {echo?, pongs}
+    state
   end
 
-  defp handle_frame(_socket, :pong, {echo?, pongs}) do
-    {echo?, [:pong | pongs]}
+  defp handle_frame(_socket, :pong, state), do: %{state | pongs: [:pong | state.pongs]}
+  defp handle_frame(_socket, {:close, _code, _reason}, state), do: state
+  defp handle_frame(_socket, _frame, state), do: state
+
+  defp respond(socket, data, mode) do
+    with %{} = event <- :json.decode(data),
+         "response.create" <- event["type"] do
+      stream_id = event["stream_id"]
+      hold? = mode == :hold
+
+      for response_event <- response_events(stream_id, hold?) do
+        :gen_tcp.send(socket, encode_frame({:text, encode(response_event)}))
+      end
+    else
+      _other -> :ok
+    end
   end
 
-  defp handle_frame(_socket, {:close, _code, _reason}, {echo?, pongs}) do
-    {echo?, pongs}
+  defp response_events(stream_id, hold?) do
+    created = %{
+      "type" => "response.created",
+      "response" => %{
+        "id" => "resp_#{stream_id}",
+        "object" => "response",
+        "model" => "fake-ws",
+        "status" => "in_progress"
+      }
+    }
+
+    if hold? do
+      [created]
+    else
+      [
+        created,
+        %{
+          "type" => "response.output_item.added",
+          "output_index" => 0,
+          "item" => %{"type" => "message", "role" => "assistant"}
+        },
+        %{
+          "type" => "response.content_part.added",
+          "output_index" => 0,
+          "part" => %{"type" => "output_text", "text" => ""}
+        },
+        %{"type" => "response.output_text.delta", "output_index" => 0, "delta" => "hello"},
+        %{"type" => "response.content_part.done", "output_index" => 0},
+        %{
+          "type" => "response.output_item.done",
+          "output_index" => 0,
+          "item" => %{"type" => "message"}
+        },
+        %{
+          "type" => "response.completed",
+          "response" => %{
+            "id" => "resp_#{stream_id}",
+            "status" => "completed",
+            "usage" => usage()
+          }
+        }
+      ]
+      |> Enum.map(&with_stream_id(&1, stream_id))
+    end
   end
 
-  defp handle_frame(_socket, _frame, acc), do: acc
+  defp with_stream_id(event, stream_id), do: Map.put(event, "stream_id", stream_id)
+
+  defp usage do
+    %{"input_tokens" => 1, "output_tokens" => 1, "total_tokens" => 2}
+  end
+
+  defp encode(event), do: event |> :json.encode() |> IO.iodata_to_binary()
 
   defp parse_frames(buffer, acc) do
     case decode_frame(buffer) do

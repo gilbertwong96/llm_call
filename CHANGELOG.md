@@ -17,8 +17,11 @@ back to `llm_call` because it now ships the client that name promised.
   resolved call option → provider → `config :llm_call, ...` → default. The
   transport is not replaceable.
 - WebSocket transport: the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, with
-  the upgrade, text/binary frames, ping handling and peer close. No realtime
-  session API.
+  the upgrade, text/binary frames, ping handling and peer close.
+- Responses WebSocket session: one connection multiplexed by `stream_id`,
+  `response.create`/`response.steer`/`response.cancel`, per-lane event decoding,
+  and reconnect before the 60-minute limit. In-flight responses are reported as
+  interrupted, not silently resumed. No realtime audio session.
 - Streaming in the library: `LlmCall.SSE` framing, `LlmCall.Stream` as a lazy
   `Enumerable`, `stream/3`'s `on_event:` observer, and `LlmCall.HTTP.Error` for
   mid-stream failures.

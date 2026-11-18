@@ -32,6 +32,15 @@ defmodule LlmCall.WS do
   @callback connect(url(), [{String.t(), String.t()}], keyword()) ::
               {:ok, conn()} | {:error, error()}
 
+  @doc """
+  Decodes one socket message delivered to the process that called `connect/3`.
+
+  A session that owns the connection in active mode calls this from its message
+  loop; `recv/2` is the blocking alternative. The function also answers pings and
+  reports a close as `{:close, code, reason}`.
+  """
+  @callback feed(conn(), term()) :: {:ok, [received()], conn()} | {:error, error()}
+
   @doc "Writes one data frame."
   @callback send_frame(conn(), frame()) :: {:ok, conn()} | {:error, error()}
 
