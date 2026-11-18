@@ -65,10 +65,11 @@ defmodule LlmCall.Provider do
   end
 
   defp headers(declaration, opts) do
-    merge_headers(
-      auth_headers(declaration.auth, opts[:api_key]) ++
-        declaration.headers ++ Keyword.get(opts, :headers, [])
-    )
+    HTTP.merge_headers([
+      auth_headers(declaration.auth, opts[:api_key]),
+      declaration.headers,
+      Keyword.get(opts, :headers, [])
+    ])
   end
 
   defp resolve(key, opts, declaration, default) do
@@ -76,15 +77,6 @@ defmodule LlmCall.Provider do
   end
 
   defp base_config(opts, _declaration), do: opts[:config] || Config.new()
-
-  defp merge_headers(headers) do
-    headers
-    |> Enum.reduce([], fn {name, value}, acc ->
-      name = name |> to_string() |> String.downcase()
-      [{name, value} | Enum.reject(acc, fn {existing, _} -> existing == name end)]
-    end)
-    |> Enum.reverse()
-  end
 
   defp put_json(config, nil), do: config
   defp put_json(%Config{} = config, json), do: %{config | json: json}

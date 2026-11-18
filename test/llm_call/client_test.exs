@@ -172,6 +172,25 @@ defmodule LlmCall.ClientTest do
              Enum.filter(client.headers, fn {name, _} -> name == "authorization" end)
   end
 
+  test "the codec's protocol header replaces a caller header of the same name" do
+    FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
+
+    client =
+      LlmCall.Examples.OpenAI.client(
+        api_key: "k",
+        http: FakeHTTP,
+        headers: [{"Content-Type", "text/plain"}]
+      )
+
+    {:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request())
+    assert {:ok, _} = LlmCall.execute(client, encoded)
+
+    assert [sent] = FakeHTTP.requests()
+
+    assert [{"content-type", "application/json"}] =
+             Enum.filter(sent.headers, fn {name, _} -> name == "content-type" end)
+  end
+
   test "the application environment supplies the seam defaults" do
     on_exit(fn -> Application.delete_env(:llm_call, :http) end)
     Application.put_env(:llm_call, :http, FakeHTTP)
