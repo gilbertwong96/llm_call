@@ -24,6 +24,12 @@ defmodule LlmCall.Provider do
   (`/v1/chat/completions`, `/v1beta/models/...`), so a provider whose base URL
   already ends in `/v1` would produce `/v1/v1/...`.
 
+  Declaration values are literals: `use` receives its options before the module
+  body runs, so `base_url: @url` or `base_url: Application.fetch_env!(...)` is a
+  compile error. Read a dynamic value where it is known instead —
+  `MyProvider.client(api_key: key, base_url: System.fetch_env!("OPENAI_URL"))` —
+  or set `config :llm_call, ...`.
+
   ## Seams
 
   `http`, `http_opts`, `json` and `timeout` may be declared here, and each
@@ -103,23 +109,26 @@ defmodule LlmCall.Provider do
     raise ArgumentError, "api_key must be a string, got: #{inspect(other)}"
   end
 
-  defp assert_literal!(opts, key, caller) do
+  defp required_literal!(opts, key, caller) do
+    literal!(opts, key, caller, :missing)
+  end
+
+  defp literal!(opts, key, caller, default) do
     case Keyword.fetch(opts, key) do
       :error ->
-        :ok
+        default
 
       {:ok, value} ->
-        unless literal?(value, caller) do
+        expanded = Macro.prewalk(value, &Macro.expand(&1, caller))
+
+        unless Macro.quoted_literal?(expanded) do
           raise ArgumentError,
                 "provider option #{inspect(key)} must be a literal value; " <>
                   "got: #{Macro.to_string(value)}"
         end
-    end
-  end
 
-  defp literal?(value, caller) do
-    expanded = Macro.expand(value, caller)
-    Macro.quoted_literal?(expanded)
+        expanded
+    end
   end
 
   defp expand({module, function}, caller) when is_atom(function) do
@@ -138,19 +147,19 @@ defmodule LlmCall.Provider do
       raise ArgumentError, "provider declares the same codec name twice: #{inspect(codecs)}"
     end
 
-    assert_literal!(opts, :base_url, __CALLER__)
-    assert_literal!(opts, :headers, __CALLER__)
-    assert_literal!(opts, :http_opts, __CALLER__)
-    assert_literal!(opts, :timeout, __CALLER__)
+    base_url = required_literal!(opts, :base_url, __CALLER__)
+    headers = literal!(opts, :headers, __CALLER__, [])
+    http_opts = literal!(opts, :http_opts, __CALLER__, nil)
+    timeout = literal!(opts, :timeout, __CALLER__, nil)
 
     declaration = %{
-      base_url: Keyword.fetch!(opts, :base_url),
+      base_url: base_url,
       codecs: codecs,
       auth: expand(Keyword.get(opts, :auth, :none), __CALLER__),
-      headers: Keyword.get(opts, :headers, []),
+      headers: headers,
       http: expand(Keyword.get(opts, :http), __CALLER__),
-      http_opts: Keyword.get(opts, :http_opts),
-      timeout: Keyword.get(opts, :timeout),
+      http_opts: http_opts,
+      timeout: timeout,
       json: expand(Keyword.get(opts, :json), __CALLER__)
     }
 

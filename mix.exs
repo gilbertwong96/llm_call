@@ -68,6 +68,7 @@ defmodule LlmCall.MixProject do
 
   defp docs do
     [
+      filter_modules: ~r/^Elixir\.LlmCall(?!\.Examples)/,
       main: "readme",
       extras: ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "docs/design.md"],
       source_url: @source_url
