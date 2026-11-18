@@ -67,16 +67,7 @@ defmodule LlmCall do
          {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :encode_request, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config) do
-      case perform(client, encoded) do
-        {:ok, %{status: status} = response} when status in 200..299 ->
-          decode_success(client, codec, response)
-
-        {:ok, response} ->
-          decode_failure(client, codec, response)
-
-        {:error, %Error{}} = error ->
-          error
-      end
+      call_and_decode(client, encoded, codec, &codec.decode_response(&1, client.config))
     end
   end
 
@@ -108,6 +99,53 @@ defmodule LlmCall do
          http_request: build_http_request(client, encoded, body),
          state: state
        }}
+    end
+  end
+
+  @doc """
+  Submits a media generation request.
+
+  `codec:` is required and names an entry in the provider's `codecs` map (for
+  example `:images`, `:predict`, `:video`). The codec validates and encodes the
+  submit, and decodes the response into `%LlmCall.Media.Response{}` — assets, or a
+  queued `%LlmCall.Operation{}` whose `next` is the request to run with `poll/3`.
+  """
+  @spec generate(Client.t(), LlmCall.Media.Request.t(), keyword()) ::
+          {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
+  def generate(%Client{} = client, %LlmCall.Media.Request{} = request, opts \\ []) do
+    with {:ok, codec} <- fetch_media_codec(client, opts),
+         :ok <- require_callback(codec, :encode_submit, 2),
+         {:ok, encoded} <- codec.encode_submit(request, client.config) do
+      call_and_decode(client, encoded, codec, &codec.decode_submit(&1, client.config))
+    end
+  end
+
+  @doc """
+  Advances a media operation.
+
+  Accepts a `%LlmCall.Operation{}` (its `next` is executed) or the
+  `%LlmCall.EncodedRequest{}` to run, decodes the body with the codec's
+  `decode_operation/2`, and returns the next operation state. `codec:` is
+  required, because an operation does not carry it.
+  """
+  @spec poll(Client.t(), LlmCall.Operation.t() | EncodedRequest.t(), keyword()) ::
+          {:ok, LlmCall.Operation.t()} | {:error, Error.t()}
+  def poll(client, operation_or_encoded, opts \\ [])
+
+  def poll(%Client{} = client, %LlmCall.Operation{} = operation, opts) do
+    case operation.next do
+      %EncodedRequest{} = encoded ->
+        poll(client, encoded, opts)
+
+      nil ->
+        {:error, invalid("the operation has no next request", :validation)}
+    end
+  end
+
+  def poll(%Client{} = client, %EncodedRequest{} = encoded, opts) do
+    with {:ok, codec} <- fetch_media_codec(client, opts),
+         :ok <- require_callback(codec, :decode_operation, 2) do
+      call_and_decode(client, encoded, codec, &codec.decode_operation(&1, client.config))
     end
   end
 
@@ -186,9 +224,18 @@ defmodule LlmCall do
     {:error, transport_error("transport error: #{inspect(reason)}", nil)}
   end
 
-  defp decode_success(%Client{} = client, codec, response) do
-    with {:ok, %{body: body}} <- decode_json_body(client, response) do
-      codec.decode_response(body, client.config)
+  defp call_and_decode(%Client{} = client, encoded, codec, decode_fun) do
+    case perform(client, encoded) do
+      {:ok, %{status: status} = response} when status in 200..299 ->
+        with {:ok, %{body: body}} <- decode_json_body(client, response) do
+          decode_fun.(body)
+        end
+
+      {:ok, response} ->
+        decode_failure(client, codec, response)
+
+      {:error, %Error{}} = error ->
+        error
     end
   end
 
@@ -219,17 +266,31 @@ defmodule LlmCall do
     name = Keyword.get(opts, :codec, @default_codec)
 
     case Client.codec(client, name) do
-      nil ->
-        {:error,
-         invalid(
-           "#{inspect(client.provider)} does not declare a #{inspect(name)} codec; " <>
-             "declared: #{inspect(Map.keys(client.codecs))}",
-           :validation
-         )}
-
-      codec ->
-        {:ok, codec}
+      nil -> {:error, undeclared(client, name)}
+      codec -> {:ok, codec}
     end
+  end
+
+  defp fetch_media_codec(%Client{} = client, opts) do
+    case Keyword.fetch(opts, :codec) do
+      {:ok, name} ->
+        case Client.codec(client, name) do
+          nil -> {:error, undeclared(client, name)}
+          codec -> {:ok, codec}
+        end
+
+      :error ->
+        {:error,
+         invalid("a media call requires codec: (for example codec: :images)", :validation)}
+    end
+  end
+
+  defp undeclared(%Client{} = client, name) do
+    invalid(
+      "#{inspect(client.provider)} does not declare a #{inspect(name)} codec; " <>
+        "declared: #{inspect(Map.keys(client.codecs))}",
+      :validation
+    )
   end
 
   defp reject_streaming(%LlmCall.Request{stream: true}) do
