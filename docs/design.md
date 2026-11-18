@@ -2337,9 +2337,13 @@ Enum.to_list(stream)
 - `store` and `previous_response_id` stay in the request's `provider_options`;
   the session does not model server-side conversation state.
 - The session reconnects before the 60-minute limit (`:max_age_ms`, default 55
-  minutes) and on an unexpected close. An in-flight response cannot be resumed:
-  its subscriber receives a `:transport` error, and new creates work on the new
-  connection. Continuing a conversation is the caller's decision.
+  minutes) and on an unexpected close, with exponential backoff
+  (`:retry_delay_ms` 5s, `:max_retry_delay_ms` 60s) and a bounded budget
+  (`:max_reconnect_attempts`, default 5; `:infinity` for unbounded retries).
+  A failed reconnect does **not** stop the session: it becomes `:disconnected`,
+  `create/3` returns a `:transport` error, and `reconnect/1` retries on demand.
+- An in-flight response cannot be resumed: its subscriber receives a
+  `:transport` error. Continuing a conversation is the caller's decision.
 - The URL is built from the client's `base_url` plus the Responses path, with
   `http`/`https` mapped to `ws`/`wss`; Azure's `/openai` base path is preserved.
 

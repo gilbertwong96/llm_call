@@ -14,11 +14,19 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   ## Reconnect
 
   A Responses WebSocket may live for at most 60 minutes. The session reconnects
-  before that (`:max_age_ms`, default 55 minutes) and on an unexpected close.
+  before that (`:max_age_ms`, default 55 minutes) and on an unexpected close,
+  with exponential backoff (`:retry_delay_ms` 5s, `:max_retry_delay_ms` 60s) and
+  a bounded number of attempts (`:max_reconnect_attempts`, default 5; `:infinity`
+  to retry forever).
+
+  A failed reconnect does not stop the session: it becomes `:disconnected`,
+  `create/3` and `steer/3` return a `:transport` error, and the retry loop keeps
+  running until the budget is exhausted. `reconnect/1` attempts immediately and
+  resets the budget.
+
   An in-flight lane cannot be resumed: its subscriber receives a `:transport`
-  error, and new `create/3` calls work on the new connection. Continuing a
-  conversation across a reconnect is the caller's decision, using
-  `previous_response_id` and the input it wants to resend.
+  error. Continuing a conversation across a reconnect is the caller's decision,
+  using `previous_response_id` and the input it wants to resend.
   """
 
   use GenServer
@@ -78,41 +86,74 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
 
   @impl true
   def init(opts) do
+    case session_config(opts) do
+      {:ok, config} ->
+        case connect(config.client, config.ws, config.ws_opts) do
+          {:ok, conn} -> {:ok, schedule_max_age(%{config | conn: conn})}
+          {:error, reason} -> {:stop, {:connect_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:stop, reason}
+    end
+  end
+
+  defp session_config(opts) do
     client = Keyword.get(opts, :client)
     ws = Keyword.get(opts, :ws, WS.Mint)
     ws_opts = Keyword.get(opts, :ws_opts, [])
     max_age = Keyword.get(opts, :max_age_ms, @default_max_age)
     reconnect? = Keyword.get(opts, :reconnect, true)
+    max_attempts = Keyword.get(opts, :max_reconnect_attempts, 5)
+    retry_delay = Keyword.get(opts, :retry_delay_ms, 5_000)
+    max_retry_delay = Keyword.get(opts, :max_retry_delay_ms, 60_000)
 
-    cond do
-      not match?(%Client{}, client) ->
-        {:stop, :client_required}
-
-      not is_integer(max_age) or max_age <= 0 ->
-        {:stop, :invalid_max_age}
-
-      true ->
-        case connect(client, ws, ws_opts) do
-          {:ok, conn} ->
-            {:ok,
-             schedule(%{
-               client: client,
-               ws: ws,
-               ws_opts: ws_opts,
-               conn: conn,
-               max_age: max_age,
-               reconnect?: reconnect?,
-               timer: nil,
-               lanes: %{}
-             })}
-
-          {:error, reason} ->
-            {:stop, {:connect_failed, reason}}
-        end
+    with :ok <- validate_client(client),
+         :ok <- validate_max_age(max_age),
+         :ok <- validate_attempts(max_attempts),
+         :ok <- validate_delays(retry_delay, max_retry_delay) do
+      {:ok,
+       %{
+         client: client,
+         ws: ws,
+         ws_opts: ws_opts,
+         conn: nil,
+         status: :connected,
+         max_age: max_age,
+         reconnect?: reconnect?,
+         max_reconnect_attempts: max_attempts,
+         retry_delay: retry_delay,
+         max_retry_delay: max_retry_delay,
+         retry_attempts: 0,
+         max_age_timer: nil,
+         retry_timer: nil,
+         lanes: %{}
+       }}
     end
   end
 
+  defp validate_client(%Client{}), do: :ok
+  defp validate_client(_client), do: {:error, :client_required}
+
+  defp validate_max_age(max_age) when is_integer(max_age) and max_age > 0, do: :ok
+  defp validate_max_age(_max_age), do: {:error, :invalid_max_age}
+
+  defp validate_attempts(:infinity), do: :ok
+  defp validate_attempts(attempts) when is_integer(attempts) and attempts >= 0, do: :ok
+  defp validate_attempts(_attempts), do: {:error, :invalid_max_reconnect_attempts}
+
+  defp validate_delays(retry_delay, max_retry_delay)
+       when is_integer(retry_delay) and retry_delay > 0 and
+              is_integer(max_retry_delay) and max_retry_delay >= retry_delay,
+       do: :ok
+
+  defp validate_delays(_retry_delay, _max_retry_delay), do: {:error, :invalid_retry_delay}
+
   @impl true
+  def handle_call({:create, _request, _opts}, _from, %{status: :disconnected} = state) do
+    {:reply, {:error, disconnected_error()}, state}
+  end
+
   def handle_call({:create, request, opts}, {pid, _tag}, state) do
     stream_id =
       Keyword.get(opts, :stream_id) ||
@@ -153,6 +194,10 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
     end
   end
 
+  def handle_call({:steer, _stream_id, _input}, _from, %{status: :disconnected} = state) do
+    {:reply, {:error, disconnected_error()}, state}
+  end
+
   def handle_call({:steer, stream_id, input}, _from, state) do
     with {:ok, _lane} <- Map.fetch(state.lanes, stream_id),
          {:ok, json} <-
@@ -184,9 +229,11 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   end
 
   def handle_call(:reconnect, _from, state) do
+    state = %{state | retry_attempts: 0}
+
     case do_reconnect(state, :reconnected) do
       {:ok, state} -> {:reply, :ok, state}
-      {:error, reason} -> {:reply, {:error, transport(reason)}, state}
+      {:error, error, state} -> {:reply, {:error, transport(error)}, state}
     end
   end
 
@@ -203,14 +250,27 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   end
 
   @impl true
-  def handle_info(:reconnect, state) do
+  def handle_info(:max_age, %{reconnect?: false} = state) do
+    {:stop, {:shutdown, :max_age}, state}
+  end
+
+  def handle_info(:max_age, state) do
     case do_reconnect(state, :max_age) do
       {:ok, state} -> {:noreply, state}
-      {:error, reason} -> {:stop, {:shutdown, reason}, state}
+      {:error, _error, state} -> {:noreply, state}
     end
   end
 
-  def handle_info(message, state) when is_tuple(message) do
+  def handle_info(:retry, state) do
+    state = %{state | retry_timer: nil}
+
+    case connect(state.client, state.ws, state.ws_opts) do
+      {:ok, conn} -> {:noreply, connected(%{state | conn: conn})}
+      {:error, _error} -> {:noreply, schedule_retry(state)}
+    end
+  end
+
+  def handle_info(message, %{status: :connected} = state) when is_tuple(message) do
     case safe_feed(state.ws, state.conn, message) do
       {:ok, frames, conn} ->
         case dispatch(frames, %{state | conn: conn}) do
@@ -223,9 +283,12 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
     end
   end
 
+  def handle_info(_message, state), do: {:noreply, state}
+
   @impl true
   def terminate(_reason, state) do
-    cancel_timer(state)
+    state = cancel_max_age(state)
+    state = cancel_retry(state)
     safe_close(state.ws, state.conn)
     :ok
   end
@@ -341,24 +404,23 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
 
   defp do_reconnect(state, reason) do
     notify_lanes(state, interrupted(reason))
-    cancel_timer(state)
+    state = %{state | lanes: %{}} |> cancel_max_age() |> cancel_retry()
     safe_close(state.ws, state.conn)
 
     case connect(state.client, state.ws, state.ws_opts) do
-      {:ok, conn} -> {:ok, schedule(%{state | conn: conn, lanes: %{}})}
-      {:error, error} -> {:error, error}
+      {:ok, conn} -> {:ok, connected(%{state | conn: conn})}
+      {:error, error} -> {:error, error, disconnected(%{state | conn: nil})}
     end
   end
 
   defp disconnect(state, reason) do
+    notify_lanes(state, interrupted(reason))
+    state = %{state | lanes: %{}}
+
     if state.reconnect? do
-      case do_reconnect(state, reason) do
-        {:ok, state} -> {:noreply, state}
-        {:error, error} -> {:stop, {:shutdown, error}, state}
-      end
+      {:noreply, disconnected(state)}
     else
-      notify_lanes(state, interrupted(reason))
-      {:stop, {:shutdown, reason}, %{state | lanes: %{}}}
+      {:stop, {:shutdown, reason}, state}
     end
   end
 
@@ -388,15 +450,53 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp schedule(state) do
-    %{state | timer: Process.send_after(self(), :reconnect, state.max_age)}
+  defp connected(state) do
+    state = %{state | status: :connected, retry_attempts: 0}
+    state = cancel_retry(state)
+    schedule_max_age(state)
   end
 
-  defp cancel_timer(%{timer: nil}), do: :ok
+  defp disconnected(state) do
+    state = %{state | status: :disconnected, conn: nil, lanes: %{}, max_age_timer: nil}
+    state = cancel_max_age(state)
 
-  defp cancel_timer(%{timer: timer}) do
+    if state.reconnect?, do: schedule_retry(state), else: state
+  end
+
+  defp schedule_max_age(state) do
+    state = cancel_max_age(state)
+    %{state | max_age_timer: Process.send_after(self(), :max_age, state.max_age)}
+  end
+
+  defp schedule_retry(state) do
+    attempts = state.retry_attempts + 1
+
+    if retry_allowed?(state, attempts) do
+      factor = Integer.pow(2, min(attempts - 1, 10))
+      delay = min(state.retry_delay * factor, state.max_retry_delay)
+      %{state | retry_attempts: attempts, retry_timer: Process.send_after(self(), :retry, delay)}
+    else
+      %{state | retry_attempts: attempts, retry_timer: nil}
+    end
+  end
+
+  defp retry_allowed?(%{max_reconnect_attempts: :infinity}, _attempts), do: true
+
+  defp retry_allowed?(state, attempts),
+    do: attempts <= state.max_reconnect_attempts
+
+  defp cancel_max_age(%{max_age_timer: nil} = state), do: state
+
+  defp cancel_max_age(%{max_age_timer: timer} = state) do
     Process.cancel_timer(timer)
-    :ok
+    %{state | max_age_timer: nil}
+  end
+
+  defp cancel_retry(%{retry_timer: nil} = state), do: state
+
+  defp cancel_retry(%{retry_timer: timer} = state) do
+    Process.cancel_timer(timer)
+    %{state | retry_timer: nil}
   end
 
   defp validate_stream_id(stream_id) when is_binary(stream_id) do
@@ -421,10 +521,19 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
     }
   end
 
+  defp safe_close(_ws, nil), do: :ok
+
   defp safe_close(ws, conn) do
     ws.close(conn, 1000, "session closing")
   rescue
     _error -> :ok
+  end
+
+  defp disconnected_error do
+    %Error{
+      kind: :transport,
+      message: "responses session is disconnected; call reconnect/1 or retry later"
+    }
   end
 
   defp safe_feed(ws, conn, message) do
