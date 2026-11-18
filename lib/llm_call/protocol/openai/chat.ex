@@ -18,6 +18,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
                            ~w(temperature top_p max_tokens stop seed)
   @stream_reserved_keys ~w(include_usage)
   @tool_reserved_keys ~w(name description parameters strict)
+  @builtin_tools false
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
   @efforts [:none, :minimal, :low, :medium, :high]
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
@@ -479,6 +480,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   def capabilities(%Request{}, _config) do
     %Capabilities{
       tools: true,
+      builtin_tools: @builtin_tools,
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :json_schema,

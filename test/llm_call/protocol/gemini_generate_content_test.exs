@@ -350,6 +350,18 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
     assert String.starts_with?(delta.arguments, "MARKER:")
   end
 
+  test "hosted tools pass through as their provider key" do
+    tools = [
+      %ToolSpec{name: "f", parameters: %{"type" => "object"}},
+      %ToolSpec{kind: :builtin, name: "google_search"}
+    ]
+
+    body = encode(text_request(tools: tools)).body
+
+    assert [%{"functionDeclarations" => [_declaration]}, %{"google_search" => %{}}] =
+             body["tools"]
+  end
+
   test "the provider_options container is validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =
@@ -537,7 +549,6 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
   test "unsupported canonical values are validation errors, never silent drops" do
     cases = [
       text_request(params: %{seed: 1}),
-      text_request(tools: [%ToolSpec{kind: :builtin, name: "google_search"}]),
       text_request(output: {:json_schema, "x", %{}, true}),
       text_request(
         messages: [%Message{role: :user, content: [%Content.Image{source: {:file_id, "f"}}]}]

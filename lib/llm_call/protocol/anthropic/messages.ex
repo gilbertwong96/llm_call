@@ -16,6 +16,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   @default_reserved_keys @envelope_keys ++
                            ~w(tool_choice max_tokens temperature top_p top_k stop_sequences)
   @tool_reserved_keys ~w(name description input_schema)
+  @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(type budget_tokens)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
@@ -146,13 +147,17 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp encode_tools([]), do: nil
 
   defp encode_tools(specs) do
-    Enum.map(specs, fn %ToolSpec{} = spec ->
-      %{
-        "name" => spec.name,
-        "input_schema" => spec.parameters || %{"type" => "object", "properties" => %{}}
-      }
-      |> Helpers.maybe_put("description", spec.description)
-      |> Config.deep_merge(tool_options(spec))
+    Enum.map(specs, fn
+      %ToolSpec{kind: :builtin} = spec ->
+        %{"type" => spec.name} |> Config.deep_merge(tool_options(spec))
+
+      %ToolSpec{} = spec ->
+        %{
+          "name" => spec.name,
+          "input_schema" => spec.parameters || %{"type" => "object", "properties" => %{}}
+        }
+        |> Helpers.maybe_put("description", spec.description)
+        |> Config.deep_merge(tool_options(spec))
     end)
   end
 
@@ -286,7 +291,11 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_native_tool_choice(_options), do: :ok
 
   defp validate_tool_spec(spec) do
-    with :ok <- Helpers.validate_tool_spec(spec, @codec, options: true) do
+    with :ok <-
+           Helpers.validate_tool_spec(spec, @codec,
+             options: true,
+             builtin_tools: @builtin_tools
+           ) do
       Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
     end
   end
@@ -431,6 +440,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   def capabilities(%Request{}, _config) do
     %Capabilities{
       tools: true,
+      builtin_tools: @builtin_tools,
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :none,

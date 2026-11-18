@@ -387,6 +387,32 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
     assert [%{"input" => %{"city" => "Oslo"}}] = hd(body["messages"])["content"]
   end
 
+  test "hosted tools pass through as their provider type" do
+    tools = [
+      %ToolSpec{kind: :builtin, name: "web_search_20250305", provider_options: %{"max_uses" => 5}}
+    ]
+
+    body = encode(text_request(tools: tools)).body
+
+    assert body["tools"] == [
+             %{"type" => "web_search_20250305", "max_uses" => 5}
+           ]
+
+    assert {:error, %Error{kind: :validation}} =
+             Messages.validate_request(
+               text_request(
+                 tools: [%ToolSpec{kind: :builtin, name: "web_search", parameters: %{}}]
+               ),
+               %Config{}
+             )
+
+    assert {:error, %Error{kind: :validation}} =
+             Messages.validate_request(
+               text_request(tools: [%ToolSpec{kind: :builtin, name: "web_search", strict: true}]),
+               %Config{}
+             )
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =
@@ -440,7 +466,6 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
       text_request(output: :json_object),
       text_request(output: {:json_schema, "x", %{}, nil}),
       text_request(tools: [%ToolSpec{name: "f"}], tool_choice: {:allowed, ["f"]}),
-      text_request(tools: [%ToolSpec{kind: :builtin, name: "web_search"}]),
       text_request(params: %{max_tokens: nil, top_k: nil}),
       text_request(messages: [%Message{role: :assistant, content: []}]),
       text_request(

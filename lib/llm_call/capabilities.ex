@@ -5,6 +5,11 @@ defmodule LlmCall.Capabilities do
   Capabilities are explicit so unsupported canonical fields can be rejected
   before a transport sends anything, instead of being dropped silently.
 
+  `builtin_tools` declares provider-hosted tools (web search, grounding, server
+  tools): `false` rejects them, `:passthrough` forwards any name the caller
+  supplies, and a list forwards only those names. The library never interprets a
+  hosted tool's name; it is the provider's own identifier.
+
   They are **protocol-level**: `capabilities/2` takes the request for signature
   symmetry but does not inspect the model. A model-specific limit surfaces as a
   provider error, not a fabricated local guess.
@@ -12,6 +17,7 @@ defmodule LlmCall.Capabilities do
 
   @type t :: %__MODULE__{
           tools: boolean(),
+          builtin_tools: false | :passthrough | [String.t()],
           parallel_tool_calls: boolean(),
           tool_choice: boolean(),
           structured_output: :none | :json_object | :json_schema,
@@ -26,6 +32,7 @@ defmodule LlmCall.Capabilities do
         }
 
   defstruct tools: false,
+            builtin_tools: false,
             parallel_tool_calls: false,
             tool_choice: false,
             structured_output: :none,

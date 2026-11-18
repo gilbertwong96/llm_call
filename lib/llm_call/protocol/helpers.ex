@@ -536,8 +536,15 @@ defmodule LlmCall.Protocol.Helpers do
   rejected. `options: true` lets the protocol forward `provider_options`.
   """
   @spec validate_tool_spec(ToolSpec.t(), codec(), keyword()) :: :ok | {:error, Error.t()}
-  def validate_tool_spec(%ToolSpec{kind: :builtin}, codec, _opts),
-    do: error(codec, "builtin tools are not supported")
+  def validate_tool_spec(%ToolSpec{kind: :builtin} = spec, codec, opts) do
+    with :ok <- validate_builtin_name(spec, codec),
+         :ok <- validate_builtin_shape(spec, codec),
+         :ok <- validate_builtin_allowed(spec, codec, Keyword.get(opts, :builtin_tools, false)) do
+      if Keyword.get(opts, :options, false),
+        do: validate_options(spec.provider_options, codec, "tool provider_options"),
+        else: :ok
+    end
+  end
 
   def validate_tool_spec(%ToolSpec{name: name} = spec, codec, opts)
       when is_binary(name) and name != "" do
@@ -561,6 +568,32 @@ defmodule LlmCall.Protocol.Helpers do
 
   def validate_tool_spec(_spec, codec, _opts),
     do: error(codec, "tools must be LlmCall.ToolSpec structs")
+
+  defp validate_builtin_name(%ToolSpec{name: name}, _codec)
+       when is_binary(name) and name != "",
+       do: :ok
+
+  defp validate_builtin_name(_spec, codec), do: error(codec, "builtin tool requires a name")
+
+  defp validate_builtin_shape(%ToolSpec{parameters: nil, strict: nil}, _codec), do: :ok
+
+  defp validate_builtin_shape(_spec, codec) do
+    error(codec, "builtin tools take provider_options, not parameters or strict")
+  end
+
+  defp validate_builtin_allowed(_spec, _codec, :passthrough), do: :ok
+
+  defp validate_builtin_allowed(_spec, codec, false),
+    do: error(codec, "builtin tools are not supported")
+
+  defp validate_builtin_allowed(%ToolSpec{name: name}, codec, allowed) when is_list(allowed) do
+    if name in allowed,
+      do: :ok,
+      else: error(codec, "builtin tool #{inspect(name)} is not in the declared list")
+  end
+
+  defp validate_builtin_allowed(_spec, codec, _other),
+    do: error(codec, "builtin tools are not supported")
 
   @doc """
   Validates that a `params` map only contains supported keys.

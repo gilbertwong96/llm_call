@@ -462,6 +462,7 @@ defmodule LlmCall.Codec.Conformance do
     assert %Capabilities{} = capabilities = codec.capabilities(request, config)
 
     check_tools(codec, request, config, capabilities)
+    check_builtin_tools(codec, request, config, capabilities.builtin_tools)
     check_tool_choice(codec, request, config, capabilities)
     check_output(codec, request, config, capabilities.structured_output)
     check_modalities(codec, request, config, capabilities.modalities)
@@ -507,6 +508,50 @@ defmodule LlmCall.Codec.Conformance do
 
   defp check_tools(_codec, _request, _config, %Capabilities{tools: other}) do
     flunk("Capabilities.tools must be a boolean, got: #{inspect(other)}")
+  end
+
+  defp check_builtin_tools(codec, request, config, false) do
+    expect_rejection(
+      codec,
+      with_field(request, :tools, [builtin_tool("web_search")]),
+      config,
+      "declares builtin_tools: false but accepts a hosted tool"
+    )
+  end
+
+  defp check_builtin_tools(codec, request, config, :passthrough) do
+    assert :ok ==
+             codec.validate_request(
+               with_field(request, :tools, [builtin_tool("any_vendor_tool_id")]),
+               config
+             ),
+           "#{inspect(codec)} declares builtin_tools: :passthrough but rejects a hosted tool"
+
+    :ok
+  end
+
+  defp check_builtin_tools(codec, request, config, declared) when is_list(declared) do
+    for name <- declared do
+      assert :ok ==
+               codec.validate_request(with_field(request, :tools, [builtin_tool(name)]), config),
+             "#{inspect(codec)} declares builtin tool #{inspect(name)} but rejects it"
+    end
+
+    undeclared = "not_in_#{inspect(declared)}"
+
+    expect_rejection(
+      codec,
+      with_field(request, :tools, [builtin_tool(undeclared)]),
+      config,
+      "does not declare the builtin tool #{inspect(undeclared)} but accepts it"
+    )
+  end
+
+  defp check_builtin_tools(_codec, _request, _config, other) do
+    flunk(
+      "Capabilities.builtin_tools must be false, :passthrough or a list, " <>
+        "got: #{inspect(other)}"
+    )
   end
 
   defp check_tool_choice(codec, request, config, %Capabilities{tool_choice: true}) do
@@ -923,6 +968,8 @@ defmodule LlmCall.Codec.Conformance do
   end
 
   defp minimal_tool, do: %ToolSpec{name: "f", parameters: %{"type" => "object"}}
+
+  defp builtin_tool(name), do: %ToolSpec{kind: :builtin, name: name}
 
   defp json_schema, do: {:json_schema, "result", %{"type" => "object"}, nil}
 

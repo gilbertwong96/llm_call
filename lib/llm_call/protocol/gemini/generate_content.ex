@@ -26,6 +26,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
                                      responsemimetype responseschema thinkingconfig
                                      responsemodalities)
   @tool_reserved_keys ~w(name description parameters)
+  @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(thinkingbudget thinkinglevel)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @efforts [nil, :none, :low, :high]
@@ -184,15 +185,29 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp encode_tools([]), do: nil
 
   defp encode_tools(specs) do
-    declarations =
-      Enum.map(specs, fn %ToolSpec{} = spec ->
+    {declarations, builtins} =
+      Enum.split_with(specs, fn %ToolSpec{kind: kind} -> kind != :builtin end)
+
+    declaration_entries =
+      Enum.map(declarations, fn %ToolSpec{} = spec ->
         %{"name" => spec.name}
         |> Helpers.maybe_put("description", spec.description)
         |> Helpers.maybe_put("parameters", spec.parameters)
         |> Config.deep_merge(tool_options(spec))
       end)
 
-    [%{"functionDeclarations" => declarations}]
+    function_entry =
+      case declaration_entries do
+        [] -> []
+        entries -> [%{"functionDeclarations" => entries}]
+      end
+
+    builtin_entries =
+      Enum.map(builtins, fn %ToolSpec{name: name} = spec ->
+        %{name => Map.new(tool_options(spec))}
+      end)
+
+    function_entry ++ builtin_entries
   end
 
   defp tool_options(%ToolSpec{provider_options: options}) when is_map(options), do: options
@@ -359,7 +374,11 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     do: Helpers.error(@codec, "output #{inspect(output)} is not supported")
 
   defp validate_tool_spec(spec) do
-    with :ok <- Helpers.validate_tool_spec(spec, @codec, options: true) do
+    with :ok <-
+           Helpers.validate_tool_spec(spec, @codec,
+             options: true,
+             builtin_tools: @builtin_tools
+           ) do
       Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
     end
   end
@@ -540,6 +559,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   def capabilities(%Request{}, _config) do
     %Capabilities{
       tools: true,
+      builtin_tools: @builtin_tools,
       parallel_tool_calls: true,
       tool_choice: true,
       structured_output: :json_schema,
