@@ -49,6 +49,14 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
     end
   end
 
+  defp eventually(fun, attempts \\ 40) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(50) && eventually(fun, attempts - 1)
+    end
+  end
+
   defp await_event(type, attempts \\ 100) do
     case Enum.find(text_frames(), &(&1["type"] == type)) do
       nil when attempts > 0 ->
@@ -193,6 +201,38 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
     cancel = await_event("response.cancel")
     assert cancel["stream_id"] == "main"
 
+    Session.close(session)
+  end
+
+  test "a failed reconnect keeps the session alive and rejects work" do
+    {:ok, session} = start(max_reconnect_attempts: 1, retry_delay_ms: 20)
+
+    TestWSServer.stop()
+
+    assert {:error, %Error{kind: :transport}} = Session.reconnect(session)
+    assert Process.alive?(session)
+
+    assert {:error, %Error{kind: :transport, message: message}} =
+             Session.create(session, request())
+
+    assert message =~ "disconnected"
+
+    Session.close(session)
+  end
+
+  test "retries with backoff and recovers when the server returns" do
+    port = TestWSServer.port()
+    {:ok, session} = start(max_reconnect_attempts: 10, retry_delay_ms: 20)
+
+    TestWSServer.stop()
+    Process.sleep(40)
+    TestWSServer.start(port: port, mode: :responses)
+
+    assert eventually(fn ->
+             match?({:ok, _stream}, Session.create(session, request(), stream_id: "recovered"))
+           end)
+
+    :ok = Session.cancel(session, "recovered")
     Session.close(session)
   end
 

@@ -20,8 +20,10 @@ back to `llm_call` because it now ships the client that name promised.
   the upgrade, text/binary frames, ping handling and peer close.
 - Responses WebSocket session: one connection multiplexed by `stream_id`,
   `response.create`/`response.steer`/`response.cancel`, per-lane event decoding,
-  and reconnect before the 60-minute limit. In-flight responses are reported as
-  interrupted, not silently resumed. No realtime audio session.
+  and reconnect before the 60-minute limit. Reconnect failures keep the session
+  alive with exponential backoff; while disconnected, creates return a
+  `:transport` error. In-flight responses are reported as interrupted, not
+  silently resumed. No realtime audio session.
 - Streaming in the library: `LlmCall.SSE` framing, `LlmCall.Stream` as a lazy
   `Enumerable`, `stream/3`'s `on_event:` observer, and `LlmCall.HTTP.Error` for
   mid-stream failures.

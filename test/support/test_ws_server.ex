@@ -15,10 +15,11 @@ defmodule LlmCall.TestWSServer do
   def start(opts \\ []) do
     parent = self()
     mode = Keyword.get(opts, :mode, :echo)
+    port = Keyword.get(opts, :port, 0)
 
     pid =
       spawn_link(fn ->
-        {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+        {:ok, listen} = :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true])
         {:ok, port} = :inet.port(listen)
         send(parent, {:ws_port, self(), port, listen})
         serve(listen, %{buffer: "", mode: mode, pongs: [], frames: []})
@@ -34,6 +35,11 @@ defmodule LlmCall.TestWSServer do
     Process.put(@key, {pid, port})
     Process.put(@listen_key, listen)
     {pid, port}
+  end
+
+  def port do
+    {_pid, port} = Process.get(@key) || raise "LlmCall.TestWSServer.start/0 was not called"
+    port
   end
 
   def stop do
