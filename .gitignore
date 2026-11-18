@@ -30,3 +30,6 @@ erl_crash.dump
 
 # Scratch workspace for the executing-plans/subagent-driven-development skills.
 /.superpowers/
+
+# Process notes (specs and plans) stay local; they are not part of the library.
+/docs/superpowers/
