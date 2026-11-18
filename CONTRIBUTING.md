@@ -10,6 +10,11 @@
 Both macros inject the behaviour, the canonical aliases, `@codec`, and the shared
 validation entry point; see [`docs/design.md`](docs/design.md) (§10, §23.5).
 
+A third kind of contribution is a **seam implementation**: `LlmCall.HTTP` (one
+request, or a streaming one) or `LlmCall.JSON` (`encode/1`, `decode/1`, tagged
+tuples). Each is a behaviour with a default; a replacement must keep the error
+shapes documented in `docs/design.md` §8.9, because callers branch on `kind`.
+
 ## Where an adapter belongs
 
 Three questions, in order:
@@ -116,6 +121,10 @@ It compiles with warnings as errors, checks formatting, runs the suite,
 `credo --strict`, Dialyzer, SpecLint (with warnings as errors), ExDNA at a zero
 clone budget, and the Reach architecture policy. The vendored media adapters run
 the media conformance suite in the same `mix test`.
+
+The client and the streaming path have their own tests with the in-repo doubles
+(`LlmCall.HTTP.Test`, `LlmCall.MarkerJSON`), so no test opens a socket. The Finch
+adapter is the one exception: its test binds `127.0.0.1`.
 
 `mix ci` runs ExDNA with a zero clone budget (see `mix.exs`): the protocol
 adapters are deliberately parallel, but any logic clone fails the build, so a

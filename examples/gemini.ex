@@ -1,0 +1,18 @@
+defmodule LlmCall.Examples.Gemini do
+  @moduledoc """
+  Gemini's endpoint: the API key travels in a header, and both codecs live under
+  `v1beta` with different paths.
+
+  `GenerateContent` can return text and images from one request through
+  `Request.modalities`; Imagen's `predict` is a separate media codec.
+  """
+
+  use LlmCall.Provider,
+    base_url: "https://generativelanguage.googleapis.com/v1beta",
+    auth: {:header, "x-goog-api-key"},
+    codecs: [
+      chat: LlmCall.Protocol.Gemini.GenerateContent,
+      images: LlmCall.Media.Protocol.Gemini.Predict
+    ],
+    timeout: 120_000
+end

@@ -7,8 +7,8 @@ Module namespace: `LlmCall`
 
 ## 1. Summary
 
-`LlmCall` is a **wire-protocol codec** for LLM APIs, and the ecosystem that
-writes adapters for it.
+`LlmCall` is a **call-oriented SDK** for LLM APIs: a canonical wire IR, protocol
+codecs, and a one-call client whose HTTP and JSON layers are replaceable.
 
 The library ships the canonical IR, the codec behaviours, the conformance
 suites, three **reference adapters** — the dialect families the IR is written
@@ -17,10 +17,12 @@ not a goal: the IR's value comes from the breadth of knowledge behind it, not
 from the breadth of shipped code. A vendored adapter tracks its provider's API;
 the IR it maps into is the stable surface.
 
-`LlmCall` turns a provider-neutral request into the request body, path, and
-protocol headers a provider expects, and turns provider response terms into a
-provider-neutral response. It deliberately does **not** own HTTP, authentication,
-model discovery, tool execution, approvals, retries, or an agent loop.
+`LlmCall.complete/3` turns a provider-neutral request into a round trip:
+validate, encode, send, decode. It deliberately does **not** own model discovery,
+authentication lookup, approvals, retries, or an agent loop.
+
+The encode/decode functions remain public, so a caller that already owns a
+transport can use the codecs without the client.
 
 The core idea:
 
@@ -28,16 +30,16 @@ The core idea:
 canonical request
       |
       v
+LlmCall.Client (provider + endpoint + seams)
+      |
+      v
 LlmCall.Codec.encode_request/2
       |
       v
-transport-neutral encoded request
+encoded request  ----  LlmCall.HTTP (default Finch)  ---->  provider
       |
       v
-caller's HTTP transport (Req, Finch, Tesla, ...)
-      |
-      v
-provider response term
+provider response term   (LlmCall.JSON, default OTP :json)
       |
       v
 LlmCall.Codec.decode_response/2
@@ -234,8 +236,8 @@ create a reusable foundation.
                   encoded request / events
                                |
                     +----------v-----------+
-                    |   caller transport   |
-                    | Req / Finch / custom |
+                    |  LlmCall.HTTP seam   |
+                    | Finch / your adapter |
                     +----------+-----------+
                                |
                          HTTP / JSON
@@ -252,7 +254,9 @@ create a reusable foundation.
 2. **Protocol codec** — encoding request terms and decoding response/event
    terms.
 3. **Capabilities** — explicit protocol/model capability description.
-4. **Optional adapters** — transport and tool-framework packages.
+4. **Client** — provider declaration, endpoint, auth shape, and the HTTP scope.
+5. **Seams** — `LlmCall.HTTP` and `LlmCall.JSON`, each a behaviour with a
+   default, replaceable per application, provider, or call.
 
 ## 8. Canonical IR
 
@@ -518,10 +522,14 @@ Examples:
 - `parameters` is a JSON Schema object (`map()`), not a JSON string or a
   provider-specific schema struct. `nil` is valid for a built-in tool that has
   no function schema.
-- `kind: :function` is the normal function-tool case. `kind: :builtin` is for
-  provider-defined tools such as web search, file search, code interpreter, or
-  computer use; provider-specific details belong in `provider_options` and are
-  only supported by adapters that explicitly implement them.
+- `kind: :function` is the normal function-tool case.
+- `kind: :builtin` is a provider-hosted tool (web search, grounding, server
+  tools). Its `name` is the **vendor's own identifier** (`web_search_20250305`,
+  `google_search`), and its native knobs go in `provider_options`, merged into the
+  codec's tool shape. `parameters` and `strict` are rejected for this kind,
+  because a hosted tool has no local schema.
+- The library never interprets a hosted tool's name; it answers only "will this
+  codec forward it?" through `Capabilities.builtin_tools`.
 - No callback, function, approval policy, or execution metadata belongs here.
 - `strict` is optional; protocol adapters reject it when unsupported or map it
   to their equivalent.
@@ -634,7 +642,7 @@ provider-specific extension.
 
 ```elixir
 %LlmCall.Error{
-  kind: :protocol | :validation | :invalid_response | :provider,
+  kind: :protocol | :validation | :invalid_response | :provider | :transport,
   message: "...",
   code: "invalid_request_error" | nil,
   status: 400 | nil,
@@ -646,11 +654,21 @@ provider-specific extension.
 `code` is the provider's machine-readable code as a string (OpenAI's `code`,
 Anthropic's error type, Google's status such as `"RESOURCE_EXHAUSTED"`,
 MiniMax's numeric code stringified). `status` is the HTTP status, and **only the
-transport sets it**: a codec never sees the response status, so it always leaves
-it `nil`.
+client sets it**: a codec never sees the response status, so it always leaves it
+`nil`.
 
-HTTP-level transport failures are transport errors. Provider error envelopes
-decoded by a protocol codec become `LlmCall.Error`.
+`kind` says who is speaking:
+
+- `:validation` — the request cannot be expressed (codec, or the client for an
+  unencodable body or an undeclared codec name);
+- `:invalid_response` — a payload could not be decoded, by the codec **or** by the
+  client when a `2xx` body is not JSON;
+- `:provider` — a provider error envelope, decoded by the codec, with `status`
+  filled in by the client;
+- `:transport` — never reached a provider: connection failure, timeout, or a
+  non-`2xx` body that is not a JSON envelope.
+
+A codec never produces `:transport`; the client never produces `:provider`.
 
 ### 8.10 Capabilities
 
@@ -662,6 +680,7 @@ fabricated local guess.
 ```elixir
 %LlmCall.Capabilities{
   tools: true,
+  builtin_tools: :passthrough,
   parallel_tool_calls: false,
   tool_choice: true,
   structured_output: :json_schema,
@@ -682,6 +701,10 @@ fabricated local guess.
   streaming: true
 }
 ```
+
+`builtin_tools` declares provider-hosted tools: `false` rejects them,
+`:passthrough` forwards any name the caller supplies, and a list forwards only
+those names.
 
 `validate_request/2` on a codec can reject unsupported combinations
 before a transport sends anything. No silent field dropping.
@@ -902,7 +925,7 @@ end
 
 defmodule LlmCall.Error do
   @type t :: %__MODULE__{
-          kind: :protocol | :validation | :invalid_response | :provider,
+          kind: :protocol | :validation | :invalid_response | :provider | :transport,
           message: String.t(),
           code: String.t() | nil,
           status: non_neg_integer() | nil,
@@ -1235,23 +1258,25 @@ adapter covers those with its own fixture assertions. C1 is closed.
 - `path`, `query`, `headers`, and `body` are protocol-level facts.
 - `body` is a JSON-compatible term, not an encoded JSON string.
 - Headers may include required protocol headers.
-- Headers must not include credentials; authentication is added by the
-  transport.
-- The transport prepends the base URL and performs JSON encoding.
+- Headers must not include credentials; authentication is added by the client,
+  from the provider's `auth` shape and the caller's `api_key`.
+- The client prepends the base URL, appends the encoded query, and performs JSON
+  encoding with the configured module.
 
-Example caller:
+The client is the default consumer:
 
 ```elixir
-{:ok, encoded} =
-  LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
+client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
+{:ok, %LlmCall.Response{}} = LlmCall.complete(client, request)
+```
+
+The boundary stays public for callers that own a transport:
+
+```elixir
+{:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
 
 body = JSON.encode!(encoded.body)
-
-Req.post!(
-  base_url <> encoded.path,
-  headers: auth_headers ++ encoded.headers,
-  body: body
-)
+Req.post!(base_url <> encoded.path, headers: auth_headers ++ encoded.headers, body: body)
 ```
 
 ## 12. Streaming
@@ -1585,6 +1610,14 @@ lib/llm_call/encoded_request.ex
 lib/llm_call/codec.ex
 lib/llm_call/codec/info.ex
 lib/llm_call/conformance.ex
+lib/llm_call/client.ex
+lib/llm_call/provider.ex
+lib/llm_call/application.ex
+lib/llm_call/http.ex
+lib/llm_call/http/finch.ex
+lib/llm_call/http/error.ex
+lib/llm_call/sse.ex
+lib/llm_call/stream.ex
 lib/llm_call/media/codec.ex
 lib/llm_call/media/request.ex
 lib/llm_call/media/response.ex
@@ -1612,17 +1645,30 @@ adapters: they ship with the library but are not part of the stable surface.
 Optional packages:
 
 ```text
-llm_call_req          Req/Finch transport
 llm_call_cost         optional pricing/cost calculation
-llm_call_tool_call    ToolCall adapter
 llm_call_langchain    LangChain adapter
 ```
+
+`LlmCall.HTTP.Finch` is the default for that behaviour, not an optional package.
+There is no tool behaviour: `tool_call` is a companion the application adds
+itself.
 
 Test support (core's own suite):
 
 ```text
 test/support/codecs/      completing and non-conforming codec fakes
 test/support/fixtures/    reference-adapter payloads
+test/support/http_test.ex canned HTTP adapter (no socket)
+test/support/marker_json.ex    JSON double that proves the seam is honoured
+```
+
+Examples (compiled in dev/test, excluded from the package):
+
+```text
+examples/openai.ex        chat + images on one endpoint
+examples/anthropic.ex
+examples/gemini.ex        chat + Imagen
+examples/deepseek.ex      OpenAI-compatible endpoint
 ```
 
 ## 16. Public API sketch
@@ -1796,36 +1842,49 @@ For each protocol:
 
 ## 19. Anti-goals
 
-If the following appear in the core project, the design has drifted:
+The project moved from a transport-free codec library to a call-oriented SDK.
+Three previous anti-goals were reversed deliberately; the rest stand.
 
-- a `Req` or `Finch` dependency
-- a default HTTP client
-- API key lookup
-- `generate_text` high-level helpers
-- a model catalog
-- a tool callback or tool runner
+No longer anti-goals:
+
+- **A `Finch` dependency.** It is a required runtime dependency, because the
+  one-call path must work after `mix deps.get`.
+- **A default HTTP client.** `LlmCall.HTTP.Finch` is the default and is
+  replaceable through the `LlmCall.HTTP` behaviour.
+- **A tool runner.** Still an anti-goal, and now there is no tool adapter either:
+  schema derivation and dispatch belong to `tool_call` or an application module,
+  and building the follow-up request stays with the caller.
+
+Still anti-goals; if they appear, the design has drifted:
+
+- API-key lookup (the key is always passed in)
+- `generate_text`-style prompt helpers beyond `complete/3`
+- a model catalog or provider registry (providers are user modules, passed
+  explicitly)
 - an agent loop
 - a prompt template or memory system
-- automatic retries or rate limiting
-- provider-specific branches in user application code
+- automatic retries, backoff, or rate limiting (a timeout is configuration)
+- provider-specific branches in user application code beyond the provider module
+- a canonical model of individual hosted tools
 
-Those belong in adapters or higher-level packages.
+## 20. Decisions
 
-## 20. Open decisions
+Settled:
 
-1. **Core transport:** stay fully transport-free. Recommended: yes.
-2. **JSON encoding:** codecs return terms; transport encodes. Recommended: yes.
-3. **Tool data in core:** include neutral `ToolSpec`, `ToolCall`, and
-   `ToolResult`; no execution. Recommended: yes.
+1. **Core transport:** the library ships a default client (`LlmCall.HTTP.Finch`)
+   behind a behaviour; a caller can replace it. Was "stay transport-free".
+2. **JSON encoding:** the client encodes and decodes with the configured module;
+   codecs use the same module for tool-call arguments. Was "transport encodes".
+3. **Tool data in core:** neutral `ToolSpec`, `ToolCall`, `ToolResult`; no schema
+   derivation, no dispatch, no dependency on `tool_call`. An application maps
+   `ToolCall.describe/2` into `ToolSpec` itself.
 4. **First protocol set:** OpenAI Chat, Anthropic Messages, Gemini
-   GenerateContent. Recommended: yes.
+   GenerateContent.
 5. **OpenAI Responses timing:** an ecosystem package, not a core adapter.
-   Recommended: yes.
-6. **Stream assembler:** pure helper in core or a separate package. Start in
-   core only if it remains protocol-neutral; otherwise split.
-7. **SSE parser:** outside core, in the transport package.
-8. **Codec discovery:** explicit codec module selection; no core provider or
-   codec registry. Recommended: yes.
+6. **Stream assembler:** pure helper in core, protocol-neutral.
+7. **SSE parser:** in core, because the default client streams.
+8. **Codec discovery:** explicit codec module selection, named on a provider
+   module; no core model catalog or registry.
 
 ## 21. Implementation order
 
@@ -1835,21 +1894,30 @@ Those belong in adapters or higher-level packages.
 4. Implement Anthropic Messages codec.
 5. Implement Gemini GenerateContent codec.
 6. Add generic OpenAI-compatible configuration.
-7. Add optional transport package.
-8. Add optional `tool_call` adapter.
+7. Add the `LlmCall.HTTP` behaviour, the Finch adapter and the default pool.
+8. Add `LlmCall.JSON` as a behaviour, thread it through the codecs, and resolve
+   it (with `http`, `http_opts`, `timeout`) from call option, provider,
+   application environment and default.
+9. Add `LlmCall.Client`, `LlmCall.Provider`, and `complete/3`, `execute/3`,
+   `fetch/3`.
+10. Add `LlmCall.SSE`, `LlmCall.Stream` and `stream/3`.
+11. Add `generate/3` and `poll/3` for the media IR.
 9. Add the media IR ([§23](#23-media-generation-image-and-video)):
    `Content.Video`, `Request.modalities`, `Capabilities.modalities`,
    `LlmCall.Media.Request`, `LlmCall.Media.Response`, `LlmCall.Operation`, `LlmCall.Media.Capabilities`, the
    `LlmCall.Media.Codec` behaviour, and the public media API.
 10. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
     document the adapter-authoring contract.
-11. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
+12. Add provider-hosted tools: the builtin envelope, `builtin_tools` capability,
+    and the codec branches.
+13. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
     Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
 
 Adapters beyond the reference and vendored sets are not implementation phases.
 
-The first milestone should be useful without any transport implementation:
-a request can be encoded and a fixture response can be decoded in tests.
+The encode/decode milestone is useful without any transport: a request can be
+encoded and a fixture response decoded in tests. The client milestone makes the
+one-call path work.
 
 ## 22. Design success criteria
 
@@ -1861,10 +1929,15 @@ This design is working if:
   states with the conformance suite — without touching core.
 - An adapter outside this repository needs no core release; a vendored one is
   allowed to change with its provider without changing the IR.
-- A different tool framework can use `LlmCall` without importing `tool_call`.
+- A caller reaches a provider with one function, without assembling a request or
+  parsing SSE.
+- The HTTP, JSON and tool layers can each be replaced without touching a codec,
+  per application, per provider, or per call.
+- A different tool framework can be used directly; the library models tool wire
+  data only and depends on no tool library.
 - Adding a protocol adapter does not require changing canonical messages.
 - Provider-specific features remain accessible through explicit escape hatches.
-- The core package has no HTTP, auth, registry, or tool-execution dependency.
+- The core has no auth lookup, model catalog, provider registry, or agent loop.
 - Protocol fixtures are readable and testable without network access.
 - A caller can generate images and run video generation jobs without writing
   provider-specific HTTP, and without the core polling or downloading anything.

@@ -11,6 +11,15 @@ back to `llm_call` because it now ships the client that name promised.
 
 ### Added
 
+- One-call client: `LlmCall.complete/3`, `stream/3`, `generate/3`, `poll/3`,
+  `execute/3`, `fetch/3`, with `LlmCall.Provider` (`use LlmCall.Provider`) and
+  `%LlmCall.Client{}`. The HTTP and JSON layers are behaviours
+  (`LlmCall.HTTP`, `LlmCall.JSON`) resolved call option →
+  provider → `config :llm_call, ...` → default.
+- Streaming in the library: `LlmCall.SSE` framing, `LlmCall.Stream` as a lazy
+  `Enumerable`, and `LlmCall.HTTP.Error` for mid-stream failures.
+- Provider-hosted tools: `ToolSpec{kind: :builtin}` forwarded verbatim and
+  `Capabilities.builtin_tools`.
 - Canonical wire IR: `Request`, `Message`, `Content`, `ToolSpec`, `ToolCall`,
   `ToolResult`, `Reasoning`, `Response`, `Usage`, `Error`, `Capabilities`,
   `Config`, `EncodedRequest`.

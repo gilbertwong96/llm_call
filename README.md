@@ -1,14 +1,32 @@
 # LlmCall
 
-A wire-protocol codec for LLM APIs.
+A call-oriented SDK for LLM APIs: a canonical IR, protocol codecs, and a one-call
+client whose HTTP and JSON layers you can replace.
 
-`LlmCall` turns a provider-neutral request into the body, path, and protocol
-headers a provider expects, and turns a provider response term into a
-provider-neutral response.
+```elixir
+defmodule MyApp.OpenAI do
+  use LlmCall.Provider,
+    base_url: "https://api.openai.com/v1",
+    auth: :bearer,
+    codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
+end
+
+client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
+
+request = %LlmCall.Request{
+  model: "gpt-4o",
+  messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "Hello"}]}]
+}
+
+{:ok, response} = LlmCall.complete(client, request)
+LlmCall.Response.text(response)
+```
+
+`complete/3` validates, encodes, sends, and decodes. `stream/3` does the same and
+returns a lazy `Enumerable` of events. `generate/3` and `poll/3` cover dedicated
+image and video endpoints, including long-running jobs.
 
 ## Installation
-
-Add `llm_call` to your dependencies. It has no runtime dependencies.
 
 ```elixir
 def deps do
@@ -18,34 +36,55 @@ def deps do
 end
 ```
 
-Requires Elixir 1.18+ on OTP 27+ (the `:json` module ships with OTP 27). It owns no HTTP client, authentication, model
-registry, tool execution, retries, or agent loop — a codec returns
-JSON-compatible Elixir terms, and your transport does the rest.
+Requires Elixir 1.18+ on OTP 27+. The only runtime dependency is Finch;
+everything else is dev/test only.
+
+## Providers
+
+A provider is a module you write: endpoint, auth shape, and the codecs it serves.
+There is no built-in catalog — `examples/` carries reference definitions.
 
 ```elixir
-request = %LlmCall.Request{
-  model: "claude-sonnet-4-5",
-  params: %{max_tokens: 1024},
-  system: [%LlmCall.Content.Text{text: "You are helpful."}],
-  messages: [
-    %LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "Hello"}]}
-  ]
-}
+defmodule MyApp.Groq do
+  use LlmCall.Provider,
+    base_url: "https://api.groq.com/openai/v1",
+    auth: :bearer,
+    codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
+end
 
-config = %LlmCall.Config{capture_raw: :none}
-codec = LlmCall.Protocol.Anthropic.Messages
-
-{:ok, encoded} = LlmCall.encode(codec, request, config)
-# Your transport: POST base_url <> encoded.path, JSON-encode encoded.body,
-# add credentials. encoded.headers carries protocol headers only.
-
-{:ok, response} = LlmCall.decode_response(codec, decoded_body, config)
-IO.puts(LlmCall.Response.text(response))
+client = MyApp.Groq.client(api_key: key)
 ```
 
-Streaming is codec-driven and transport-owned: your transport parses SSE, then
-feeds decoded events to `LlmCall.decode_stream_event/4`. Tool-call fragments are
-assembled into complete calls by a pure helper, which never runs them:
+`codecs:` is a named map because one endpoint can serve several request shapes.
+An endpoint that returns text and images is still **one** chat codec
+(`modalities: [:text, :image]`); a different request shape — Imagen's `predict`,
+OpenAI Images — is a second codec selected per call:
+
+```elixir
+{:ok, %LlmCall.Media.Response{assets: assets}} =
+  LlmCall.generate(client, media_request, codec: :images)
+```
+
+Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
+`{module, function}`. The key is always passed in; nothing reads the environment.
+
+## Streaming
+
+```elixir
+{:ok, stream} = LlmCall.stream(client, %{request | stream: true})
+
+stream
+|> Stream.each(&IO.inspect({&1.type, &1.delta}))
+|> Stream.run()
+```
+
+The library parses SSE and provider terminators. A failure while the body is being
+read raises `LlmCall.HTTP.Error`, whose `error/1` returns the canonical
+`%LlmCall.Error{}` with the HTTP status; `{:halt, acc}` from a reducer closes the
+connection. `complete/3` rejects `stream: true` rather than silently flipping it.
+
+Tool-call fragments are assembled into complete calls by a pure helper, which never
+runs them:
 
 ```elixir
 assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
@@ -53,38 +92,27 @@ assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 {:ok, assembler, calls} =
   Enum.reduce(events, {:ok, assembler, []}, fn event, {:ok, acc, calls} ->
     {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
-    {:ok, acc, calls ++ new_calls}
+    {acc, calls ++ new_calls}
   end)
-
-# When the transport reports the end of the stream:
-{:ok, closing_events, state} = LlmCall.finish_stream(codec, state, config)
 ```
-
-`LlmCall.finish_stream/3` is required for Gemini: it sends no stream
-terminator, so accumulated usage and `:message_stop` arrive only there.
 
 ## Media generation
 
-A completion can ask for image output; the generated parts arrive in the normal
+A completion can ask for image output; generated parts arrive in
 `Response.content`:
 
 ```elixir
-codec = LlmCall.Protocol.Gemini.GenerateContent
-
 request = %LlmCall.Request{
   model: "gemini-2.5-flash-image",
   modalities: [:text, :image],
   messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "a cat"}]}]
 }
 
-{:ok, encoded} = LlmCall.encode(codec, request)
-# ...
-{:ok, response} = LlmCall.decode_response(codec, decoded_body)
-# response.content may now contain %LlmCall.Content.Image{}
+{:ok, response} = LlmCall.complete(client, request)
+# response.content may contain %LlmCall.Content.Image{}
 ```
 
-Dedicated image endpoints use the media API instead, because they take a prompt
-and media parameters rather than messages:
+Dedicated endpoints take a prompt and media parameters instead of messages:
 
 ```elixir
 media = %LlmCall.Media.Request{
@@ -94,37 +122,102 @@ media = %LlmCall.Media.Request{
   params: %{n: 2, size: "1024x1024"}
 }
 
-{:ok, encoded} = LlmCall.encode_media(LlmCall.Media.Protocol.OpenAI.Images, media)
-# ...
 {:ok, %LlmCall.Media.Response{assets: assets}} =
-  LlmCall.decode_media(LlmCall.Media.Protocol.OpenAI.Images, decoded_body)
+  LlmCall.generate(client, media, codec: :images)
 ```
 
-`LlmCall.media_capabilities/3` (returning `{:ok, capabilities}`) reports what a
-codec accepts for each media knob: `max_n: :unsupported` means no `n`, and
-`max_references` is the number of reference images the endpoint takes. A knob the
-codec cannot express is a validation error rather than a silent drop.
-
-Asynchronous video uses the same media API. A submit response carries an
-`%LlmCall.Operation{}` whose `next` is the request the transport sends next, and
-`LlmCall.decode_operation/3` returns the next state:
+Asynchronous video returns an `%LlmCall.Operation{}` whose `next` is the request
+to execute; `poll/3` runs it and returns the next state:
 
 ```elixir
-{:ok, %LlmCall.Media.Response{operation: op}} =
-  LlmCall.decode_media(LlmCall.Media.Protocol.Seedance.Video, submit_body)
-
-# transport: execute op.next (a GET), then feed the decoded body back
-{:ok, %LlmCall.Operation{status: :in_progress} = op} =
-  LlmCall.decode_operation(LlmCall.Media.Protocol.Seedance.Video, poll_body)
+{:ok, %LlmCall.Media.Response{operation: op}} = LlmCall.generate(client, video, codec: :video)
+{:ok, %LlmCall.Operation{status: :completed} = done} = LlmCall.poll(client, op, codec: :video)
 ```
 
-The core never polls, waits, or downloads. `next_kind: :poll` means "execute
-`next` and feed the body back to `decode_operation/3`"; `next_kind: :asset` means
-the body is the media bytes and the caller stores them. A job ends when
-`status: :completed` carries assets, or `:failed` carries an error.
+`next_kind: :poll` means "execute `next` and poll"; `next_kind: :asset` means the
+body is media bytes — use `LlmCall.fetch/3` for it. The library never polls,
+waits, or downloads on its own.
 
-The video adapters are `LlmCall.Media.Protocol.Seedance.Video` and
-`LlmCall.Media.Protocol.MiniMax.Video`.
+`LlmCall.media_capabilities/3` reports what a codec accepts: `max_n:
+:unsupported` means no `n`, `max_references` is the reference count. A knob the
+codec cannot express is a validation error, never a silent drop.
+
+## Replaceable layers
+
+HTTP and JSON are behaviours with defaults, resolved at client-build time in this
+order: the call option, the provider declaration, `config :llm_call, ...`, the
+built-in default.
+
+| Layer | Behaviour | Default |
+| --- | --- | --- |
+| HTTP | `LlmCall.HTTP` | `LlmCall.HTTP.Finch` |
+| JSON | `LlmCall.JSON` | OTP `:json` |
+
+```elixir
+# config/config.exs of the host application
+config :llm_call,
+  json: Jason,
+  http: MyApp.HTTP,
+  http_opts: [name: MyApp.Finch],
+  timeout: 30_000
+```
+
+The JSON module is written into the client's `%LlmCall.Config{}`, so the codecs
+decode tool-call arguments with the same implementation as the transport. An
+explicit `%LlmCall.Config{}` opts out of the application default.
+
+`LlmCall.Application` starts a Finch pool named `LlmCall.Finch`; pass
+`http_opts: [name: MyPool]` to use your own.
+
+## Tools
+
+Tool data is wire data only: `LlmCall.ToolSpec`, `LlmCall.ToolCall` and
+`LlmCall.ToolResult`. The library does not derive schemas or dispatch calls — the
+[`tool_call`](https://hex.pm/packages/tool_call) package does that well, so use it
+directly and map its provider-neutral descriptions into canonical specs:
+
+```elixir
+defmodule MyApp.Tools.Weather do
+  use ToolCall
+
+  @doc """
+  Get the forecast for a city.
+
+  ## Parameters
+    * `city` - city name
+  """
+  @spec get_weather(city :: String.t()) :: {:ok, %{temp: float()}}
+  def get_weather(city), do: {:ok, %{temp: 21.5}}
+end
+
+tools =
+  for tool <- ToolCall.describe(MyApp.Tools.Weather) do
+    %LlmCall.ToolSpec{
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }
+  end
+
+request = %{request | tools: tools}
+{:ok, response} = LlmCall.complete(client, request)
+
+for call <- LlmCall.Response.tool_calls(response) do
+  {:ok, result} = ToolCall.run(MyApp.Tools.Weather, String.to_existing_atom(call.name), call.arguments)
+  # build the %LlmCall.ToolResult{} and send the next request yourself
+end
+```
+
+Approvals, audits and timeouts stay in `tool_call`, and the follow-up request stays
+with you: the library does not run an agent loop.
+
+Provider-hosted tools (web search, grounding, server tools) are builtin tools whose
+`name` is the vendor's own identifier; the codec forwards them verbatim when it
+declares `builtin_tools: :passthrough`:
+
+```elixir
+%LlmCall.ToolSpec{kind: :builtin, name: "web_search_20250305", provider_options: %{"max_uses" => 5}}
+```
 
 ## Protocol adapters
 
@@ -146,27 +239,31 @@ of the stable API surface (see `LlmCall.Media`):
 | Seedance (BytePlus ModelArk) | `LlmCall.Media.Protocol.Seedance.Video` |
 | MiniMax Hailuo | `LlmCall.Media.Protocol.MiniMax.Video` |
 
-The library does not promise provider coverage. An adapter outside this
-repository is a module that `use`s `LlmCall.Protocol.Adapter` (or
-`LlmCall.Media.Adapter`) and supplies `@path`, `@headers`, a private `body/2`,
-and the protocol's own `validate_request/2`; share validation through
-`LlmCall.Protocol.Helpers` instead of reimplementing it. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+The library does not promise provider coverage. An adapter outside this repository
+is a module that `use`s `LlmCall.Protocol.Adapter` (or `LlmCall.Media.Adapter`) and
+supplies `@path`, `@headers`, a private `body/2`, and the protocol's own
+`validate_request/2`; share validation through `LlmCall.Protocol.Helpers` instead
+of reimplementing it. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-Codec selection is explicit; there is no provider registry. OpenAI-compatible
-endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI surface, ...) use the
-OpenAI Chat codec with their own base URL and `provider_options`; their
-capabilities are not uniform.
+OpenAI-compatible endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI
+surface, ...) use the OpenAI Chat codec with their own base URL and
+`provider_options`; their capabilities are not uniform.
 
-## Dependencies
+## Two levels
 
-None at runtime. The OTP standard library's `:json` module is used only where a
-wire format requires an actual JSON string.
+The one-call client is the default. The encode/decode functions stay available for
+callers that already own a transport:
+
+```elixir
+{:ok, encoded} = LlmCall.encode(LlmCall.Protocol.Anthropic.Messages, request)
+# transport: POST base_url <> encoded.path with encoded.body
+{:ok, response} = LlmCall.decode_response(LlmCall.Protocol.Anthropic.Messages, payload)
+```
 
 ## Design
 
 See [`docs/design.md`](docs/design.md) for the canonical IR, the codec contract,
-the streaming model, and the failure and compatibility policy.
+the streaming model, the client, and the failure and compatibility policy.
 
 Adapters check themselves with `LlmCall.Codec.Conformance` or
 `LlmCall.MediaConformance` (test support published from `lib/`, not a runtime
