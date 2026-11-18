@@ -13,7 +13,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
   `response.failed`, `response.incomplete`, or `error`.
 
   For a persistent WebSocket connection with `stream_id` lanes, see
-  `LlmCall.Protocol.OpenAI.Responses.Session`.
+  `LlmCall.Protocol.OpenAI.Responses.Connection`.
 
   Reasoning items are decoded as `Content.Thinking`, with `encrypted_content`
   kept in `signature`. Replaying a reasoning item is not supported: a canonical

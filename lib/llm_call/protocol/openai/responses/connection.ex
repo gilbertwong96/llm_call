@@ -1,9 +1,9 @@
-defmodule LlmCall.Protocol.OpenAI.Responses.Session do
+defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   @moduledoc """
-  A WebSocket session for OpenAI Responses (`wss://…/v1/responses`).
+  A WebSocket connection for OpenAI Responses (`wss://…/v1/responses`).
 
-  The session owns one `LlmCall.WS` connection and multiplexes `response.create`
-  calls over it. Each call names a `stream_id` lane (generated when omitted);
+  It owns one WebSocket connection and multiplexes `response.create` calls
+  over it. Each call names a `stream_id` lane (generated when omitted);
   events are decoded per lane by `LlmCall.Protocol.OpenAI.Responses` and
   delivered to the `%Stream{}` returned by `create/3`.
 
@@ -13,13 +13,13 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
 
   ## Reconnect
 
-  A Responses WebSocket may live for at most 60 minutes. The session reconnects
+  A Responses WebSocket may live for at most 60 minutes. The connection reconnects
   before that (`:max_age_ms`, default 55 minutes) and on an unexpected close,
   with exponential backoff (`:retry_delay_ms` 5s, `:max_retry_delay_ms` 60s) and
   a bounded number of attempts (`:max_reconnect_attempts`, default 5; `:infinity`
   to retry forever).
 
-  A failed reconnect does not stop the session: it becomes `:disconnected`,
+  A failed reconnect does not stop the connection: it becomes `:disconnected`,
   `create/3` and `steer/3` return a `:transport` error, and the retry loop keeps
   running until the budget is exhausted. `reconnect/1` attempts immediately and
   resets the budget.
@@ -51,26 +51,26 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   event stream. `stream_id` must be unique among active lanes.
   """
   @spec create(t(), LlmCall.Request.t(), keyword()) ::
-          {:ok, LlmCall.Protocol.OpenAI.Responses.Stream.t()} | {:error, Error.t()}
-  def create(session, request, opts \\ []) do
-    GenServer.call(session, {:create, request, opts}, @default_timeout)
+          {:ok, LlmCall.Protocol.OpenAI.Responses.Connection.Stream.t()} | {:error, Error.t()}
+  def create(connection, request, opts \\ []) do
+    GenServer.call(connection, {:create, request, opts}, @default_timeout)
   end
 
   @doc """
   Queues `input` for the active response on `stream_id` with `response.steer`.
 
   `input` is wire-shaped (a string or a list of Responses input items); the
-  session does not reinterpret it.
+  connection does not reinterpret it.
   """
   @spec steer(t(), String.t(), term()) :: :ok | {:error, Error.t()}
-  def steer(session, stream_id, input) do
-    GenServer.call(session, {:steer, stream_id, input}, @default_timeout)
+  def steer(connection, stream_id, input) do
+    GenServer.call(connection, {:steer, stream_id, input}, @default_timeout)
   end
 
   @doc "Cancels the lane's active response and ends it."
   @spec cancel(t(), String.t()) :: :ok | {:error, Error.t()}
-  def cancel(session, stream_id) do
-    GenServer.call(session, {:cancel, stream_id}, @default_timeout)
+  def cancel(connection, stream_id) do
+    GenServer.call(connection, {:cancel, stream_id}, @default_timeout)
   end
 
   @doc """
@@ -78,15 +78,15 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   unaffected because there are none.
   """
   @spec reconnect(t()) :: :ok | {:error, Error.t()}
-  def reconnect(session), do: GenServer.call(session, :reconnect, @default_timeout)
+  def reconnect(connection), do: GenServer.call(connection, :reconnect, @default_timeout)
 
-  @doc "Closes the connection and stops the session."
+  @doc "Closes the WebSocket and stops the process."
   @spec close(t()) :: :ok
-  def close(session), do: GenServer.stop(session, :normal)
+  def close(connection), do: GenServer.stop(connection, :normal)
 
   @impl true
   def init(opts) do
-    case session_config(opts) do
+    case connection_config(opts) do
       {:ok, config} ->
         case connect(config.client, config.ws, config.ws_opts) do
           {:ok, conn} -> {:ok, schedule_max_age(%{config | conn: conn})}
@@ -98,7 +98,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
     end
   end
 
-  defp session_config(opts) do
+  defp connection_config(opts) do
     client = Keyword.get(opts, :client)
     ws = Keyword.get(opts, :ws, WS.Mint)
     ws_opts = Keyword.get(opts, :ws_opts, [])
@@ -174,8 +174,8 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
         response_id: nil
       }
 
-      stream = %LlmCall.Protocol.OpenAI.Responses.Stream{
-        session: self(),
+      stream = %LlmCall.Protocol.OpenAI.Responses.Connection.Stream{
+        connection: self(),
         stream_id: stream_id,
         ref: ref
       }
@@ -511,20 +511,20 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   defp validation(message), do: %Error{kind: :validation, message: message}
 
   defp transport(reason) do
-    %Error{kind: :transport, message: "responses session: #{inspect(reason)}"}
+    %Error{kind: :transport, message: "responses connection: #{inspect(reason)}"}
   end
 
   defp interrupted(reason) do
     %Error{
       kind: :transport,
-      message: "responses session: the in-flight response was interrupted (#{inspect(reason)})"
+      message: "responses connection: the in-flight response was interrupted (#{inspect(reason)})"
     }
   end
 
   defp safe_close(_ws, nil), do: :ok
 
   defp safe_close(ws, conn) do
-    ws.close(conn, 1000, "session closing")
+    ws.close(conn, 1000, "connection closing")
   rescue
     _error -> :ok
   end
@@ -532,7 +532,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Session do
   defp disconnected_error do
     %Error{
       kind: :transport,
-      message: "responses session is disconnected; call reconnect/1 or retry later"
+      message: "responses connection is disconnected; call reconnect/1 or retry later"
     }
   end
 

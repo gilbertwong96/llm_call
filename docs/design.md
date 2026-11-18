@@ -88,7 +88,7 @@ Providers do not agree on:
 
 Its HTTP execution is in the core on Finch; JSON encoding is behind
 `LlmCall.JSON` (OTP `:json` by default). SSE framing (`LlmCall.SSE`) is a core
-module, and WebSocket sessions go through the `LlmCall.WS` behaviour with
+module, and WebSocket connections go through the `LlmCall.WS` behaviour with
 `LlmCall.WS.Mint` as the implementation. HTTP and SSE are not replaceable seams;
 WebSocket has a behaviour, but no config-level transport resolution.
 
@@ -152,8 +152,8 @@ The core must not contain:
 - prompt templates, chains, memory, or agent loops
 
 HTTP execution is in the core on Finch; JSON encoding is behind `LlmCall.JSON`
-and can be replaced. SSE framing lives in `LlmCall.SSE`, and WebSocket sessions
-use the `LlmCall.WS` behaviour; neither is part of the completion transport. The core may define the **data**
+and can be replaced. SSE framing lives in `LlmCall.SSE`, and WebSocket
+connections use the `LlmCall.WS` behaviour; neither is part of the completion transport. The core may define the **data**
 needed by the layers above, but not implement them.
 
 ## 5. Design principles
@@ -257,7 +257,7 @@ foundation.
 3. **Capabilities** — explicit protocol/model capability description.
 4. **Client** — provider declaration, endpoint, auth shape, and the HTTP scope.
 5. **Transport** — `LlmCall.HTTP` on Finch, and the `LlmCall.WS` behaviour for
-   WebSocket sessions. `LlmCall.JSON` is the one replaceable seam.
+   WebSocket connections. `LlmCall.JSON` is the one replaceable seam.
 
 ## 8. Canonical IR
 
@@ -1657,8 +1657,8 @@ lib/llm_call/protocol/adapter.ex
 lib/llm_call/protocol/helpers.ex
 lib/llm_call/protocol/openai/chat.ex
 lib/llm_call/protocol/openai/responses.ex
-lib/llm_call/protocol/openai/responses/session.ex
-lib/llm_call/protocol/openai/responses/stream.ex
+lib/llm_call/protocol/openai/responses/connection.ex
+lib/llm_call/protocol/openai/responses/connection/stream.ex
 lib/llm_call/protocol/anthropic/messages.ex
 lib/llm_call/protocol/gemini/generate_content.ex
 lib/llm_call/media.ex
@@ -2314,33 +2314,35 @@ behaviour with five operations:
 `LlmCall.WS.Mint` implements it with `Mint.WebSocket`: it performs the upgrade,
 owns the socket in the calling process, answers pings inside `recv/2` and
 `feed/2`, and returns a peer close as `{:close, code, reason}`. `recv/2` is the
-blocking form; `feed/2` lets a process that already owns the socket (a session)
+blocking form; `feed/2` lets a process that already owns the socket (a connection process)
 decode the messages Mint delivers in active mode. Connections are HTTP/1.1;
 Mint's HTTP/2 extended CONNECT is not used.
 
-### 24.1 Responses session
+### 24.1 Responses connection
 
-`LlmCall.Protocol.OpenAI.Responses.Session` is a `GenServer` that owns one
-connection and multiplexes `response.create` calls:
+`LlmCall.Protocol.OpenAI.Responses.Connection` is a `GenServer` that owns one
+WebSocket connection and multiplexes `response.create` calls. It is a transport
+connection, not conversation state: `previous_response_id` and `store` stay with
+the caller.
 
 ```elixir
-{:ok, session} = Session.start_link(client: client)
-{:ok, stream} = Session.create(session, request, stream_id: "main")
+{:ok, connection} = Connection.start_link(client: client)
+{:ok, stream} = Connection.create(connection, request, stream_id: "main")
 Enum.to_list(stream)
 ```
 
 - Each create names a `stream_id` lane (generated when omitted). Events are
   decoded per lane by the Responses codec and delivered as `StreamEvent`s to the
-  `%Stream{}` returned by `create/3`.
+  `%Connection.Stream{}` returned by `create/3`.
 - `steer/3` sends `response.steer`; `cancel/2` sends `response.cancel` and ends
   the lane.
 - `store` and `previous_response_id` stay in the request's `provider_options`;
-  the session does not model server-side conversation state.
-- The session reconnects before the 60-minute limit (`:max_age_ms`, default 55
+  the connection does not model server-side conversation state.
+- The connection reconnects before the 60-minute limit (`:max_age_ms`, default 55
   minutes) and on an unexpected close, with exponential backoff
   (`:retry_delay_ms` 5s, `:max_retry_delay_ms` 60s) and a bounded budget
   (`:max_reconnect_attempts`, default 5; `:infinity` for unbounded retries).
-  A failed reconnect does **not** stop the session: it becomes `:disconnected`,
+  A failed reconnect does **not** stop the connection process: it becomes `:disconnected`,
   `create/3` returns a `:transport` error, and `reconnect/1` retries on demand.
 - An in-flight response cannot be resumed: its subscriber receives a
   `:transport` error. Continuing a conversation is the caller's decision.
