@@ -26,7 +26,10 @@ defmodule LlmCall.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger]]
+    [
+      extra_applications: [:logger],
+      mod: {LlmCall.Application, []}
+    ]
   end
 
   def cli do
@@ -40,6 +43,7 @@ defmodule LlmCall.MixProject do
 
   defp deps do
     [
+      {:finch, "~> 0.24"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
