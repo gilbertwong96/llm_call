@@ -113,7 +113,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   defp valid_item?(_item), do: false
 
   defp decode_asset(%{"b64_json" => data} = item) do
-    %Content.Image{source: {:base64, data}, media_type: item["mime_type"] || "image/png"}
+    %Content.Image{source: {:base64, data}, media_type: item["mime_type"]}
   end
 
   defp decode_asset(%{"url" => url}) when is_binary(url) do

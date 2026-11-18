@@ -79,6 +79,60 @@ defmodule LlmCall.WritePathAuditTest do
         reasoning_native: %{"display" => "omitted"}
       },
       %{
+        name: :openai_images,
+        kind: :media,
+        codec: LlmCall.Media.Protocol.OpenAI.Images,
+        namespace: :openai,
+        request: %LlmCall.Media.Request{
+          modality: :image,
+          model: "dall-e-3",
+          prompt: "a cat",
+          params: %{n: 1, size: "1024x1024"}
+        },
+        envelope: ~w(model prompt n size),
+        overridable: ~w(response_format)
+      },
+      %{
+        name: :gemini_predict,
+        kind: :media,
+        codec: LlmCall.Media.Protocol.Gemini.Predict,
+        namespace: :gemini,
+        request: %LlmCall.Media.Request{
+          modality: :image,
+          model: "imagen-3.0-generate-002",
+          prompt: "a cat",
+          params: %{n: 1, aspect_ratio: "1:1"}
+        },
+        envelope: ~w(model prompt instances),
+        overridable: ~w(parameters)
+      },
+      %{
+        name: :seedance_video,
+        kind: :media,
+        codec: LlmCall.Media.Protocol.Seedance.Video,
+        namespace: :seedance,
+        request: %LlmCall.Media.Request{
+          modality: :video,
+          model: "seedance-1-0-pro-250528",
+          prompt: "a cat",
+          params: %{aspect_ratio: "16:9", duration_s: 5, seed: 1}
+        },
+        envelope: ~w(model content ratio duration seed)
+      },
+      %{
+        name: :minimax_video,
+        kind: :media,
+        codec: LlmCall.Media.Protocol.MiniMax.Video,
+        namespace: :minimax,
+        request: %LlmCall.Media.Request{
+          modality: :video,
+          model: "MiniMax-Hailuo-2.3",
+          prompt: "a cat",
+          params: %{duration_s: 6}
+        },
+        envelope: ~w(model prompt duration first_frame_image)
+      },
+      %{
         name: :gemini_generate_content,
         codec: LlmCall.Protocol.Gemini.GenerateContent,
         namespace: :gemini,
@@ -110,7 +164,14 @@ defmodule LlmCall.WritePathAuditTest do
 
   defp codec_config(name), do: Enum.find(codecs(), &(&1.name == name))
 
-  defp encode!(codec, request, config \\ %Config{}) do
+  defp encode!(codec, request, config \\ %Config{})
+
+  defp encode!(codec, %LlmCall.Media.Request{} = request, config) do
+    assert {:ok, encoded} = codec.encode_submit(request, config)
+    encoded
+  end
+
+  defp encode!(codec, %Request{} = request, config) do
     assert {:ok, encoded} = codec.encode_request(request, config)
     encoded
   end
@@ -123,10 +184,14 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "every emitted top-level key is rejected as a Config default" do
-    for %{name: name, codec: codec, namespace: namespace, request: request} <- codecs() do
+    for entry <- codecs() do
+      %{name: name, codec: codec, namespace: namespace, request: request} = entry
       body = encode!(codec, request).body
+      keys = Map.keys(body) -- Map.get(entry, :overridable, [])
 
-      for key <- Map.keys(body) do
+      assert keys != [], "#{name}: the maximal request emitted no auditable body keys"
+
+      for key <- keys do
         message =
           validation_error(codec, %{request | provider_options: %{}}, %Config{
             default_provider_options: %{namespace => %{key => true}}
@@ -140,8 +205,11 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "envelope keys are rejected on the request" do
+    entries = Enum.filter(codecs(), &(is_list(&1[:envelope]) and &1[:envelope] != []))
+    assert entries != [], "no codec declares envelope keys to audit"
+
     for %{name: name, codec: codec, namespace: namespace, request: request, envelope: keys} <-
-          codecs() do
+          entries do
       for key <- keys do
         message =
           validation_error(codec, %{request | provider_options: %{namespace => %{key => true}}})
@@ -153,9 +221,11 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "parameter keys are request-level escape hatches, not silently accepted everywhere" do
+    entries = Enum.filter(codecs(), &(is_list(&1[:parameters]) and &1[:parameters] != []))
+    assert entries != [], "no codec declares parameter keys to audit"
+
     for %{name: name, codec: codec, namespace: namespace, request: request, parameters: keys} <-
-          codecs(),
-        keys != [] do
+          entries do
       for key <- keys do
         assert :ok ==
                  codec.validate_request(
@@ -168,8 +238,11 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "tool options cannot replace the function object" do
+    entries = Enum.filter(codecs(), &(is_list(&1[:tool_keys]) and &1[:tool_keys] != []))
+    assert entries != [], "no codec declares tool keys to audit"
+
     for %{name: name, codec: codec, request: request, tool_keys: keys, tool_native: native} <-
-          codecs() do
+          entries do
       for key <- keys do
         spec = %ToolSpec{name: "f", parameters: %{}, provider_options: %{key => true}}
 
@@ -187,7 +260,10 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "reasoning options cannot replace the reasoning object" do
-    for %{name: name, codec: codec, request: request, reasoning_keys: keys} <- codecs() do
+    entries = Enum.filter(codecs(), &Map.has_key?(&1, :reasoning_keys))
+    assert entries != [], "no codec declares reasoning keys to audit"
+
+    for %{name: name, codec: codec, request: request, reasoning_keys: keys} <- entries do
       keys =
         case keys do
           :body_root -> Map.keys(encode!(codec, request).body)
@@ -207,8 +283,10 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "reasoning options still accept a native key" do
-    for %{name: name, codec: codec, request: request, reasoning_native: native} <- codecs(),
-        is_map(native) do
+    entries = Enum.filter(codecs(), &is_map(&1[:reasoning_native]))
+    assert entries != [], "no codec declares a native reasoning key to audit"
+
+    for %{name: name, codec: codec, request: request, reasoning_native: native} <- entries do
       base = Map.fetch!(codec_config(name), :reasoning_base)
       reasoning = %{base | provider_options: native}
 
@@ -218,9 +296,11 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "a nested native object protects the keys the codec derives" do
+    entries = Enum.filter(codecs(), &is_map(&1[:nested]))
+    assert entries != [], "no codec declares a nested native object to audit"
+
     for %{name: name, codec: codec, namespace: namespace, request: request, nested: nested} <-
-          codecs(),
-        is_map(nested) do
+          entries do
       for {object, keys} <- nested, key <- keys do
         options = %{namespace => %{object => %{key => true}}}
 

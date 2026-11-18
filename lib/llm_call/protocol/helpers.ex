@@ -744,6 +744,9 @@ defmodule LlmCall.Protocol.Helpers do
   `:response` and `:all` keep it; `:none` does not.
   """
   @spec capture_response(Config.t(), term()) :: map() | nil
-  def capture_response(%Config{capture_raw: raw}, term) when raw in [:response, :all], do: term
+  def capture_response(%Config{capture_raw: raw}, term)
+      when raw in [:response, :all] and is_map(term),
+      do: term
+
   def capture_response(_config, _term), do: nil
 end

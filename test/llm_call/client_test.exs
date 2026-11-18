@@ -83,7 +83,7 @@ defmodule LlmCall.ClientTest do
     assert message =~ ":chat"
   end
 
-  test "execute/3 decodes the body; fetch/3 returns bytes" do
+  test "execute/2 decodes the body; fetch/2 returns bytes" do
     FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"a":1})}})
 
     encoded = %LlmCall.EncodedRequest{method: :get, path: "/asset", query: %{"x" => 1}}
@@ -235,6 +235,43 @@ defmodule LlmCall.ClientTest do
     end
 
     assert FunctionAuthProvider.client(api_key: "k").headers == [{"x-key", "k"}]
+  end
+
+  test "client json: wins, then an explicit config:, then the declaration" do
+    defmodule DeclarationJSON do
+      @moduledoc false
+      def encode(term), do: {:json, term}
+      def decode(term), do: {:ok, term}
+
+      use LlmCall.Provider,
+        base_url: "https://x.test",
+        auth: :none,
+        json: __MODULE__,
+        codecs: [chat: LlmCall.TestCodec.Fake]
+    end
+
+    defmodule OtherJSON do
+      @moduledoc false
+      def encode(term), do: {:other, term}
+      def decode(term), do: {:ok, term}
+    end
+
+    assert %Client{config: %LlmCall.Config{json: DeclarationJSON}} = DeclarationJSON.client([])
+
+    assert %Client{config: %LlmCall.Config{json: OtherJSON}} =
+             DeclarationJSON.client(config: LlmCall.Config.new(json: OtherJSON))
+
+    assert %Client{config: %LlmCall.Config{json: OtherJSON}} =
+             DeclarationJSON.client(
+               config: LlmCall.Config.new(json: DeclarationJSON),
+               json: OtherJSON
+             )
+  end
+
+  test "a non-list headers call option raises" do
+    assert_raise ArgumentError, ~r/:headers must be a list/, fn ->
+      TestProvider.client(api_key: "k", headers: 123)
+    end
   end
 
   test "a non-string base_url is a compile error" do

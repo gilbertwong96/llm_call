@@ -41,6 +41,14 @@ defmodule LlmCall.MediaConformance do
     assert request.modality in modalities,
            "#{inspect(codec)} does not declare modality #{inspect(request.modality)}"
 
+    for modality <- [:image, :video, :audio] -- modalities do
+      result = codec.validate_request(%{request | modality: modality}, config)
+
+      assert match?({:error, %Error{kind: :validation}}, result),
+             "#{inspect(codec)} declares #{inspect(modalities)} but does not reject " <>
+               "modality #{inspect(modality)} with a validation error, got: #{inspect(result)}"
+    end
+
     :ok
   end
 

@@ -86,9 +86,10 @@ Providers do not agree on:
   reference and vendored adapters in this repository, an adapter is an
   application's own module or a third-party package (see §14)
 
-Its HTTP execution, SSE parsing and JSON encoding are in the core **behind
-behaviours**: Finch and OTP `:json` are the defaults, and an application can
-replace either one.
+Its HTTP execution and JSON encoding are in the core **behind behaviours**:
+Finch and OTP `:json` are the defaults, and an application can replace either
+one. SSE framing (`LlmCall.SSE`) is a core module with no seam: a custom
+`LlmCall.HTTP` may deliver pre-framed events, but the parser itself is fixed.
 
 ### 2.3 Relationship to `tool_call`
 
@@ -150,8 +151,9 @@ The core must not contain:
 - conversation persistence or server-side state management
 - prompt templates, chains, memory, or agent loops
 
-HTTP execution and SSE parsing are in the core behind `LlmCall.HTTP`, and JSON
-encoding behind `LlmCall.JSON`; both have defaults and both can be replaced. The
+HTTP execution is in the core behind `LlmCall.HTTP` and JSON encoding behind
+`LlmCall.JSON`; both have defaults and both can be replaced. SSE framing lives in
+`LlmCall.SSE` and is not a seam. The
 core may define the **data** needed by the layers above, but not implement them.
 
 ## 5. Design principles
@@ -1925,23 +1927,18 @@ Settled:
 9. Add `LlmCall.Client`, `LlmCall.Provider`, and `complete/3`, `execute/2`,
    `fetch/2`.
 10. Add `LlmCall.SSE`, `LlmCall.Stream` and `stream/3`.
-11. Add `generate/3` and `poll/3` for the media IR.
-9. Add the media IR ([§23](#23-media-generation-image-and-video)):
-   `Content.Video`, `Request.modalities`, `Capabilities.modalities`,
-   `LlmCall.Media.Request`, `LlmCall.Media.Response`, `LlmCall.Operation`, `LlmCall.Media.Capabilities`, the
-   `LlmCall.Media.Codec` behaviour, and the public media API.
-10. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
+11. Add the media IR ([§23](#23-media-generation-image-and-video)):
+    `Content.Video`, `Request.modalities`, `Capabilities.modalities`,
+    `LlmCall.Media.Request`, `LlmCall.Media.Response`, `LlmCall.Operation`,
+    `LlmCall.Media.Capabilities`, the `LlmCall.Media.Codec` behaviour, and the
+    public media API.
+12. Add `generate/3` and `poll/3` for the media IR.
+13. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
     document the adapter-authoring contract.
-12. Add provider-hosted tools: the builtin envelope, `builtin_tools` capability,
-    and the codec branches.
-13. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
+14. Add provider-hosted tools: the builtin envelope, `builtin_tools`
+    capability, and the codec branches.
+15. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
     Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
-
-Adapters beyond the reference and vendored sets are not implementation phases.
-
-The encode/decode milestone is useful without any transport: a request can be
-encoded and a fixture response decoded in tests. The client milestone makes the
-one-call path work.
 
 ## 22. Design success criteria
 
@@ -2127,7 +2124,7 @@ One rule governs every operation:
 
 - `next` is always the encoded request the client (or your transport) executes
   next, built by the codec. There is no "encode a poll request from an id" callback.
-- `decode_operation/3` receives only the payload and the config. A codec is
+- `decode_operation/2` receives only the payload and the config. A codec is
   stateless, so every continuation value — a file id, a cursor, a page token —
   must travel inside `next` (path, query, or headers). A protocol whose cursor
   cannot be expressed there is out of scope.

@@ -35,7 +35,9 @@ defmodule LlmCall.Provider do
   `http`, `http_opts`, `json` and `timeout` may be declared here, and each
   resolves call option → provider → `config :llm_call, ...` → built-in default. The
   JSON module is written into the client's `%LlmCall.Config{}`, so the codecs use
-  the same implementation as the transport.
+  the same implementation as the transport. A `config:` call option supplies the
+  base config; a `json:` call option still wins over it, and the declaration's
+  `json:` applies only when the caller passes neither.
   """
 
   alias LlmCall.{Client, Config}
@@ -56,7 +58,7 @@ defmodule LlmCall.Provider do
     config =
       opts
       |> base_config(declaration)
-      |> put_json(opts[:json] || declaration[:json])
+      |> put_json(json_option(opts, declaration))
 
     %Client{
       provider: provider,
@@ -71,10 +73,16 @@ defmodule LlmCall.Provider do
   end
 
   defp headers(declaration, opts) do
+    caller = Keyword.get(opts, :headers, []) || []
+
+    unless is_list(caller) do
+      raise ArgumentError, "client option :headers must be a list, got: #{inspect(caller)}"
+    end
+
     HTTP.merge_headers([
       auth_headers(declaration.auth, opts[:api_key]),
       declaration.headers,
-      Keyword.get(opts, :headers, [])
+      caller
     ])
   end
 
@@ -83,6 +91,10 @@ defmodule LlmCall.Provider do
   end
 
   defp base_config(opts, _declaration), do: opts[:config] || Config.new()
+
+  defp json_option(opts, declaration) do
+    if Keyword.has_key?(opts, :config), do: opts[:json], else: opts[:json] || declaration[:json]
+  end
 
   defp put_json(config, nil), do: config
   defp put_json(%Config{} = config, json), do: %{config | json: json}

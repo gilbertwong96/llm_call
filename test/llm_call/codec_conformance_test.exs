@@ -579,4 +579,38 @@ defmodule LlmCall.CodecConformanceTest do
       Conformance.assert_capability_consistency(TextOnly, request("text-only", false), %Config{})
     end
   end
+
+  describe "assert_error/2" do
+    test "accepts a transport error with its status" do
+      error = %LlmCall.Error{
+        kind: :transport,
+        message: "HTTP 500",
+        status: 500,
+        retryable?: false
+      }
+
+      assert :ok == LlmCall.Conformance.assert_error(error, "probe")
+    end
+
+    test "rejects a status on a codec error" do
+      error = %LlmCall.Error{
+        kind: :invalid_response,
+        message: "bad",
+        status: 500,
+        retryable?: false
+      }
+
+      assert_raise ExUnit.AssertionError, ~r/only the transport knows/, fn ->
+        LlmCall.Conformance.assert_error(error, "probe")
+      end
+    end
+
+    test "rejects a non-integer transport status" do
+      error = %LlmCall.Error{kind: :transport, message: "HTTP", status: "500", retryable?: false}
+
+      assert_raise ExUnit.AssertionError, ~r/status must be an integer/, fn ->
+        LlmCall.Conformance.assert_error(error, "probe")
+      end
+    end
+  end
 end

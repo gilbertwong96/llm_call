@@ -104,6 +104,8 @@ defmodule LlmCall.Media.Protocol.ConformanceTest do
       assert {:ok, poll_operation} = codec.decode_operation(poll, %Config{})
       assert :ok = MediaConformance.assert_operation(poll_operation)
       assert poll_operation.next_kind == :poll
+
+      assert :ok = MediaConformance.assert_operation_capture_raw(codec, poll)
     end
   end
 end
