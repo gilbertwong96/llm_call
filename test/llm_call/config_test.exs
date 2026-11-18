@@ -14,6 +14,11 @@ defmodule LlmCall.ConfigTest do
     assert Config.new(json: JSON).json == JSON
   end
 
+  test "new/1 carries default_provider_options" do
+    assert Config.new(default_provider_options: %{openai: %{"logprobs" => true}}).default_provider_options ==
+             %{openai: %{"logprobs" => true}}
+  end
+
   test "an explicit %Config{} opts out of the application default" do
     on_exit(fn -> Application.delete_env(:llm_call, :json) end)
     Application.put_env(:llm_call, :json, MarkerJSON)

@@ -8,7 +8,7 @@ defmodule LlmCall.Examples.Gemini do
   """
 
   use LlmCall.Provider,
-    base_url: "https://generativelanguage.googleapis.com/v1beta",
+    base_url: "https://generativelanguage.googleapis.com",
     auth: {:header, "x-goog-api-key"},
     codecs: [
       chat: LlmCall.Protocol.Gemini.GenerateContent,

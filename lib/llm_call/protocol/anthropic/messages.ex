@@ -117,11 +117,11 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     }
   end
 
-  defp encode_part(%ToolResult{} = result, _json) do
+  defp encode_part(%ToolResult{} = result, json) do
     %{
       "type" => "tool_result",
       "tool_use_id" => result.call_id,
-      "content" => tool_result_content(result.content)
+      "content" => tool_result_content(result.content, json)
     }
     |> Helpers.maybe_put("is_error", result.is_error || nil)
   end
@@ -139,10 +139,10 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp encode_source(url, _media_type) when is_binary(url), do: %{"type" => "url", "url" => url}
 
-  defp tool_result_content(content) when is_binary(content), do: content
+  defp tool_result_content(content, _json) when is_binary(content), do: content
 
-  defp tool_result_content(parts) when is_list(parts),
-    do: Enum.map(parts, &encode_part(&1, LlmCall.JSON))
+  defp tool_result_content(parts, json) when is_list(parts),
+    do: Enum.map(parts, &encode_part(&1, json))
 
   defp encode_tools([]), do: nil
 
@@ -289,6 +289,16 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp validate_native_tool_choice(_options), do: :ok
+
+  defp validate_tool_spec(%ToolSpec{kind: :builtin} = spec) do
+    with :ok <-
+           Helpers.validate_tool_spec(spec, @codec,
+             options: true,
+             builtin_tools: @builtin_tools
+           ) do
+      Helpers.validate_option_keys(spec.provider_options, ["type"], @codec)
+    end
+  end
 
   defp validate_tool_spec(spec) do
     with :ok <-

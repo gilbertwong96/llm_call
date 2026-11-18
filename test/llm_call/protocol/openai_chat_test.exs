@@ -859,6 +859,13 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
              ] = usages
     end
 
+    test "a non-object chunk is an invalid response, not a silent end" do
+      assert {:error, %Error{kind: :invalid_response, message: message}} =
+               Chat.decode_stream_event("ping", %Config{}, stream_state())
+
+      assert message =~ "not an object"
+    end
+
     test "[DONE] terminates the stream" do
       assert {:done, %LlmCall.StreamState{}} =
                Chat.decode_stream_event("[DONE]", %Config{}, stream_state())

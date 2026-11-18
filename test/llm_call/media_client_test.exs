@@ -91,6 +91,21 @@ defmodule LlmCall.MediaClientTest do
              LlmCall.poll(client(), encoded, codec: :async)
   end
 
+  test "poll/3 rejects an :asset operation and points at fetch/2" do
+    operation = %Operation{
+      status: :completed,
+      next: %LlmCall.EncodedRequest{method: :get, path: "/asset"},
+      next_kind: :asset,
+      next_media_type: "video/mp4"
+    }
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.poll(client(), operation, codec: :async)
+
+    assert message =~ "fetch/2"
+    assert FakeHTTP.requests() == []
+  end
+
   test "poll/3 rejects an operation without a next request" do
     assert {:error, %Error{kind: :validation, message: message}} =
              LlmCall.poll(client(), %Operation{status: :completed}, codec: :async)

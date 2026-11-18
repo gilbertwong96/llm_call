@@ -6,7 +6,7 @@ client whose HTTP and JSON layers you can replace.
 ```elixir
 defmodule MyApp.OpenAI do
   use LlmCall.Provider,
-    base_url: "https://api.openai.com/v1",
+    base_url: "https://api.openai.com",
     auth: :bearer,
     codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
 end
@@ -47,7 +47,7 @@ There is no built-in catalog — `examples/` carries reference definitions.
 ```elixir
 defmodule MyApp.Groq do
   use LlmCall.Provider,
-    base_url: "https://api.groq.com/openai/v1",
+    base_url: "https://api.groq.com/openai",
     auth: :bearer,
     codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
 end
@@ -135,7 +135,7 @@ to execute; `poll/3` runs it and returns the next state:
 ```
 
 `next_kind: :poll` means "execute `next` and poll"; `next_kind: :asset` means the
-body is media bytes — use `LlmCall.fetch/3` for it. The library never polls,
+body is media bytes — use `LlmCall.fetch/2` for it. The library never polls,
 waits, or downloads on its own.
 
 `LlmCall.media_capabilities/3` reports what a codec accepts: `max_n:

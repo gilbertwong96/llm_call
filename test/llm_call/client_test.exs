@@ -1,7 +1,7 @@
 defmodule LlmCall.ClientTest do
   use ExUnit.Case, async: true
 
-  alias LlmCall.{Client, Config, Error, HTTP, MarkerJSON, Request, Response}
+  alias LlmCall.{Client, Config, Error, MarkerJSON, Request, Response}
   alias LlmCall.HTTP.Test, as: FakeHTTP
   alias LlmCall.TestProvider
 
@@ -124,6 +124,52 @@ defmodule LlmCall.ClientTest do
 
     assert [sent] = FakeHTTP.requests()
     assert sent.receive_timeout == 5_000
+  end
+
+  test "the documented example base URL composes the real endpoint" do
+    FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
+
+    client = LlmCall.Examples.OpenAI.client(api_key: "k", http: FakeHTTP)
+    {:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request())
+
+    assert {:ok, _response} = LlmCall.execute(client, encoded)
+    assert [sent] = FakeHTTP.requests()
+    assert sent.url == "https://api.openai.com/v1/chat/completions"
+  end
+
+  test "a provider option must be a literal" do
+    assert_raise ArgumentError, ~r/:base_url must be a literal/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.NonLiteralBase do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: Application.fetch_env!(:llm_call, :missing),
+          auth: :none,
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
+  test "duplicate codec names are a compile error" do
+    assert_raise ArgumentError, ~r/same codec name twice/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.DuplicateCodec do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          codecs: [chat: LlmCall.TestCodec.Fake, chat: LlmCall.TestCodec.TextOnly]
+      end
+      """)
+    end
+  end
+
+  test "a caller header replaces the provider header of the same name" do
+    client = TestProvider.client(api_key: "k", headers: [{"Authorization", "Bearer override"}])
+
+    assert [{"authorization", "Bearer override"}] =
+             Enum.filter(client.headers, fn {name, _} -> name == "authorization" end)
   end
 
   test "the application environment supplies the seam defaults" do

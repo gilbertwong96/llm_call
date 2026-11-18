@@ -5,7 +5,7 @@ defmodule LlmCall.Provider do
 
       defmodule MyApp.OpenAI do
         use LlmCall.Provider,
-          base_url: "https://api.openai.com/v1",
+          base_url: "https://api.openai.com",
           auth: :bearer,
           codecs: [
             chat: LlmCall.Protocol.OpenAI.Chat,
@@ -19,6 +19,10 @@ defmodule LlmCall.Provider do
   A provider is a user module, not a catalog entry: the library ships no provider
   list. `auth` describes the *shape* of authentication, never the key; the key is
   always passed in.
+
+  `base_url` is the origin: every codec path starts with its own version segment
+  (`/v1/chat/completions`, `/v1beta/models/...`), so a provider whose base URL
+  already ends in `/v1` would produce `/v1/v1/...`.
 
   ## Seams
 
@@ -61,9 +65,10 @@ defmodule LlmCall.Provider do
   end
 
   defp headers(declaration, opts) do
-    declaration.headers ++
+    merge_headers(
       auth_headers(declaration.auth, opts[:api_key]) ++
-      Keyword.get(opts, :headers, [])
+        declaration.headers ++ Keyword.get(opts, :headers, [])
+    )
   end
 
   defp resolve(key, opts, declaration, default) do
@@ -71,6 +76,15 @@ defmodule LlmCall.Provider do
   end
 
   defp base_config(opts, _declaration), do: opts[:config] || Config.new()
+
+  defp merge_headers(headers) do
+    headers
+    |> Enum.reduce([], fn {name, value}, acc ->
+      name = name |> to_string() |> String.downcase()
+      [{name, value} | Enum.reject(acc, fn {existing, _} -> existing == name end)]
+    end)
+    |> Enum.reverse()
+  end
 
   defp put_json(config, nil), do: config
   defp put_json(%Config{} = config, json), do: %{config | json: json}
@@ -97,6 +111,25 @@ defmodule LlmCall.Provider do
     raise ArgumentError, "api_key must be a string, got: #{inspect(other)}"
   end
 
+  defp assert_literal!(opts, key, caller) do
+    case Keyword.fetch(opts, key) do
+      :error ->
+        :ok
+
+      {:ok, value} ->
+        unless literal?(value, caller) do
+          raise ArgumentError,
+                "provider option #{inspect(key)} must be a literal value; " <>
+                  "got: #{Macro.to_string(value)}"
+        end
+    end
+  end
+
+  defp literal?(value, caller) do
+    expanded = Macro.expand(value, caller)
+    Macro.quoted_literal?(expanded)
+  end
+
   defp expand({module, function}, caller) when is_atom(function) do
     {expand(module, caller), function}
   end
@@ -108,6 +141,15 @@ defmodule LlmCall.Provider do
       opts
       |> Keyword.fetch!(:codecs)
       |> Enum.map(fn {name, module} -> {name, expand(module, __CALLER__)} end)
+
+    if Enum.uniq_by(codecs, &elem(&1, 0)) != codecs do
+      raise ArgumentError, "provider declares the same codec name twice: #{inspect(codecs)}"
+    end
+
+    assert_literal!(opts, :base_url, __CALLER__)
+    assert_literal!(opts, :headers, __CALLER__)
+    assert_literal!(opts, :http_opts, __CALLER__)
+    assert_literal!(opts, :timeout, __CALLER__)
 
     declaration = %{
       base_url: Keyword.fetch!(opts, :base_url),

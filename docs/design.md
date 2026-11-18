@@ -670,6 +670,11 @@ client sets it**: a codec never sees the response status, so it always leaves it
 
 A codec never produces `:transport`; the client never produces `:provider`.
 
+`execute/2` and `fetch/2` are the exception: they perform a request the caller
+already encoded, with no codec to decode an envelope, so they report any non-`2xx`
+as `:transport` with `status` set. Use `complete/3`, `generate/3` or `poll/3` when
+you want the provider envelope decoded.
+
 ### 8.10 Capabilities
 
 Capabilities are explicit and per protocol/config. They are **protocol-level**:
@@ -1276,7 +1281,11 @@ The boundary stays public for callers that own a transport:
 {:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
 
 body = JSON.encode!(encoded.body)
-Req.post!(base_url <> encoded.path, headers: auth_headers ++ encoded.headers, body: body)
+
+case encoded.method do
+  :get -> Req.get!(base_url <> encoded.path, headers: auth_headers ++ encoded.headers)
+  :post -> Req.post!(base_url <> encoded.path, headers: auth_headers ++ encoded.headers, body: body)
+end
 ```
 
 ## 12. Streaming
@@ -1898,8 +1907,8 @@ Settled:
 8. Add `LlmCall.JSON` as a behaviour, thread it through the codecs, and resolve
    it (with `http`, `http_opts`, `timeout`) from call option, provider,
    application environment and default.
-9. Add `LlmCall.Client`, `LlmCall.Provider`, and `complete/3`, `execute/3`,
-   `fetch/3`.
+9. Add `LlmCall.Client`, `LlmCall.Provider`, and `complete/3`, `execute/2`,
+   `fetch/2`.
 10. Add `LlmCall.SSE`, `LlmCall.Stream` and `stream/3`.
 11. Add `generate/3` and `poll/3` for the media IR.
 9. Add the media IR ([§23](#23-media-generation-image-and-video)):
@@ -1931,10 +1940,10 @@ This design is working if:
   allowed to change with its provider without changing the IR.
 - A caller reaches a provider with one function, without assembling a request or
   parsing SSE.
-- The HTTP, JSON and tool layers can each be replaced without touching a codec,
-  per application, per provider, or per call.
-- A different tool framework can be used directly; the library models tool wire
-  data only and depends on no tool library.
+- The HTTP and JSON layers can each be replaced without touching a codec, per
+  application, per provider, or per client.
+- A tool framework can be used directly; the library models tool wire data only
+  and depends on no tool library.
 - Adding a protocol adapter does not require changing canonical messages.
 - Provider-specific features remain accessible through explicit escape hatches.
 - The core has no auth lookup, model catalog, provider registry, or agent loop.

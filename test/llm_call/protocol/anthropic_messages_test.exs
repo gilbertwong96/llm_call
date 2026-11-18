@@ -411,6 +411,22 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
                text_request(tools: [%ToolSpec{kind: :builtin, name: "web_search", strict: true}]),
                %Config{}
              )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(
+               text_request(
+                 tools: [
+                   %ToolSpec{
+                     kind: :builtin,
+                     name: "web_search",
+                     provider_options: %{"type" => "custom"}
+                   }
+                 ]
+               ),
+               %Config{}
+             )
+
+    assert message =~ "canonical field"
   end
 
   test "the provider_options container and envelope keys are validated" do
