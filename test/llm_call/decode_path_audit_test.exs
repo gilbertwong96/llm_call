@@ -60,6 +60,48 @@ defmodule LlmCall.DecodePathAuditTest do
         ignored: [["choices", "index"], ["choices", "message", "role"]]
       },
       %{
+        name: :openai_responses_text,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        kind: :response,
+        payload: LlmCall.Fixtures.OpenAIResponses.text_response(),
+        ignored: [
+          # envelope and item bookkeeping the IR does not keep
+          ["object"],
+          ["output", "id"],
+          ["output", "role"],
+          ["output", "status"],
+          # an empty annotation list carries no information
+          ["output", "content", "annotations"]
+        ]
+      },
+      %{
+        name: :openai_responses_tool_call,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        kind: :response,
+        payload: LlmCall.Fixtures.OpenAIResponses.tool_call_response(),
+        ignored: [
+          # the presence of a function call decides :tool_calls
+          ["status"],
+          ["output", "id"],
+          ["output", "status"]
+        ]
+      },
+      %{
+        name: :openai_responses_reasoning,
+        codec: LlmCall.Protocol.OpenAI.Responses,
+        kind: :response,
+        payload: LlmCall.Fixtures.OpenAIResponses.reasoning_response(),
+        ignored: [
+          # two output items, so each shared path appears once per item
+          ["output", "id"],
+          ["output", "id"],
+          ["output", "role"],
+          ["output", "status"],
+          ["output", "summary", "type"],
+          ["output", "content", "annotations"]
+        ]
+      },
+      %{
         name: :anthropic_text,
         codec: LlmCall.Protocol.Anthropic.Messages,
         kind: :response,

@@ -353,6 +353,104 @@ defmodule LlmCall.Protocol.Helpers do
   end
 
   @doc """
+  Encodes a tool call's arguments: `raw_arguments` wins, otherwise the decoded map
+  is encoded with the configured JSON module.
+  """
+  @spec encode_call_arguments(ToolCall.t(), codec(), module()) ::
+          {:ok, String.t()} | {:error, Error.t()}
+  def encode_call_arguments(%ToolCall{raw_arguments: raw}, _codec, _json)
+      when is_binary(raw),
+      do: {:ok, raw}
+
+  def encode_call_arguments(%ToolCall{arguments: arguments}, codec, json),
+    do: encode_arguments(arguments || %{}, codec, json)
+
+  @doc """
+  Decodes a tool call's wire arguments into a map.
+
+  Returns `{arguments, nil}` or `{nil, {:invalid_json, raw}}`; the caller keeps
+  both so a malformed call is not lost.
+  """
+  @spec decode_arguments(term(), module()) ::
+          {map() | nil, nil | {:invalid_json, String.t()}}
+  def decode_arguments(nil, _json), do: {nil, nil}
+
+  def decode_arguments(raw, json) when is_binary(raw) do
+    case json.decode(raw) do
+      {:ok, decoded} when is_map(decoded) -> {decoded, nil}
+      _not_a_map -> {nil, {:invalid_json, raw}}
+    end
+  end
+
+  def decode_arguments(raw, _json), do: {nil, {:invalid_json, inspect(raw)}}
+
+  @doc """
+  Validates the tool choices whose native shapes match across OpenAI-style
+  protocols: `:auto`, `:none`, `:required`, and `{:tool, name}`.
+  """
+  @spec validate_tool_choice(LlmCall.Request.tool_choice(), [ToolSpec.t()], codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_tool_choice(:auto, _tools, _codec), do: :ok
+  def validate_tool_choice(:none, _tools, _codec), do: :ok
+
+  def validate_tool_choice(choice, tools, codec) when choice in [:required] or is_tuple(choice) do
+    if tools == [] do
+      error(codec, "tool_choice requires at least one tool")
+    else
+      validate_tool_choice_value(choice, codec)
+    end
+  end
+
+  def validate_tool_choice(choice, _tools, codec) do
+    error(codec, "tool_choice #{inspect(choice)} is not supported")
+  end
+
+  defp validate_tool_choice_value(:required, _codec), do: :ok
+
+  defp validate_tool_choice_value({:tool, name}, _codec) when is_binary(name) and name != "",
+    do: :ok
+
+  defp validate_tool_choice_value({:tool, _name}, codec),
+    do: error(codec, "tool_choice tool name is required")
+
+  defp validate_tool_choice_value({:allowed, _names}, codec),
+    do: error(codec, "tool_choice {:allowed, names} is not supported")
+
+  defp validate_tool_choice_value(choice, codec),
+    do: error(codec, "tool_choice #{inspect(choice)} is not supported")
+
+  @doc """
+  Validates the response format shared by OpenAI-style protocols.
+  """
+  @spec validate_output(LlmCall.Request.output(), codec()) :: :ok | {:error, Error.t()}
+  def validate_output(:text, _codec), do: :ok
+  def validate_output(:json_object, _codec), do: :ok
+
+  def validate_output({:json_schema, name, schema, strict}, _codec)
+      when is_binary(name) and name != "" and is_map(schema) and
+             (is_boolean(strict) or is_nil(strict)),
+      do: :ok
+
+  def validate_output({:json_schema, _name, schema, _strict}, codec) when not is_map(schema),
+    do: error(codec, "json_schema output requires a map schema")
+
+  def validate_output(output, codec),
+    do: error(codec, "output #{inspect(output)} is not supported")
+
+  @doc """
+  Validates a reasoning effort against the protocol's supported levels.
+  """
+  @spec validate_effort(LlmCall.Reasoning.effort(), [LlmCall.Reasoning.level()], codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_effort(nil, _efforts, _codec), do: :ok
+
+  def validate_effort(effort, efforts, codec) do
+    if effort in efforts,
+      do: :ok,
+      else: error(codec, "reasoning effort #{inspect(effort)} is not supported")
+  end
+
+  @doc """
   Validates tool-result content: a string or a list of text parts.
   """
   @spec validate_tool_result_content(term(), codec()) :: :ok | {:error, Error.t()}

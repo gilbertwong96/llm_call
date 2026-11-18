@@ -232,11 +232,12 @@ declares `builtin_tools: :passthrough`:
 
 ## Protocol adapters
 
-Three **reference adapters** — the dialect families the IR is written against:
+Four **reference adapters** — the dialect families the IR is written against:
 
 | Protocol | Module |
 | --- | --- |
 | OpenAI Chat Completions | `LlmCall.Protocol.OpenAI.Chat` |
+| OpenAI Responses | `LlmCall.Protocol.OpenAI.Responses` |
 | Anthropic Messages | `LlmCall.Protocol.Anthropic.Messages` |
 | Gemini GenerateContent | `LlmCall.Protocol.Gemini.GenerateContent` |
 

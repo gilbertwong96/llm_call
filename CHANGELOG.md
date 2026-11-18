@@ -26,8 +26,8 @@ back to `llm_call` because it now ships the client that name promised.
   `Config`, `EncodedRequest`.
 - `LlmCall.Codec` behaviour and the public dispatch API, with typed errors for
   every unsupported field.
-- Reference adapters: OpenAI Chat Completions, Anthropic Messages, Gemini
-  GenerateContent.
+- Reference adapters: OpenAI Chat Completions, OpenAI Responses, Anthropic
+  Messages, Gemini GenerateContent.
 - Adapter authoring macros: `LlmCall.Protocol.Adapter` injects the behaviour,
   aliases, and `encode_request/2`; `LlmCall.Media.Adapter` additionally
   injects the shared media validation pipeline. Shared rules live in

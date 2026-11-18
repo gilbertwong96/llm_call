@@ -999,12 +999,13 @@ These are separate protocol adapters, not one endpoint toggle.
 Implement as:
 
 ```text
-LlmCall.Protocol.OpenAI.Chat
-LlmCall.Protocol.OpenAI.Responses
+LlmCall.Protocol.OpenAI.Chat         # POST /v1/chat/completions
+LlmCall.Protocol.OpenAI.Responses    # POST /v1/responses
 ```
 
-The canonical IR can be shared, but the response/event/state mapping must be
-independent.
+Both are implemented. The canonical IR is shared, but the response, event and
+state mappings are independent. Responses is HTTP/SSE only in 0.1: OpenAI's
+WebSocket transport mode (`wss://…/v1/responses`) is not covered.
 
 OpenAI Responses state is deliberately provider-specific. `previous_response_id`
 and `store` live in `Request.provider_options` (for example under an `:openai`
@@ -1555,6 +1556,7 @@ catalog can be converted into `LlmCall.ToolSpec` values outside the core.
 ### Phase 1
 
 - `LlmCall.Protocol.OpenAI.Chat`
+- `LlmCall.Protocol.OpenAI.Responses`
 - `LlmCall.Protocol.Anthropic.Messages`
 - `LlmCall.Protocol.Gemini.GenerateContent`
 
@@ -1653,6 +1655,7 @@ lib/llm_call/media_conformance.ex
 lib/llm_call/protocol/adapter.ex
 lib/llm_call/protocol/helpers.ex
 lib/llm_call/protocol/openai/chat.ex
+lib/llm_call/protocol/openai/responses.ex
 lib/llm_call/protocol/anthropic/messages.ex
 lib/llm_call/protocol/gemini/generate_content.ex
 lib/llm_call/media.ex
@@ -1948,6 +1951,8 @@ Settled:
     capability, and the codec branches.
 15. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
     Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
+16. Add the OpenAI Responses codec (`POST /v1/responses`) on the HTTP/SSE
+    transport.
 
 ## 22. Design success criteria
 
