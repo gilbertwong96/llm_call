@@ -1729,19 +1729,30 @@ assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
   end)
 ```
 
-The core public API is:
+The one-call API is the default:
 
 ```elixir
-LlmCall.encode(protocol, request, config \\ %LlmCall.Config{})
-LlmCall.decode_response(protocol, response_term, config \\ %LlmCall.Config{})
-LlmCall.init_stream(protocol, request, config \\ %LlmCall.Config{})
+LlmCall.complete(client, request, opts \\ [])
+LlmCall.stream(client, request, opts \\ [])
+LlmCall.generate(client, media_request, opts)
+LlmCall.poll(client, operation_or_encoded, opts)
+LlmCall.execute(client, encoded)
+LlmCall.fetch(client, encoded)
+```
+
+The encode/decode boundary stays public for callers that own a transport:
+
+```elixir
+LlmCall.encode(protocol, request, config \\ LlmCall.Config.new())
+LlmCall.decode_response(protocol, response_term, config \\ LlmCall.Config.new())
+LlmCall.init_stream(protocol, request, config \\ LlmCall.Config.new())
 LlmCall.decode_stream_event(protocol, event_term, config, state)
 LlmCall.finish_stream(protocol, state, config)
 LlmCall.StreamAssembler.new(keyword())
 LlmCall.StreamAssembler.feed(assembler, event)
 LlmCall.StreamAssembler.finish(assembler)
-LlmCall.validate_request(protocol, request, config \\ %LlmCall.Config{})
-LlmCall.capabilities(protocol, request, config \\ %LlmCall.Config{})
+LlmCall.validate_request(protocol, request, config \\ LlmCall.Config.new())
+LlmCall.capabilities(protocol, request, config \\ LlmCall.Config.new())
 ```
 
 `encode` returns `{:ok, %LlmCall.EncodedRequest{}}`; `decode_response`,

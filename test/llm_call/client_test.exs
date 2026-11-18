@@ -151,6 +151,62 @@ defmodule LlmCall.ClientTest do
     end
   end
 
+  test "an alias inside a list option is expanded, not stored as AST" do
+    modules =
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.AliasOptionProvider do
+        @moduledoc false
+        defmodule Pool do
+          @moduledoc false
+        end
+
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          http_opts: [name: Pool],
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+
+    {provider, _binary} =
+      Enum.find(modules, fn {module, _} -> module == LlmCall.TestCodec.AliasOptionProvider end)
+
+    assert provider.client(api_key: "k").http_opts == [
+             name: LlmCall.TestCodec.AliasOptionProvider.Pool
+           ]
+  end
+
+  test "a module attribute is not a literal and is rejected" do
+    assert_raise ArgumentError, ~r/:base_url must be a literal/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.AttributeProvider do
+        @moduledoc false
+        @url "https://x.test"
+
+        use LlmCall.Provider,
+          base_url: @url,
+          auth: :none,
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
+  test "a remote call is not a literal and is rejected" do
+    assert_raise ArgumentError, ~r/:timeout must be a literal/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.DynamicTimeoutProvider do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          timeout: :timer.seconds(90),
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
   test "duplicate codec names are a compile error" do
     assert_raise ArgumentError, ~r/same codec name twice/, fn ->
       Code.compile_string("""
