@@ -96,21 +96,21 @@ the only HTTP transport, so raw bytes are not exposed as a hook.
 
 ### Responses over WebSocket
 
-The Responses protocol also has a multiplexed WebSocket session: one connection,
+The Responses protocol also has a multiplexed WebSocket connection:
 named `stream_id` lanes, decoded events, and reconnect before the 60-minute
 limit.
 
 ```elixir
-{:ok, session} = LlmCall.Protocol.OpenAI.Responses.Session.start_link(client: client)
-{:ok, stream} = LlmCall.Protocol.OpenAI.Responses.Session.create(session, request, stream_id: "main")
+{:ok, connection} = LlmCall.Protocol.OpenAI.Responses.Connection.start_link(client: client)
+{:ok, stream} = LlmCall.Protocol.OpenAI.Responses.Connection.create(connection, request, stream_id: "main")
 
 Enum.to_list(stream)
 ```
 
 An in-flight response cannot resume across a reconnect; its stream raises
-`LlmCall.WS.Error`. The session reconnects with exponential backoff and does not
-stop on failure: while disconnected, `create/3` returns a `:transport` error and
-`Session.reconnect/1` retries immediately.
+`LlmCall.WS.Error`. The connection reconnects with exponential backoff and does
+not stop on failure: while disconnected, `create/3` returns a `:transport` error
+and `Connection.reconnect/1` retries immediately.
 
 Tool-call fragments are assembled into complete calls by a pure helper, which never
 runs them:

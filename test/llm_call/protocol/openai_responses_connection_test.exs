@@ -1,9 +1,9 @@
-defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
+defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.{Error, TestWSServer}
 
-  alias LlmCall.Protocol.OpenAI.Responses.Session
+  alias LlmCall.Protocol.OpenAI.Responses.Connection
 
   defmodule WSProvider do
     @moduledoc "Provider pointing at the local test WebSocket server."
@@ -35,7 +35,7 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
   end
 
   defp start(opts \\ []) do
-    Session.start_link(
+    Connection.start_link(
       Keyword.merge([client: client(), ws_opts: [timeout: 2_000], max_age_ms: 60_000], opts)
     )
   end
@@ -72,9 +72,9 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
   end
 
   test "create/3 sends response.create and streams decoded events" do
-    {:ok, session} = start()
+    {:ok, connection} = start()
 
-    assert {:ok, stream} = Session.create(session, request(), stream_id: "main")
+    assert {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
 
     assert types(stream) == [
              :message_start,
@@ -85,13 +85,13 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
              :message_stop
            ]
 
-    Session.close(session)
+    Connection.close(connection)
   end
 
   test "the wire create event carries the type, lane and no stream flag" do
-    {:ok, session} = start()
+    {:ok, connection} = start()
 
-    assert {:ok, _stream} = Session.create(session, request(), stream_id: "main")
+    assert {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
 
     create = await_event("response.create")
 
@@ -101,19 +101,19 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
   end
 
   test "a stream_id is generated when omitted" do
-    {:ok, session} = start()
+    {:ok, connection} = start()
 
-    assert {:ok, stream} = Session.create(session, request())
+    assert {:ok, stream} = Connection.create(connection, request())
 
     assert String.starts_with?(stream.stream_id, "lane-")
-    assert :ok == Session.cancel(session, stream.stream_id)
+    assert :ok == Connection.cancel(connection, stream.stream_id)
   end
 
   test "two lanes are decoded independently" do
-    {:ok, session} = start()
+    {:ok, connection} = start()
 
-    assert {:ok, first} = Session.create(session, request(), stream_id: "first")
-    assert {:ok, second} = Session.create(session, request(), stream_id: "second")
+    assert {:ok, first} = Connection.create(connection, request(), stream_id: "first")
+    assert {:ok, second} = Connection.create(connection, request(), stream_id: "second")
 
     assert types(first) == [
              :message_start,
@@ -133,50 +133,50 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
              :message_stop
            ]
 
-    Session.close(session)
+    Connection.close(connection)
   end
 
   test "invalid and duplicate stream ids are typed errors" do
     TestWSServer.set_mode(:hold)
-    {:ok, session} = start()
+    {:ok, connection} = start()
 
     assert {:error, %Error{kind: :validation}} =
-             Session.create(session, request(), stream_id: "bad id")
+             Connection.create(connection, request(), stream_id: "bad id")
 
-    assert {:ok, _stream} = Session.create(session, request(), stream_id: "main")
+    assert {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
 
     assert {:error, %Error{kind: :validation, message: message}} =
-             Session.create(session, request(), stream_id: "main")
+             Connection.create(connection, request(), stream_id: "main")
 
     assert message =~ "already in use"
-    Session.close(session)
+    Connection.close(connection)
   end
 
   test "steer sends a response.steer event for the lane" do
     TestWSServer.set_mode(:hold)
-    {:ok, session} = start()
-    {:ok, _stream} = Session.create(session, request(), stream_id: "main")
+    {:ok, connection} = start()
+    {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
 
-    assert :ok = Session.steer(session, "main", "stop here")
+    assert :ok = Connection.steer(connection, "main", "stop here")
 
     steer = await_event("response.steer")
     assert steer["stream_id"] == "main"
     assert steer["input"] == "stop here"
 
-    Session.close(session)
+    Connection.close(connection)
   end
 
   test "reconnect interrupts in-flight lanes and accepts new work" do
     TestWSServer.set_mode(:hold)
-    {:ok, session} = start()
-    {:ok, stream} = Session.create(session, request(), stream_id: "main")
+    {:ok, connection} = start()
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
 
-    assert :ok = Session.reconnect(session)
+    assert :ok = Connection.reconnect(connection)
 
     assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
 
     TestWSServer.set_mode(:responses)
-    assert {:ok, stream} = Session.create(session, request(), stream_id: "after")
+    assert {:ok, stream} = Connection.create(connection, request(), stream_id: "after")
 
     assert types(stream) == [
              :message_start,
@@ -187,57 +187,60 @@ defmodule LlmCall.Protocol.OpenAIResponsesSessionTest do
              :message_stop
            ]
 
-    Session.close(session)
+    Connection.close(connection)
   end
 
   test "cancelling a lane sends response.cancel and ends the stream" do
     TestWSServer.set_mode(:hold)
-    {:ok, session} = start()
-    {:ok, stream} = Session.create(session, request(), stream_id: "main")
+    {:ok, connection} = start()
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
 
-    assert :ok = Session.cancel(session, "main")
+    assert :ok = Connection.cancel(connection, "main")
     assert Enum.to_list(stream) == []
 
     cancel = await_event("response.cancel")
     assert cancel["stream_id"] == "main"
 
-    Session.close(session)
+    Connection.close(connection)
   end
 
-  test "a failed reconnect keeps the session alive and rejects work" do
-    {:ok, session} = start(max_reconnect_attempts: 1, retry_delay_ms: 20)
+  test "a failed reconnect keeps the connection alive and rejects work" do
+    {:ok, connection} = start(max_reconnect_attempts: 1, retry_delay_ms: 20)
 
     TestWSServer.stop()
 
-    assert {:error, %Error{kind: :transport}} = Session.reconnect(session)
-    assert Process.alive?(session)
+    assert {:error, %Error{kind: :transport}} = Connection.reconnect(connection)
+    assert Process.alive?(connection)
 
     assert {:error, %Error{kind: :transport, message: message}} =
-             Session.create(session, request())
+             Connection.create(connection, request())
 
     assert message =~ "disconnected"
 
-    Session.close(session)
+    Connection.close(connection)
   end
 
   test "retries with backoff and recovers when the server returns" do
     port = TestWSServer.port()
-    {:ok, session} = start(max_reconnect_attempts: 10, retry_delay_ms: 20)
+    {:ok, connection} = start(max_reconnect_attempts: 10, retry_delay_ms: 20)
 
     TestWSServer.stop()
     Process.sleep(40)
     TestWSServer.start(port: port, mode: :responses)
 
     assert eventually(fn ->
-             match?({:ok, _stream}, Session.create(session, request(), stream_id: "recovered"))
+             match?(
+               {:ok, _stream},
+               Connection.create(connection, request(), stream_id: "recovered")
+             )
            end)
 
-    :ok = Session.cancel(session, "recovered")
-    Session.close(session)
+    :ok = Connection.cancel(connection, "recovered")
+    Connection.close(connection)
   end
 
   test "a missing client is rejected at start" do
     Process.flag(:trap_exit, true)
-    assert {:error, :client_required} = Session.start_link(client: nil)
+    assert {:error, :client_required} = Connection.start_link(client: nil)
   end
 end
