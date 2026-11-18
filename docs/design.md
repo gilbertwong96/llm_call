@@ -97,23 +97,18 @@ The tool concepts in `LlmCall` are wire data only:
 - `LlmCall.ToolCall`: what the model asked to call
 - `LlmCall.ToolResult`: the result of a call, ready to send back to the model
 
-A `tool_call` adapter can be a separate package:
-
-```text
-tool_call  ---->  llm_call_tool_call  ---->  llm_call
-```
-
-or an optional module in the application:
+The application maps between them; neither project depends on the other:
 
 ```elixir
-specs = LlmCall.ToolCall.from_describe(ToolCall.describe(MyApp.Tools))
+specs =
+  for tool <- ToolCall.describe(MyApp.Tools) do
+    %LlmCall.ToolSpec{name: tool.name, description: tool.description, parameters: tool.parameters}
+  end
 ```
 
-The adapter converts `ToolCall` IR/schemas into `LlmCall.ToolSpec` values, and
-converts returned `LlmCall.ToolCall` values into calls that `ToolCall.run/3`
-can execute.
-
-Neither project should depend on the other in its core.
+`ToolCall.describe/2` returns a provider-neutral `name`/`description`/`parameters`
+per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
+`ToolCall.run/4` needs.
 
 ### 2.4 Relationship to LangChain and ReqLLM
 
@@ -1462,12 +1457,16 @@ Provider timing differs:
 Early execution is an application decision. `LlmCall` only exposes complete
 calls; it does not run them or insert results into an active response.
 
-Transport responsibilities:
+`LlmCall.stream/3` owns the transport side:
 
-- parse SSE framing
-- decode JSON payloads
-- detect provider stream terminators such as `[DONE]`
-- pass decoded terms to `decode_stream_event/3`
+- parse SSE framing (`LlmCall.SSE`)
+- decode JSON payloads with `Config.json`
+- detect provider stream terminators such as `[DONE]` and call
+  `finish_stream/2`
+- raise `LlmCall.HTTP.Error` when the body fails mid-stream
+
+A caller that owns a transport does the same four steps itself before calling
+`decode_stream_event/3`.
 
 Codec responsibilities:
 
@@ -1489,17 +1488,24 @@ execute them.
 
 The core only defines tool wire data. It does not call tools.
 
-### `tool_call` adapter
+### `tool_call`
+
+`LlmCall` does not wrap `tool_call`; the application maps the descriptions itself:
 
 ```elixir
-specs =
-  ToolCall.describe(MyApp.Tools)
-  |> Enum.map(&LlmCall.ToolCall.from_describe/1)
+tools =
+  for tool <- ToolCall.describe(MyApp.Tools) do
+    %LlmCall.ToolSpec{
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }
+  end
 
 request = %LlmCall.Request{
   model: "...",
   messages: messages,
-  tools: specs
+  tools: tools
 }
 ```
 
@@ -1507,14 +1513,9 @@ After decoding:
 
 ```elixir
 for call <- LlmCall.Response.tool_calls(response) do
-  ToolCall.run(MyApp.Tools, call.name, call.arguments)
+  tool = String.to_existing_atom(call.name)
+  ToolCall.run(MyApp.Tools, tool, call.arguments)
 end
-```
-
-The adapter should live in a separate package or an optional module:
-
-```text
-llm_call_tool_call
 ```
 
 Dependency direction:
@@ -1522,7 +1523,6 @@ Dependency direction:
 ```text
 llm_call              no tool_call dependency
 tool_call                no llm_call dependency
-llm_call_tool_call    depends on both
 ```
 
 ### Other frameworks
