@@ -129,8 +129,13 @@ defmodule LlmCall.StructsTest do
     assert Config.deep_merge(%{}, %{"a" => 1}) == %{"a" => 1}
   end
 
-  test "JSON.encode/1 returns a JSON string" do
-    assert LlmCall.JSON.encode(%{"city" => "Oslo"}) == ~s({"city":"Oslo"})
-    assert LlmCall.JSON.encode(%{}) == "{}"
+  test "JSON.encode/1 and decode/1 return tagged results" do
+    assert LlmCall.JSON.encode(%{"city" => "Oslo"}) == {:ok, ~s({"city":"Oslo"})}
+    assert LlmCall.JSON.encode(%{}) == {:ok, "{}"}
+    assert {:error, _reason} = LlmCall.JSON.encode(%{"at" => {1, 2}})
+
+    assert LlmCall.JSON.decode(~s({"a":1})) == {:ok, %{"a" => 1}}
+    assert {:error, _reason} = LlmCall.JSON.decode("{")
+    assert {:error, :not_a_binary} = LlmCall.JSON.decode(:not_a_string)
   end
 end

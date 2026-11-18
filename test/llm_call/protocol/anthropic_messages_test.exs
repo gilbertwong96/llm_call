@@ -374,6 +374,19 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
              })
   end
 
+  test "the configured JSON module decodes tool-call raw arguments" do
+    messages = [
+      %Message{
+        role: :assistant,
+        content: [%ToolCall{id: "c1", name: "f", raw_arguments: ~s(MARKER:{"city":"Oslo"})}]
+      }
+    ]
+
+    body = encode(text_request(messages: messages), %Config{json: LlmCall.MarkerJSON}).body
+
+    assert [%{"input" => %{"city" => "Oslo"}}] = hd(body["messages"])["content"]
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =

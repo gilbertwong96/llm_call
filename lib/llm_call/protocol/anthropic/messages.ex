@@ -53,22 +53,25 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
              &validate_tool_choice/2
            ),
          :ok <- Helpers.validate_system(request.system, @codec),
-         :ok <- validate_parts(request.messages) do
+         :ok <- validate_parts(request.messages, config.json) do
       validate_provider_options(request, config)
     end
   end
 
   defp body(request, config) do
-    %{}
-    |> Map.put("model", request.model)
-    |> Map.put("messages", Enum.map(request.messages, &encode_message/1))
-    |> Helpers.maybe_put("system", encode_system(request.system))
-    |> Helpers.maybe_put("tools", encode_tools(request.tools))
-    |> Helpers.maybe_put("tool_choice", encode_tool_choice(request.tool_choice, request.tools))
-    |> Helpers.maybe_put("thinking", encode_reasoning(request.reasoning))
-    |> Map.merge(encode_params(request.params))
-    |> Helpers.maybe_put("stream", encode_stream(request.stream))
-    |> Config.deep_merge(provider_options(request, config))
+    body =
+      %{}
+      |> Map.put("model", request.model)
+      |> Map.put("messages", Enum.map(request.messages, &encode_message(&1, config.json)))
+      |> Helpers.maybe_put("system", encode_system(request.system))
+      |> Helpers.maybe_put("tools", encode_tools(request.tools))
+      |> Helpers.maybe_put("tool_choice", encode_tool_choice(request.tool_choice, request.tools))
+      |> Helpers.maybe_put("thinking", encode_reasoning(request.reasoning))
+      |> Map.merge(encode_params(request.params))
+      |> Helpers.maybe_put("stream", encode_stream(request.stream))
+      |> Config.deep_merge(provider_options(request, config))
+
+    {:ok, body}
   end
 
   defp encode_stream(true), do: true
@@ -82,35 +85,38 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     Enum.map(parts, fn %Content.Text{text: text} -> %{"type" => "text", "text" => text} end)
   end
 
-  defp encode_message(%Message{role: role, content: content}) do
-    %{"role" => Atom.to_string(role), "content" => Enum.map(content, &encode_part/1)}
+  defp encode_message(%Message{role: role, content: content}, json) do
+    %{"role" => Atom.to_string(role), "content" => Enum.map(content, &encode_part(&1, json))}
   end
 
-  defp encode_part(%Content.Text{text: text}), do: %{"type" => "text", "text" => text}
+  defp encode_part(%Content.Text{text: text}, _json), do: %{"type" => "text", "text" => text}
 
-  defp encode_part(%Content.Thinking{text: text, signature: signature}) do
+  defp encode_part(%Content.Thinking{text: text, signature: signature}, _json) do
     %{"type" => "thinking", "thinking" => text, "signature" => signature}
   end
 
-  defp encode_part(%Content.Image{source: source, media_type: media_type}) do
+  defp encode_part(%Content.Image{source: source, media_type: media_type}, _json) do
     %{"type" => "image", "source" => encode_source(source, media_type)}
   end
 
-  defp encode_part(%Content.File{source: source, media_type: media_type, filename: filename}) do
+  defp encode_part(
+         %Content.File{source: source, media_type: media_type, filename: filename},
+         _json
+       ) do
     %{"type" => "document", "source" => encode_source(source, media_type)}
     |> Helpers.maybe_put("title", filename)
   end
 
-  defp encode_part(%ToolCall{} = call) do
+  defp encode_part(%ToolCall{} = call, json) do
     %{
       "type" => "tool_use",
       "id" => call.id,
       "name" => call.name,
-      "input" => call.arguments || decode_raw_arguments(call) || %{}
+      "input" => call.arguments || Helpers.decode_raw_arguments(call.raw_arguments, json) || %{}
     }
   end
 
-  defp encode_part(%ToolResult{} = result) do
+  defp encode_part(%ToolResult{} = result, _json) do
     %{
       "type" => "tool_result",
       "tool_use_id" => result.call_id,
@@ -119,7 +125,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     |> Helpers.maybe_put("is_error", result.is_error || nil)
   end
 
-  defp encode_part(%Content.Raw{data: %{} = data}), do: data
+  defp encode_part(%Content.Raw{data: %{} = data}, _json), do: data
 
   defp encode_source({:base64, data}, media_type) do
     %{"type" => "base64", "media_type" => media_type, "data" => data}
@@ -133,10 +139,9 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp encode_source(url, _media_type) when is_binary(url), do: %{"type" => "url", "url" => url}
 
   defp tool_result_content(content) when is_binary(content), do: content
-  defp tool_result_content(parts) when is_list(parts), do: Enum.map(parts, &encode_part/1)
 
-  defp decode_raw_arguments(%ToolCall{raw_arguments: raw}),
-    do: Helpers.decode_raw_arguments(raw)
+  defp tool_result_content(parts) when is_list(parts),
+    do: Enum.map(parts, &encode_part(&1, LlmCall.JSON))
 
   defp encode_tools([]), do: nil
 
@@ -308,60 +313,67 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_parts(messages),
-    do: Helpers.validate_parts(messages, @codec, &validate_part_shape/2)
+  defp validate_parts(messages, json),
+    do: Helpers.validate_parts(messages, @codec, &validate_part_shape(&1, &2, json))
 
-  defp validate_part_shape(_role, %Content.Text{}), do: :ok
+  defp validate_part_shape(_role, %Content.Text{}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Thinking{signature: nil}) do
+  defp validate_part_shape(_role, %Content.Thinking{signature: nil}, _json) do
     Helpers.error(@codec, "thinking content requires a signature")
   end
 
-  defp validate_part_shape(_role, %Content.Thinking{}), do: :ok
+  defp validate_part_shape(_role, %Content.Thinking{}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{source: {:file_id, _file_id}}),
+  defp validate_part_shape(_role, %Content.Image{source: {:file_id, _file_id}}, _json),
     do: Helpers.error(@codec, "image source {:file_id, id} is not supported")
 
-  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 image requires media_type")
+  defp validate_part_shape(
+         _role,
+         %Content.Image{source: {:base64, _data}, media_type: nil},
+         _json
+       ),
+       do: Helpers.error(@codec, "base64 image requires media_type")
 
-  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{source: source}) when is_binary(source),
-    do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: source}, _json)
+       when is_binary(source),
+       do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{}),
+  defp validate_part_shape(_role, %Content.Image{}, _json),
     do: Helpers.error(@codec, "image source is not supported")
 
-  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 document requires media_type")
+  defp validate_part_shape(
+         _role,
+         %Content.File{source: {:base64, _data}, media_type: nil},
+         _json
+       ),
+       do: Helpers.error(@codec, "base64 document requires media_type")
 
-  defp validate_part_shape(_role, %Content.File{}), do: :ok
-  defp validate_part_shape(_role, %Content.Raw{data: %{}}), do: :ok
+  defp validate_part_shape(_role, %Content.File{}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.Raw{data: %{}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Raw{}),
+  defp validate_part_shape(_role, %Content.Raw{}, _json),
     do: Helpers.error(@codec, "raw content requires a map payload")
 
-  defp validate_part_shape(_role, %ToolCall{id: nil}),
+  defp validate_part_shape(_role, %ToolCall{id: nil}, _json),
     do: Helpers.error(@codec, "tool call requires an id")
 
-  defp validate_part_shape(_role, %ToolCall{name: nil}),
+  defp validate_part_shape(_role, %ToolCall{name: nil}, _json),
     do: Helpers.error(@codec, "tool call requires a name")
 
-  defp validate_part_shape(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
+  defp validate_part_shape(_role, %ToolCall{} = call, json),
+    do: Helpers.validate_tool_call_arguments(call, @codec, json)
 
-  defp validate_part_shape(_role, %ToolResult{call_id: nil}),
+  defp validate_part_shape(_role, %ToolResult{call_id: nil}, _json),
     do: Helpers.error(@codec, "tool result requires call_id")
 
-  defp validate_part_shape(_role, %ToolResult{content: content}),
+  defp validate_part_shape(_role, %ToolResult{content: content}, _json),
     do: validate_tool_result_content(content)
 
-  defp validate_part_shape(_role, _part),
+  defp validate_part_shape(_role, _part, _json),
     do: Helpers.error(@codec, "unsupported content part")
-
-  defp validate_tool_call_arguments(call),
-    do: Helpers.validate_tool_call_arguments(call, @codec)
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)

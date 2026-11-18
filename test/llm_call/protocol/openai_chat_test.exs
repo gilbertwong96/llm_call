@@ -495,6 +495,34 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
     assert :ok == Chat.validate_request(text_request(messages: atoms), %Config{})
   end
 
+  test "the configured JSON module encodes tool-call arguments" do
+    messages = [
+      %Message{
+        role: :assistant,
+        content: [%ToolCall{id: "c1", name: "f", arguments: %{"city" => "Oslo"}}]
+      }
+    ]
+
+    body = encode(text_request(messages: messages), %Config{json: LlmCall.MarkerJSON}).body
+
+    assert [%{"function" => %{"arguments" => arguments}}] = hd(body["messages"])["tool_calls"]
+    assert String.starts_with?(arguments, "MARKER:")
+  end
+
+  test "the configured JSON module decodes tool-call raw arguments" do
+    messages = [
+      %Message{
+        role: :assistant,
+        content: [%ToolCall{id: "c1", name: "f", raw_arguments: ~s(MARKER:{"city":"Oslo"})}]
+      }
+    ]
+
+    body = encode(text_request(messages: messages), %Config{json: LlmCall.MarkerJSON}).body
+
+    assert [%{"function" => %{"arguments" => arguments}}] = hd(body["messages"])["tool_calls"]
+    assert String.starts_with?(arguments, "MARKER:")
+  end
+
   test "the provider_options container and envelope keys are validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =

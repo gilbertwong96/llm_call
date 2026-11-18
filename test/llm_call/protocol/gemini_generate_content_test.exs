@@ -320,6 +320,36 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
            }
   end
 
+  test "the configured JSON module encodes streamed function-call arguments" do
+    chunk = %{
+      "candidates" => [
+        %{
+          "content" => %{
+            "parts" => [%{"functionCall" => %{"name" => "f", "args" => %{"a" => 1}}}]
+          },
+          "index" => 0
+        }
+      ]
+    }
+
+    {:ok, _state, events} =
+      GenerateContent.init_stream(text_request(stream: true), %Config{json: LlmCall.MarkerJSON})
+      |> case do
+        {:ok, state} ->
+          case GenerateContent.decode_stream_event(
+                 chunk,
+                 %Config{json: LlmCall.MarkerJSON},
+                 state
+               ) do
+            {:ok, events, state} -> {:ok, state, events}
+            other -> other
+          end
+      end
+
+    delta = Enum.find(events, &(&1.type == :tool_call_start)).delta
+    assert String.starts_with?(delta.arguments, "MARKER:")
+  end
+
   test "the provider_options container is validated" do
     for options <- [nil, "not-a-map"] do
       assert {:error, %Error{kind: :validation, message: message}} =

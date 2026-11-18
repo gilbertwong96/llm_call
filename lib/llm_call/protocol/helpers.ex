@@ -183,19 +183,21 @@ defmodule LlmCall.Protocol.Helpers do
   object.
 
   Providers that hand arguments over as a JSON string (Anthropic, some Gemini
-  shapes) share this so a malformed fragment never becomes `%{}`.
+  shapes) share this so a malformed fragment never becomes `%{}`. `json` is the
+  module from `LlmCall.Config.json`, threaded so a caller's implementation is
+  used here too.
   """
-  @spec decode_raw_arguments(String.t() | nil) :: map() | nil
-  def decode_raw_arguments(raw) when is_binary(raw) do
-    case :json.decode(raw) do
-      %{} = decoded -> decoded
+  @spec decode_raw_arguments(String.t() | nil, module()) :: map() | nil
+  def decode_raw_arguments(raw, json \\ LlmCall.JSON)
+
+  def decode_raw_arguments(raw, json) when is_binary(raw) do
+    case json.decode(raw) do
+      {:ok, %{} = decoded} -> decoded
       _not_a_map -> nil
     end
-  rescue
-    _decode_error -> nil
   end
 
-  def decode_raw_arguments(nil), do: nil
+  def decode_raw_arguments(nil, _json), do: nil
 
   @doc """
   Builds a `POST` encoded request with no query parameters.
@@ -313,26 +315,41 @@ defmodule LlmCall.Protocol.Helpers do
 
   @doc """
   Validates a tool call's arguments: a decoded map, or a raw string that decodes
-  to an object. A malformed fragment is an error, never `%{}`. A map that cannot
-  be JSON-encoded is an error too, because the codec has to emit it as a string.
+  to an object. A malformed fragment is an error, never `%{}`. A map that the
+  configured JSON module cannot encode is an error too, because the codec has to
+  emit it as a string.
   """
-  @spec validate_tool_call_arguments(ToolCall.t(), codec()) :: :ok | {:error, Error.t()}
-  def validate_tool_call_arguments(%ToolCall{arguments: arguments}, codec)
+  @spec validate_tool_call_arguments(ToolCall.t(), codec(), module()) ::
+          :ok | {:error, Error.t()}
+  def validate_tool_call_arguments(%ToolCall{arguments: arguments}, codec, json)
       when is_map(arguments) do
-    if LlmCall.JSON.encodable?(arguments),
-      do: :ok,
-      else: error(codec, "tool call arguments must be JSON-encodable")
+    case json.encode(arguments) do
+      {:ok, _encoded} -> :ok
+      {:error, _reason} -> error(codec, "tool call arguments must be JSON-encodable")
+    end
   end
 
-  def validate_tool_call_arguments(%ToolCall{raw_arguments: nil}, _codec), do: :ok
+  def validate_tool_call_arguments(%ToolCall{raw_arguments: nil}, _codec, _json), do: :ok
 
-  def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec) do
-    case :json.decode(raw) do
-      %{} -> :ok
-      _not_a_map -> error(codec, "tool call raw_arguments must decode to an object")
+  def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec, json) do
+    case json.decode(raw) do
+      {:ok, %{}} -> :ok
+      _not_an_object -> error(codec, "tool call raw_arguments must decode to an object")
     end
-  rescue
-    _decode_error -> error(codec, "tool call raw_arguments must decode to an object")
+  end
+
+  @doc """
+  Encodes tool-call arguments with the configured JSON module.
+
+  `validate_request/2` has already proven this succeeds; the error tuple exists so
+  a codec never raises on a custom implementation that behaves differently.
+  """
+  @spec encode_arguments(map(), codec(), module()) :: {:ok, String.t()} | {:error, Error.t()}
+  def encode_arguments(arguments, codec, json) do
+    case json.encode(arguments) do
+      {:ok, encoded} -> {:ok, encoded}
+      {:error, _reason} -> error(codec, "tool call arguments must be JSON-encodable")
+    end
   end
 
   @doc """
@@ -442,11 +459,34 @@ defmodule LlmCall.Protocol.Helpers do
           String.t(),
           [{String.t(), String.t()}],
           (LlmCall.Request.t(), Config.t() -> :ok | {:error, Error.t()}),
-          (LlmCall.Request.t(), Config.t() -> map())
+          (LlmCall.Request.t(), Config.t() -> {:ok, map()} | {:error, Error.t()})
         ) :: {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
   def encode_completion(request, config, path, headers, validate_fun, body_fun) do
-    with :ok <- validate_fun.(request, config) do
-      {:ok, post(path, headers, body_fun.(request, config))}
+    with :ok <- validate_fun.(request, config),
+         {:ok, body} <- body_fun.(request, config) do
+      {:ok, post(path, headers, body)}
+    end
+  end
+
+  @doc """
+  Runs `fun` over `items`, stopping at the first error.
+
+  Used where a body builds a list of encoded parts and any part can fail: the
+  result is `{:ok, values}` in input order, or the first `{:error, _}`.
+  """
+  @spec map_ok([term()], (term() -> {:ok, term()} | {:error, Error.t()})) ::
+          {:ok, [term()]} | {:error, Error.t()}
+  def map_ok(items, fun) do
+    items
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+      case fun.(item) do
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      error -> error
     end
   end
 

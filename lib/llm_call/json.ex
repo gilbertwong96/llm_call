@@ -1,38 +1,41 @@
 defmodule LlmCall.JSON do
   @moduledoc """
-  JSON encoding for the few wire fields that are themselves JSON strings.
+  The JSON seam.
 
-  OpenAI Chat tool-call arguments and Gemini stream function calls carry their
-  arguments as an encoded string, so a codec must be able to produce one. This
-  wraps OTP's `:json` module, which ships with Erlang: the core still has no JSON
-  dependency and every other field stays a term.
+  A few wire fields are themselves JSON strings: tool-call arguments on OpenAI
+  Chat, and streamed function calls on Gemini. A codec therefore needs a JSON
+  implementation, and the caller may want a different one (Jason, a stricter
+  encoder, a wrapped implementation with metrics).
 
-  Decoding is deliberately absent. A codec decodes a provider's argument string
-  with `:json.decode/1` in a `try`, because malformed arguments must become
-  `{:invalid_json, raw}` rather than raise.
+  This module defines the behaviour and is its default implementation, backed by
+  OTP's `:json` (no dependency). Configure another one globally with
+  `config :llm_call, json: Jason`, per provider with
+  `use LlmCall.Provider, json: Jason`, or per client with `client(json: Jason)`.
+
+  Both callbacks return tagged tuples: a codec turns `{:error, _}` into a typed
+  `%LlmCall.Error{kind: :validation}`, and decoding a malformed provider fragment
+  becomes `{:invalid_json, raw}` instead of a raise.
   """
 
-  @doc """
-  Encodes a term as a JSON string.
+  @doc "Encodes a term to a JSON string."
+  @callback encode(term()) :: {:ok, String.t()} | {:error, term()}
 
-  Raises when the term is not JSON-encodable (an atom value, a tuple, a PID);
-  callers that accept caller-supplied data validate it first.
+  @doc "Decodes a JSON string."
+  @callback decode(String.t()) :: {:ok, term()} | {:error, term()}
 
-      iex> LlmCall.JSON.encode(%{"city" => "Oslo"})
-      ~s({"city":"Oslo"})
-  """
-
-  @spec encode(term()) :: String.t()
-  def encode(term), do: term |> :json.encode() |> IO.iodata_to_binary()
-
-  @doc """
-  True when `LlmCall.JSON.encode/1` accepts the term.
-  """
-  @spec encodable?(term()) :: boolean()
-  def encodable?(term) do
-    _encoded = encode(term)
-    true
+  @spec encode(term()) :: {:ok, String.t()} | {:error, term()}
+  def encode(term) do
+    {:ok, term |> :json.encode() |> IO.iodata_to_binary()}
   rescue
-    _error -> false
+    error -> {:error, error}
   end
+
+  @spec decode(String.t()) :: {:ok, term()} | {:error, term()}
+  def decode(binary) when is_binary(binary) do
+    {:ok, :json.decode(binary)}
+  rescue
+    error -> {:error, error}
+  end
+
+  def decode(_other), do: {:error, :not_a_binary}
 end

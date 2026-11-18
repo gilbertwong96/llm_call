@@ -46,7 +46,7 @@ defmodule LlmCall do
   @doc "Encodes a canonical request into one protocol's wire request."
   @spec encode(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
-  def encode(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
+  def encode(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :encode_request, 2) do
       codec.encode_request(request, config)
     end
@@ -55,7 +55,7 @@ defmodule LlmCall do
   @doc "Decodes one provider response term into a canonical response."
   @spec decode_response(module(), LlmCall.wire_value(), Config.t()) ::
           {:ok, LlmCall.Response.t()} | {:error, Error.t()}
-  def decode_response(codec, term, config \\ %Config{}) do
+  def decode_response(codec, term, config \\ Config.new()) do
     with :ok <- require_callback(codec, :decode_response, 2) do
       codec.decode_response(term, config)
     end
@@ -63,14 +63,14 @@ defmodule LlmCall do
 
   @doc "Normalizes a provider error payload."
   @spec decode_error(module(), LlmCall.wire_value(), Config.t()) :: Error.t()
-  def decode_error(codec, term, config \\ %Config{}) do
+  def decode_error(codec, term, config \\ Config.new()) do
     codec.decode_error(term, config)
   end
 
   @doc "Checks a request against the fields a codec can represent."
   @spec validate_request(module(), LlmCall.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
-  def validate_request(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
+  def validate_request(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :encode_request, 2) do
       codec.validate_request(request, config)
     end
@@ -85,7 +85,7 @@ defmodule LlmCall do
   """
   @spec capabilities(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, LlmCall.Capabilities.t()} | {:error, Error.t()}
-  def capabilities(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
+  def capabilities(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :encode_request, 2) do
       {:ok, codec.capabilities(request, config)}
     end
@@ -94,7 +94,7 @@ defmodule LlmCall do
   @doc "Starts a stream, or returns a typed error when the codec has no streaming."
   @spec init_stream(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, StreamState.t()} | {:error, Error.t()}
-  def init_stream(codec, %LlmCall.Request{} = request, config \\ %Config{}) do
+  def init_stream(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :init_stream, 2) do
       codec.init_stream(request, config)
     end
@@ -120,7 +120,7 @@ defmodule LlmCall do
   """
   @spec finish_stream(module(), StreamState.t(), Config.t()) ::
           {:ok, [LlmCall.StreamEvent.t()], StreamState.t()} | {:error, Error.t()}
-  def finish_stream(codec, %StreamState{} = state, config \\ %Config{}) do
+  def finish_stream(codec, %StreamState{} = state, config \\ Config.new()) do
     with :ok <- require_owner(codec, state),
          :ok <- require_callback(codec, :finish_stream, 2) do
       codec.finish_stream(state, config)
@@ -134,7 +134,7 @@ defmodule LlmCall do
   """
   @spec encode_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
-  def encode_media(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
+  def encode_media(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :encode_submit, 2) do
       codec.encode_submit(request, config)
     end
@@ -143,7 +143,7 @@ defmodule LlmCall do
   @doc "Decodes a media generation response, sync assets or an operation."
   @spec decode_media(module(), LlmCall.wire_value(), Config.t()) ::
           {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
-  def decode_media(codec, term, config \\ %Config{}) do
+  def decode_media(codec, term, config \\ Config.new()) do
     with :ok <- require_callback(codec, :decode_submit, 2) do
       codec.decode_submit(term, config)
     end
@@ -157,7 +157,7 @@ defmodule LlmCall do
   """
   @spec decode_operation(module(), LlmCall.wire_value(), Config.t()) ::
           {:ok, LlmCall.Operation.t()} | {:error, Error.t()}
-  def decode_operation(codec, term, config \\ %Config{}) do
+  def decode_operation(codec, term, config \\ Config.new()) do
     with :ok <- require_callback(codec, :decode_operation, 2) do
       codec.decode_operation(term, config)
     end
@@ -166,7 +166,7 @@ defmodule LlmCall do
   @doc "Checks a media request against the fields a codec can represent."
   @spec validate_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
-  def validate_media(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
+  def validate_media(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :encode_submit, 2) do
       codec.validate_request(request, config)
     end
@@ -180,7 +180,7 @@ defmodule LlmCall do
   """
   @spec media_capabilities(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.Media.Capabilities.t()} | {:error, Error.t()}
-  def media_capabilities(codec, %LlmCall.Media.Request{} = request, config \\ %Config{}) do
+  def media_capabilities(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
     with :ok <- require_callback(codec, :encode_submit, 2) do
       {:ok, codec.capabilities(request, config)}
     end

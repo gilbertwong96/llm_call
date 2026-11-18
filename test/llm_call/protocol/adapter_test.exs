@@ -43,7 +43,7 @@ defmodule LlmCall.Protocol.AdapterTest do
         def decode_error(_term, _config),
           do: %LlmCall.Error{kind: :provider, message: "late"}
 
-        defp body(_request, _config), do: %{"ok" => true}
+        defp body(_request, _config), do: {:ok, %{"ok" => true}}
       end
       """)
 

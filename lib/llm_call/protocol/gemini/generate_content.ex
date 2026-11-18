@@ -50,14 +50,15 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   @spec encode_request(Request.t(), Config.t()) ::
           {:ok, EncodedRequest.t()} | {:error, Error.t()}
   def encode_request(%Request{} = request, %Config{} = config) do
-    with :ok <- validate_request(request, config) do
+    with :ok <- validate_request(request, config),
+         {:ok, body} <- body(request, config) do
       {:ok,
        %EncodedRequest{
          method: :post,
          path: path(request),
          query: query(request),
          headers: @headers,
-         body: body(request, config)
+         body: body
        }}
     end
   end
@@ -82,7 +83,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
              &validate_tool_choice/2
            ),
          :ok <- Helpers.validate_system(request.system, @codec),
-         :ok <- validate_parts(request.messages) do
+         :ok <- validate_parts(request.messages, config.json) do
       validate_provider_options(request, config)
     end
   end
@@ -96,19 +97,22 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp query(%Request{}), do: %{}
 
   defp body(request, config) do
-    %{}
-    |> Map.put("contents", Enum.map(request.messages, &encode_message/1))
-    |> Helpers.maybe_put("systemInstruction", encode_system(request.system))
-    |> Helpers.maybe_put("tools", encode_tools(request.tools))
-    |> Helpers.maybe_put("toolConfig", encode_tool_config(request.tool_choice, request.tools))
-    |> Helpers.maybe_put("generationConfig", encode_generation_config(request))
-    |> Config.deep_merge(provider_options(request, config))
+    body =
+      %{}
+      |> Map.put("contents", Enum.map(request.messages, &encode_message(&1, config.json)))
+      |> Helpers.maybe_put("systemInstruction", encode_system(request.system))
+      |> Helpers.maybe_put("tools", encode_tools(request.tools))
+      |> Helpers.maybe_put("toolConfig", encode_tool_config(request.tool_choice, request.tools))
+      |> Helpers.maybe_put("generationConfig", encode_generation_config(request))
+      |> Config.deep_merge(provider_options(request, config))
+
+    {:ok, body}
   end
 
-  defp encode_message(%Message{role: role, content: content}) do
+  defp encode_message(%Message{role: role, content: content}, json) do
     %{
       "role" => if(role == :assistant, do: "model", else: "user"),
-      "parts" => Enum.map(content, &encode_part/1)
+      "parts" => Enum.map(content, &encode_part(&1, json))
     }
   end
 
@@ -123,46 +127,46 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     %{"parts" => Enum.map(parts, fn %Content.Text{text: text} -> %{"text" => text} end)}
   end
 
-  defp encode_part(%Content.Text{text: text}), do: %{"text" => text}
+  defp encode_part(%Content.Text{text: text}, _json), do: %{"text" => text}
 
-  defp encode_part(%Content.Thinking{text: text, signature: signature}) do
+  defp encode_part(%Content.Thinking{text: text, signature: signature}, _json) do
     %{"text" => text, "thought" => true} |> Helpers.maybe_put("thoughtSignature", signature)
   end
 
-  defp encode_part(%Content.Image{source: {:base64, data}, media_type: media_type}) do
+  defp encode_part(%Content.Image{source: {:base64, data}, media_type: media_type}, _json) do
     %{"inlineData" => %{"mimeType" => media_type, "data" => data}}
   end
 
-  defp encode_part(%Content.Image{source: {:url, url}, media_type: media_type}) do
+  defp encode_part(%Content.Image{source: {:url, url}, media_type: media_type}, _json) do
     %{"fileData" => %{"fileUri" => url} |> Helpers.maybe_put("mimeType", media_type)}
   end
 
-  defp encode_part(%Content.Image{source: url}) when is_binary(url) do
+  defp encode_part(%Content.Image{source: url}, _json) when is_binary(url) do
     %{"fileData" => %{"fileUri" => url}}
   end
 
-  defp encode_part(%Content.File{source: {:base64, data}, media_type: media_type}) do
+  defp encode_part(%Content.File{source: {:base64, data}, media_type: media_type}, _json) do
     %{"inlineData" => %{"mimeType" => media_type, "data" => data}}
   end
 
-  defp encode_part(%Content.File{source: {:url, url}, media_type: media_type}) do
+  defp encode_part(%Content.File{source: {:url, url}, media_type: media_type}, _json) do
     %{"fileData" => %{"fileUri" => url} |> Helpers.maybe_put("mimeType", media_type)}
   end
 
-  defp encode_part(%Content.File{source: url}) when is_binary(url) do
+  defp encode_part(%Content.File{source: url}, _json) when is_binary(url) do
     %{"fileData" => %{"fileUri" => url}}
   end
 
-  defp encode_part(%ToolCall{} = call) do
+  defp encode_part(%ToolCall{} = call, json) do
     %{
       "functionCall" => %{
         "name" => call.name,
-        "args" => call.arguments || decode_raw_arguments(call) || %{}
+        "args" => call.arguments || Helpers.decode_raw_arguments(call.raw_arguments, json) || %{}
       }
     }
   end
 
-  defp encode_part(%ToolResult{} = result) do
+  defp encode_part(%ToolResult{} = result, _json) do
     response =
       case result.is_error do
         true -> %{"error" => tool_result_text(result.content)}
@@ -172,13 +176,10 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     %{"functionResponse" => %{"name" => result.name, "response" => response}}
   end
 
-  defp encode_part(%Content.Raw{data: %{} = data}), do: data
+  defp encode_part(%Content.Raw{data: %{} = data}, _json), do: data
 
   defp tool_result_text(content) when is_binary(content), do: content
   defp tool_result_text(parts) when is_list(parts), do: Enum.map_join(parts, "\n", & &1.text)
-
-  defp decode_raw_arguments(%ToolCall{raw_arguments: raw}),
-    do: Helpers.decode_raw_arguments(raw)
 
   defp encode_tools([]), do: nil
 
@@ -380,56 +381,65 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_parts(messages),
-    do: Helpers.validate_parts(messages, @codec, &validate_part_shape/2)
+  defp validate_parts(messages, json),
+    do: Helpers.validate_parts(messages, @codec, &validate_part_shape(&1, &2, json))
 
-  defp validate_part_shape(_role, %Content.Text{}), do: :ok
-  defp validate_part_shape(_role, %Content.Thinking{}), do: :ok
+  defp validate_part_shape(_role, %Content.Text{}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.Thinking{}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 image requires media_type")
+  defp validate_part_shape(
+         _role,
+         %Content.Image{source: {:base64, _data}, media_type: nil},
+         _json
+       ),
+       do: Helpers.error(@codec, "base64 image requires media_type")
 
-  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}), do: :ok
-  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{source: source}) when is_binary(source),
-    do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: source}, _json)
+       when is_binary(source),
+       do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{}),
+  defp validate_part_shape(_role, %Content.Image{}, _json),
     do: Helpers.error(@codec, "image source is not supported")
 
-  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 file requires media_type")
+  defp validate_part_shape(
+         _role,
+         %Content.File{source: {:base64, _data}, media_type: nil},
+         _json
+       ),
+       do: Helpers.error(@codec, "base64 file requires media_type")
 
-  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}}), do: :ok
-  defp validate_part_shape(_role, %Content.File{source: {:url, _url}}), do: :ok
+  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.File{source: {:url, _url}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.File{source: source}) when is_binary(source),
-    do: :ok
+  defp validate_part_shape(_role, %Content.File{source: source}, _json)
+       when is_binary(source),
+       do: :ok
 
-  defp validate_part_shape(_role, %Content.File{}),
+  defp validate_part_shape(_role, %Content.File{}, _json),
     do: Helpers.error(@codec, "file source is not supported")
 
-  defp validate_part_shape(_role, %Content.Raw{data: %{}}), do: :ok
+  defp validate_part_shape(_role, %Content.Raw{data: %{}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Raw{}),
+  defp validate_part_shape(_role, %Content.Raw{}, _json),
     do: Helpers.error(@codec, "raw content requires a map payload")
 
-  defp validate_part_shape(_role, %ToolCall{name: nil}),
+  defp validate_part_shape(_role, %ToolCall{name: nil}, _json),
     do: Helpers.error(@codec, "tool call requires a name")
 
-  defp validate_part_shape(_role, %ToolCall{} = call), do: validate_tool_call_arguments(call)
+  defp validate_part_shape(_role, %ToolCall{} = call, json),
+    do: Helpers.validate_tool_call_arguments(call, @codec, json)
 
-  defp validate_part_shape(_role, %ToolResult{name: nil}),
+  defp validate_part_shape(_role, %ToolResult{name: nil}, _json),
     do: Helpers.error(@codec, "tool result requires a name")
 
-  defp validate_part_shape(_role, %ToolResult{content: content}),
+  defp validate_part_shape(_role, %ToolResult{content: content}, _json),
     do: validate_tool_result_content(content)
 
-  defp validate_part_shape(_role, _part), do: Helpers.error(@codec, "unsupported content part")
-
-  defp validate_tool_call_arguments(call),
-    do: Helpers.validate_tool_call_arguments(call, @codec)
+  defp validate_part_shape(_role, _part, _json),
+    do: Helpers.error(@codec, "unsupported content part")
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
@@ -753,7 +763,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     delta = %StreamDelta.ToolCall{
       id: nil,
       name: call["name"],
-      arguments: LlmCall.JSON.encode(call["args"] || %{}),
+      arguments: encoded_arguments(call["args"], config.json),
       index: index
     }
 
@@ -777,6 +787,13 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   end
 
   defp part_events(_part, _term, _config, data), do: {[], data}
+
+  defp encoded_arguments(args, json) do
+    case json.encode(args || %{}) do
+      {:ok, encoded} -> encoded
+      {:error, _reason} -> nil
+    end
+  end
 
   defp finish_events(nil, _parts, _term, _config, data), do: {[], data}
 

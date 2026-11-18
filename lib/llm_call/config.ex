@@ -9,10 +9,27 @@ defmodule LlmCall.Config do
 
   @type t :: %__MODULE__{
           default_provider_options: map(),
-          capture_raw: LlmCall.capture_raw()
+          capture_raw: LlmCall.capture_raw(),
+          json: module()
         }
 
-  defstruct default_provider_options: %{}, capture_raw: :none
+  defstruct default_provider_options: %{}, capture_raw: :none, json: LlmCall.JSON
+
+  @doc """
+  Builds a config, resolving the JSON module at runtime.
+
+  Resolution order: the `:json` option, then `config :llm_call, json: Mod`, then
+  `LlmCall.JSON`. Reading the application environment here (rather than at
+  compile time) lets a host switch the implementation without recompiling the
+  dependency; a caller that builds `%LlmCall.Config{}` directly opts out of the
+  application default.
+  """
+  @spec new(keyword()) :: t()
+  def new(opts \\ []) do
+    json = Keyword.get(opts, :json) || Application.get_env(:llm_call, :json) || LlmCall.JSON
+
+    %__MODULE__{json: json, capture_raw: Keyword.get(opts, :capture_raw, :none)}
+  end
 
   @doc """
   Deep-merges native provider options over a canonical body.
