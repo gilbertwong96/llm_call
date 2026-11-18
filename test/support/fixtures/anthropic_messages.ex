@@ -1,4 +1,4 @@
-defmodule LlmDialect.Fixtures.AnthropicMessages do
+defmodule LlmCall.Fixtures.AnthropicMessages do
   @moduledoc """
   Anthropic Messages payloads shaped like the provider's responses, for adapter tests.
   """

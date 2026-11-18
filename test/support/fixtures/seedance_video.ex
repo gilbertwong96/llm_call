@@ -1,4 +1,4 @@
-defmodule LlmDialect.Media.Fixtures.SeedanceVideo do
+defmodule LlmCall.Media.Fixtures.SeedanceVideo do
   @moduledoc """
   Seedance (BytePlus ModelArk) task payloads shaped like the provider's responses.
   """

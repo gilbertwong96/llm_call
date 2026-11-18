@@ -1,13 +1,13 @@
 [
   layers: [
-    helpers: "LlmDialect.Protocol.Helpers",
+    helpers: "LlmCall.Protocol.Helpers",
     chat: [
-      "LlmDialect.Protocol.Adapter",
-      "LlmDialect.Protocol.OpenAI.*",
-      "LlmDialect.Protocol.Anthropic.*",
-      "LlmDialect.Protocol.Gemini.*"
+      "LlmCall.Protocol.Adapter",
+      "LlmCall.Protocol.OpenAI.*",
+      "LlmCall.Protocol.Anthropic.*",
+      "LlmCall.Protocol.Gemini.*"
     ],
-    media: "LlmDialect.Media.*"
+    media: "LlmCall.Media.*"
   ],
   deps: [
     forbidden: [

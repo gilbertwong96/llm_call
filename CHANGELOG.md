@@ -6,33 +6,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-First release, not yet published to Hex.
+First release, not yet published to Hex. The project is renamed from `llm_dialect`
+back to `llm_call` because it now ships the client that name promised.
 
 ### Added
 
 - Canonical wire IR: `Request`, `Message`, `Content`, `ToolSpec`, `ToolCall`,
   `ToolResult`, `Reasoning`, `Response`, `Usage`, `Error`, `Capabilities`,
   `Config`, `EncodedRequest`.
-- `LlmDialect.Codec` behaviour and the public dispatch API, with typed errors for
+- `LlmCall.Codec` behaviour and the public dispatch API, with typed errors for
   every unsupported field.
 - Reference adapters: OpenAI Chat Completions, Anthropic Messages, Gemini
   GenerateContent.
-- Adapter authoring macros: `LlmDialect.Protocol.Adapter` injects the behaviour,
-  aliases, and `encode_request/2`; `LlmDialect.Media.Adapter` additionally
+- Adapter authoring macros: `LlmCall.Protocol.Adapter` injects the behaviour,
+  aliases, and `encode_request/2`; `LlmCall.Media.Adapter` additionally
   injects the shared media validation pipeline. Shared rules live in
-  `LlmDialect.Protocol.Helpers`.
+  `LlmCall.Protocol.Helpers`.
 - `provider_options` is validated, not just merged: a codec reserves the wire
   keys it derives from canonical fields, rejects a namespace it does not read,
   and refuses a `Config` default that would override an explicit request.
 - Streaming primitives (`StreamEvent`, `StreamDelta`, `StreamState`) and the pure
   `StreamAssembler`.
-- Media IR: `LlmDialect.Media.{Request,Response,Capabilities,Codec}`,
-  `LlmDialect.Operation`, and the `encode_media/3` … `decode_operation/3` API for
+- Media IR: `LlmCall.Media.{Request,Response,Capabilities,Codec}`,
+  `LlmCall.Operation`, and the `encode_media/3` … `decode_operation/3` API for
   synchronous and long-running generation.
 - Vendored media adapters: OpenAI Images, Gemini Imagen `predict`, Seedance
   (BytePlus ModelArk), MiniMax Hailuo.
-- Conformance suites published from `lib/`: `LlmDialect.Codec.Conformance` and
-  `LlmDialect.MediaConformance`, covering response/error decoding, stream order,
+- Conformance suites published from `lib/`: `LlmCall.Codec.Conformance` and
+  `LlmCall.MediaConformance`, covering response/error decoding, stream order,
   the streaming signal on an encoded request, tool-call assembly, `capture_raw`,
   and capability↔validation consistency.
 - Documentation: `docs/design.md` (canonical spec), `CONTRIBUTING.md` (adapter

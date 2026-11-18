@@ -3,9 +3,9 @@
 ## Which behaviour to implement
 
 - A completion endpoint (messages, system prompt, tools) →
-  `use LlmDialect.Protocol.Adapter` (`LlmDialect.Codec`).
+  `use LlmCall.Protocol.Adapter` (`LlmCall.Codec`).
 - A dedicated media endpoint (image/video generation, possibly long-running) →
-  `use LlmDialect.Media.Adapter` (`LlmDialect.Media.Codec`).
+  `use LlmCall.Media.Adapter` (`LlmCall.Media.Codec`).
 
 Both macros inject the behaviour, the canonical aliases, `@codec`, and the shared
 validation entry point; see [`docs/design.md`](docs/design.md) (§10, §23.5).
@@ -22,7 +22,7 @@ Three questions, in order:
    Adding one requires the same justification as adding an IR field: it teaches
    the IR something the current set cannot express.
 3. **Otherwise it is vendored here or lives outside.** Vendored adapters go under
-   `LlmDialect.Media.Protocol.*` (media) and are listed in `LlmDialect.Media`; anything
+   `LlmCall.Media.Protocol.*` (media) and are listed in `LlmCall.Media`; anything
    else is your own module or a third-party package.
 
 Reference adapters are OpenAI Chat, Anthropic Messages, and Gemini
@@ -32,11 +32,11 @@ Ollama, Mistral, Sora, Veo — is written outside this repository.
 
 ## Namespace rules
 
-- **Vendored adapters** live under `LlmDialect.Media.Protocol.*` and are documented
+- **Vendored adapters** live under `LlmCall.Media.Protocol.*` and are documented
   as vendored: they ship with the library but are not part of the stable API
   surface, because a provider API can change independently of the IR.
 - **Out-of-tree adapters** use their own top-level namespace; never define
-  `LlmDialect.Protocol.*` or `LlmDialect.Media.Protocol.*`, which core owns.
+  `LlmCall.Protocol.*` or `LlmCall.Media.Protocol.*`, which core owns.
 - **No canonical struct changes** from an adapter. If the IR is wrong, that is a
   core discussion.
 
@@ -44,24 +44,24 @@ Ollama, Mistral, Sora, Veo — is written outside this repository.
 
 Every adapter must:
 
-1. Start from the adapter macro (`use LlmDialect.Protocol.Adapter, codec: ...`
-   with `@path`/`@headers`, or `use LlmDialect.Media.Adapter, ...` with a
+1. Start from the adapter macro (`use LlmCall.Protocol.Adapter, codec: ...`
+   with `@path`/`@headers`, or `use LlmCall.Media.Adapter, ...` with a
    modality), then implement every callback it does not inject. Implement
    `init_stream/2`, `decode_stream_event/3`, `finish_stream/2` only when the
    protocol streams.
 2. Return `Codec.Info` with the correct `ir_version` and wire `version`.
 3. **Validate before encoding.** `encode_*` returns
-   `{:error, %LlmDialect.Error{kind: :validation}}` for anything the protocol cannot
+   `{:error, %LlmCall.Error{kind: :validation}}` for anything the protocol cannot
    express. Never drop a canonical field silently.
 4. **Declare capabilities that match validation.** A `size` you declare must be
    accepted; a knob you reject must be absent from the declaration. For media, a
    modality you declare must be accepted, `max_n: :unsupported` must reject every
    `n`, and `max_references` must accept exactly that many references. Both
    conformance suites check these in both directions.
-5. **Use `LlmDialect.Protocol.Helpers`** for error formatting, `maybe_put`,
+5. **Use `LlmCall.Protocol.Helpers`** for error formatting, `maybe_put`,
    reserved-key checks, and the `capture_raw` policy, so the suite can assert
    behaviour consistently. Declare the namespaces you read (`@namespaces`, or
-   `namespaces:` on `use LlmDialect.Media.Adapter`) and validate them with
+   `namespaces:` on `use LlmCall.Media.Adapter`) and validate them with
    `Helpers.validate_option_map/4`: an unknown namespace is a validation error,
    because a silently ignored `provider_options` key is a silent drop.
 6. **Keep fixtures honest.** Elixir maps, no JSON strings, no network. Copy the
@@ -69,27 +69,27 @@ Every adapter must:
 7. **Run the conformance suite** in your own tests:
 
    ```elixir
-   LlmDialect.Codec.Conformance.assert_info(MyCodec)
-   LlmDialect.Codec.Conformance.assert_capabilities(MyCodec, stream_request, config)
-   LlmDialect.Codec.Conformance.assert_path(MyCodec, request, "/v1/my-endpoint")
-   LlmDialect.Codec.Conformance.assert_stream_request(MyCodec, request)
-   LlmDialect.Codec.Conformance.assert_reserved_options(MyCodec, request, config, [
+   LlmCall.Codec.Conformance.assert_info(MyCodec)
+   LlmCall.Codec.Conformance.assert_capabilities(MyCodec, stream_request, config)
+   LlmCall.Codec.Conformance.assert_path(MyCodec, request, "/v1/my-endpoint")
+   LlmCall.Codec.Conformance.assert_stream_request(MyCodec, request)
+   LlmCall.Codec.Conformance.assert_reserved_options(MyCodec, request, config, [
      %{my_codec: %{"model" => "evil"}}
    ])
-   LlmDialect.Codec.Conformance.assert_decode_response(MyCodec, response_fixture)
-   LlmDialect.Codec.Conformance.assert_invalid_response(MyCodec, %{"unexpected" => true})
-   LlmDialect.Codec.Conformance.assert_decode_error(MyCodec, error_fixture, code: "rate_limit", retryable?: true)
-   LlmDialect.Codec.Conformance.assert_stream(MyCodec, stream_request, chunks)
-   LlmDialect.Codec.Conformance.assert_stream_capture_raw(MyCodec, stream_request, chunks)
-   LlmDialect.Codec.Conformance.assert_tool_call_assembly(MyCodec, stream_request, tool_chunks, 1)
-   LlmDialect.Codec.Conformance.assert_capability_consistency(MyCodec, request, config)
-   LlmDialect.Codec.Conformance.assert_capture_raw(MyCodec, response_fixture)
-   LlmDialect.Codec.Conformance.assert_stream_roundtrip(MyCodec, stream_request)
-   LlmDialect.Codec.Conformance.assert_stream_state_ownership(MyCodec, OtherCodec, request)
-   LlmDialect.Codec.Conformance.assert_rejects(MyCodec, invalid_request, %LlmDialect.Config{})
+   LlmCall.Codec.Conformance.assert_decode_response(MyCodec, response_fixture)
+   LlmCall.Codec.Conformance.assert_invalid_response(MyCodec, %{"unexpected" => true})
+   LlmCall.Codec.Conformance.assert_decode_error(MyCodec, error_fixture, code: "rate_limit", retryable?: true)
+   LlmCall.Codec.Conformance.assert_stream(MyCodec, stream_request, chunks)
+   LlmCall.Codec.Conformance.assert_stream_capture_raw(MyCodec, stream_request, chunks)
+   LlmCall.Codec.Conformance.assert_tool_call_assembly(MyCodec, stream_request, tool_chunks, 1)
+   LlmCall.Codec.Conformance.assert_capability_consistency(MyCodec, request, config)
+   LlmCall.Codec.Conformance.assert_capture_raw(MyCodec, response_fixture)
+   LlmCall.Codec.Conformance.assert_stream_roundtrip(MyCodec, stream_request)
+   LlmCall.Codec.Conformance.assert_stream_state_ownership(MyCodec, OtherCodec, request)
+   LlmCall.Codec.Conformance.assert_rejects(MyCodec, invalid_request, %LlmCall.Config{})
    ```
 
-   or, for media, `LlmDialect.MediaConformance` (`assert_info/1`,
+   or, for media, `LlmCall.MediaConformance` (`assert_info/1`,
    `assert_capabilities/3`, `assert_capability_consistency/3`,
    `assert_submit_path/3`, `assert_capture_raw/2`, `assert_operation/1`,
    `assert_operation_capture_raw/3`, `assert_sync_rejects_operation/1` — see the
@@ -98,7 +98,7 @@ Every adapter must:
    The suites check the IR boundary (canonical parts, stop reasons, usage
    shapes), typed invalid-response and provider-error decoding, stream event
    shape and order, that a streaming request actually asks the provider to
-   stream, tool-call assembly through `LlmDialect.StreamAssembler`, `capture_raw`
+   stream, tool-call assembly through `LlmCall.StreamAssembler`, `capture_raw`
    on responses and operations, and capability declarations agreeing with
    validation in both directions. What they cannot check is usage
    *mapping* — which provider field lands in which counter — so pin that with
@@ -119,7 +119,7 @@ the media conformance suite in the same `mix test`.
 
 `mix ci` runs ExDNA with a zero clone budget (see `mix.exs`): the protocol
 adapters are deliberately parallel, but any logic clone fails the build, so a
-shared rule belongs in `LlmDialect.Protocol.Helpers`.
+shared rule belongs in `LlmCall.Protocol.Helpers`.
 
 ## Publishing
 
@@ -132,7 +132,7 @@ Before the first `mix hex.publish`:
 3. `mix hex.build` shows the expected package name, license, and file list.
 
 The zero clone budget in `mix.exs` applies to published versions too: a new clone
-fails the gate, so shared logic belongs in `LlmDialect.Protocol.Helpers`.
+fails the gate, so shared logic belongs in `LlmCall.Protocol.Helpers`.
 
 ## Documentation
 

@@ -1,19 +1,19 @@
-defmodule LlmDialect.MixProject do
+defmodule LlmCall.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/gilbertwong/llm_dialect"
+  @source_url "https://github.com/gilbertwong/llm_call"
 
   def project do
     [
-      app: :llm_dialect,
+      app: :llm_call,
       version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
-        "Wire-protocol codec for LLM APIs: canonical IR, codec behaviours, and media adapters.",
+        "LLM wire-protocol codecs with a canonical IR, a one-call client, and replaceable HTTP, JSON and tool layers.",
       package: package(),
       docs: docs(),
       dialyzer: [
@@ -70,7 +70,7 @@ defmodule LlmDialect.MixProject do
   end
 
   # ExDNA runs with its defaults: any clone fails the gate. Shared logic lives in
-  # LlmDialect.Protocol.Helpers and the two adapter macros, so the adapters keep
+  # LlmCall.Protocol.Helpers and the two adapter macros, so the adapters keep
   # their protocol-specific parts without duplicating them.
   @max_clones 0
 

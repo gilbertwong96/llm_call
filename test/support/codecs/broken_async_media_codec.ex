@@ -1,13 +1,13 @@
-defmodule LlmDialect.TestCodec.BrokenAsyncMedia do
+defmodule LlmCall.TestCodec.BrokenAsyncMedia do
   @moduledoc """
   Media codec fake that declares `async: true` but omits `decode_operation/2`, so conformance must catch it.
   """
   # Declares async: true but does not implement decode_operation/2, so conformance
   # must catch it.
-  @behaviour LlmDialect.Media.Codec
+  @behaviour LlmCall.Media.Codec
 
-  alias LlmDialect.{Codec, Error}
-  alias LlmDialect.Media.Capabilities, as: MediaCapabilities
+  alias LlmCall.{Codec, Error}
+  alias LlmCall.Media.Capabilities, as: MediaCapabilities
 
   @impl true
   def info,
@@ -20,7 +20,7 @@ defmodule LlmDialect.TestCodec.BrokenAsyncMedia do
   def validate_request(_request, _config), do: :ok
 
   @impl true
-  def encode_submit(_request, _config), do: {:ok, %LlmDialect.EncodedRequest{path: "/broken"}}
+  def encode_submit(_request, _config), do: {:ok, %LlmCall.EncodedRequest{path: "/broken"}}
 
   @impl true
   def decode_submit(_term, _config),

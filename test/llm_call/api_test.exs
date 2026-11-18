@@ -1,0 +1,130 @@
+defmodule LlmCall.ApiTest do
+  use ExUnit.Case, async: true
+
+  alias LlmCall.{
+    Capabilities,
+    Config,
+    Content,
+    Error,
+    Message,
+    Request,
+    StreamEvent,
+    StreamState
+  }
+
+  alias LlmCall.TestCodec.{Fake, TextOnly}
+
+  defp request do
+    %Request{
+      model: "test-1",
+      messages: [%Message{role: :user, content: [%Content.Text{text: "hi"}]}]
+    }
+  end
+
+  test "encode/3 delegates to the codec" do
+    assert {:ok, encoded} = LlmCall.encode(Fake, request())
+    assert encoded.path == "/fake"
+    assert encoded.body == %{"model" => "test-1"}
+  end
+
+  test "encode/3 surfaces codec validation errors" do
+    assert {:error, %Error{kind: :validation}} = LlmCall.encode(Fake, %Request{})
+  end
+
+  test "decode_response/3 honors capture_raw" do
+    assert {:ok, %LlmCall.Response{raw: nil}} =
+             LlmCall.decode_response(Fake, %{"text" => "hi"})
+
+    config = %Config{capture_raw: :response}
+
+    assert {:ok, %LlmCall.Response{raw: %{"text" => "hi"}}} =
+             LlmCall.decode_response(Fake, %{"text" => "hi"}, config)
+  end
+
+  test "decode_response/3 returns a typed error on a bad payload" do
+    assert {:error, %Error{kind: :invalid_response, message: "fake: bad payload"}} =
+             LlmCall.decode_response(Fake, %{"nope" => 1})
+  end
+
+  test "decode_error/3 returns an Error struct" do
+    assert %Error{kind: :provider, message: "boom", raw: %{"error" => %{"message" => "boom"}}} =
+             LlmCall.decode_error(Fake, %{"error" => %{"message" => "boom"}})
+  end
+
+  test "validate_request/3 and capabilities/3 delegate" do
+    assert :ok = LlmCall.validate_request(Fake, request())
+
+    assert {:ok, %Capabilities{tools: true, streaming: true}} =
+             LlmCall.capabilities(Fake, request())
+  end
+
+  test "capabilities/3 works for a codec without a request model" do
+    assert {:ok, %Capabilities{streaming: false}} = LlmCall.capabilities(TextOnly, %Request{})
+  end
+
+  test "completion dispatch rejects a media codec instead of raising" do
+    for fun <- [:encode, :decode_response, :validate_request, :capabilities] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               apply(LlmCall, fun, [LlmCall.TestCodec.FakeMedia, request()])
+
+      assert message =~ "does not support"
+    end
+  end
+
+  test "streaming round trip through the public API" do
+    config = %Config{capture_raw: :all}
+    assert {:ok, %StreamState{} = state} = LlmCall.init_stream(Fake, request(), config)
+    assert StreamState.codec(state) == Fake
+
+    assert {:ok,
+            [
+              %StreamEvent{
+                type: :text_delta,
+                delta: %LlmCall.StreamDelta.Text{text: "a"},
+                raw: raw
+              }
+            ], state} =
+             LlmCall.decode_stream_event(Fake, %{"delta" => "a"}, config, state)
+
+    assert raw == %{"delta" => "a"}
+    assert {:done, %StreamState{}} = LlmCall.decode_stream_event(Fake, "[DONE]", config, state)
+
+    assert {:ok, [%StreamEvent{type: :message_stop}], %StreamState{}} =
+             LlmCall.finish_stream(Fake, state, config)
+  end
+
+  test "a state from another codec is a typed error, not a crash" do
+    {:ok, state} = LlmCall.init_stream(Fake, request())
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.decode_stream_event(TextOnly, %{"delta" => "a"}, %Config{}, state)
+
+    assert message =~ "stream state"
+
+    assert {:error, %Error{kind: :validation}} =
+             LlmCall.finish_stream(TextOnly, state, %Config{})
+
+    text_state = StreamState.new(TextOnly, %{})
+
+    assert {:error, %Error{kind: :validation}} =
+             LlmCall.decode_stream_event(Fake, %{"delta" => "a"}, %Config{}, text_state)
+  end
+
+  test "a codec without streaming callbacks returns a typed error" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.init_stream(TextOnly, request())
+
+    assert message =~ "does not support"
+    assert message =~ "init_stream/2"
+
+    {:ok, state} = LlmCall.init_stream(Fake, request())
+    assert {:ok, [%StreamEvent{type: :message_stop}], _} = LlmCall.finish_stream(Fake, state)
+  end
+
+  test "capture_raw :none does not retain stream payloads" do
+    {:ok, state} = LlmCall.init_stream(Fake, request())
+
+    assert {:ok, [%StreamEvent{raw: nil}], _state} =
+             LlmCall.decode_stream_event(Fake, %{"delta" => "a"}, %Config{}, state)
+  end
+end

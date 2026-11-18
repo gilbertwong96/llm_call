@@ -1,4 +1,4 @@
-defmodule LlmDialect.TestJSON do
+defmodule LlmCall.TestJSON do
   @moduledoc """
   JSON decoder stub for tests: maps decode to `{:ok, map}` and malformed input to `{:error, reason}`.
   """

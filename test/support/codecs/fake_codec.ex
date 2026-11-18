@@ -1,10 +1,10 @@
-defmodule LlmDialect.TestCodec.Fake do
+defmodule LlmCall.TestCodec.Fake do
   @moduledoc """
   Synchronous completion codec fake with a full callback set, used to exercise the public dispatch API.
   """
-  @behaviour LlmDialect.Codec
+  @behaviour LlmCall.Codec
 
-  alias LlmDialect.{
+  alias LlmCall.{
     Capabilities,
     Codec,
     EncodedRequest,
@@ -15,7 +15,7 @@ defmodule LlmDialect.TestCodec.Fake do
     StreamState
   }
 
-  alias LlmDialect.StreamDelta
+  alias LlmCall.StreamDelta
 
   @impl true
   def info, do: %Codec.Info{name: :fake, protocol: :fake, version: "1", ir_version: 1}
@@ -38,7 +38,7 @@ defmodule LlmDialect.TestCodec.Fake do
   def decode_response(%{"text" => text}, config) do
     {:ok,
      %Response{
-       content: [%LlmDialect.Content.Text{text: text}],
+       content: [%LlmCall.Content.Text{text: text}],
        raw: if(config.capture_raw == :none, do: nil, else: %{"text" => text})
      }}
   end
