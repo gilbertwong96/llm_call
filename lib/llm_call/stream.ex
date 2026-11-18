@@ -6,6 +6,9 @@ defmodule LlmCall.Stream do
   the codec's stream state, so an invalid request is a tagged error. The HTTP
   request starts when the stream is reduced.
 
+  The struct is an immutable description, not a cursor: reducing it twice issues
+  the request twice. Build it once and pass it to one consumer.
+
   ## Errors
 
   A `2xx` body's events are yielded as they decode. Everything that fails while
@@ -157,11 +160,11 @@ defmodule LlmCall.Stream do
   defp finish(%{status: status} = state) when is_integer(status) and status not in 200..299 do
     error =
       case state.client.config.json.decode(state.error_body) do
-        {:ok, payload} when is_map(payload) ->
-          state.codec.decode_error(payload, state.client.config)
+        {:ok, %{} = payload} ->
+          stream_error(state.codec.decode_error(payload, state.client.config))
 
         _other ->
-          transport_error("HTTP #{status}: body is not JSON")
+          transport_error("HTTP #{status}: body is not a JSON object")
       end
 
     raise HTTP.Error, error: %{error | status: status}
@@ -195,6 +198,12 @@ defmodule LlmCall.Stream do
     if state.halted?,
       do: {:halted, untag(state.downstream)},
       else: {:done, untag(state.downstream)}
+  end
+
+  defp stream_error(%Error{} = error), do: error
+
+  defp stream_error(other) do
+    invalid_response("decode_error/2 must return a %LlmCall.Error{}, got: #{inspect(other)}")
   end
 
   defp invalid_response(message), do: %Error{kind: :invalid_response, message: message}
