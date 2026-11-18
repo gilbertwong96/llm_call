@@ -81,6 +81,37 @@ defmodule LlmCall do
   end
 
   @doc """
+  Starts a streaming call.
+
+  Encodes the request with `stream: true` and starts the codec's stream state
+  eagerly, so an invalid request is a tagged error; the HTTP request itself starts
+  when the returned `%LlmCall.Stream{}` is reduced.
+
+  `codec:` names an entry in the provider's `codecs` map (`:chat` by default).
+  Events are yielded as `LlmCall.StreamEvent` structs; a failure while reading the
+  body raises `LlmCall.HTTP.Error`, because an `Enumerable` cannot return a tuple.
+  """
+  @spec stream(Client.t(), LlmCall.Request.t(), keyword()) ::
+          {:ok, LlmCall.Stream.t()} | {:error, Error.t()}
+  def stream(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
+    request = %{request | stream: true}
+
+    with {:ok, codec} <- fetch_codec(client, opts),
+         :ok <- require_callback(codec, :init_stream, 2),
+         {:ok, encoded} <- codec.encode_request(request, client.config),
+         {:ok, body} <- encode_body(client, encoded.body),
+         {:ok, state} <- codec.init_stream(request, client.config) do
+      {:ok,
+       %LlmCall.Stream{
+         client: client,
+         codec: codec,
+         http_request: build_http_request(client, encoded, body),
+         state: state
+       }}
+    end
+  end
+
+  @doc """
   Performs a request the caller already encoded.
 
   Transport-level: a `2xx` body is JSON-decoded into `body`, anything else is
@@ -125,13 +156,17 @@ defmodule LlmCall do
   end
 
   defp perform(%Client{} = client, %EncodedRequest{} = encoded) do
+    with {:ok, body} <- encode_body(client, encoded.body) do
+      request = build_http_request(client, encoded, body)
+      normalize(client, client.http.request(request, client.http_opts))
+    end
+  end
+
+  defp build_http_request(%Client{} = client, %EncodedRequest{} = encoded, body) do
     url = client.base_url <> encoded.path <> encode_query(encoded.query)
     headers = client.headers ++ encoded.headers
 
-    with {:ok, body} <- encode_body(client, encoded.body) do
-      request = HTTP.Request.post(url, headers, body, client.timeout)
-      normalize(client, client.http.request(request, client.http_opts))
-    end
+    HTTP.Request.post(url, headers, body, client.timeout)
   end
 
   defp encode_body(_client, nil), do: {:ok, ""}
