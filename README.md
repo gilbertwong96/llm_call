@@ -83,6 +83,17 @@ read raises `LlmCall.HTTP.Error`, whose `error/1` returns the canonical
 `%LlmCall.Error{}` with the HTTP status; `{:halt, acc}` from a reducer closes the
 connection. `complete/3` rejects `stream: true` rather than silently flipping it.
 
+To observe events without owning the reduce, pass `on_event:`:
+
+```elixir
+{:ok, stream} =
+  LlmCall.stream(client, request, on_event: &MyApp.Audit.stream_event/1)
+```
+
+It runs before the reducer, including for `finish_stream/2` output; the return
+value is ignored, and it is not called after the reducer halts. To see raw bytes,
+replace `LlmCall.HTTP` instead.
+
 Tool-call fragments are assembled into complete calls by a pure helper, which never
 runs them:
 
