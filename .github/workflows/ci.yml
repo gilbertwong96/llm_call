@@ -35,3 +35,6 @@ jobs:
 
       - name: Run the quality gate
         run: mix ci
+
+      - name: Build the docs
+        run: MIX_ENV=dev mix docs --warnings-as-errors

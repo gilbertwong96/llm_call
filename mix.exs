@@ -52,8 +52,7 @@ defmodule LlmCall.MixProject do
       {:credo, "~> 1.0", only: [:dev, :test], runtime: false},
       {:spec_lint, "~> 0.1", only: [:dev, :test], runtime: false},
       {:vibe_kit, "~> 0.1", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.38", only: :dev, runtime: false},
-      {:igniter, "~> 0.8.5", only: [:dev, :test], runtime: false}
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false}
     ]
   end
 
@@ -75,9 +74,9 @@ defmodule LlmCall.MixProject do
     ]
   end
 
-  # ExDNA runs with its defaults: any clone fails the gate. Shared logic lives in
-  # LlmCall.Protocol.Helpers and the two adapter macros, so the adapters keep
-  # their protocol-specific parts without duplicating them.
+  # The gate runs ExDNA with --max-clones 0: any clone fails it. Shared logic
+  # lives in LlmCall.Protocol.Helpers and the two adapter macros, so the adapters
+  # keep their protocol-specific parts without duplicating them.
   @max_clones 0
 
   defp aliases() do

@@ -187,9 +187,13 @@ defmodule LlmCall do
 
   For `Operation.next_kind: :asset`, where the body is media.
   """
-  @spec fetch(Client.t(), EncodedRequest.t()) ::
+  @spec fetch(Client.t(), EncodedRequest.t() | LlmCall.Operation.t()) ::
           {:ok, %{status: non_neg_integer(), headers: list(), body: binary()}}
           | {:error, Error.t()}
+  def fetch(%Client{} = client, %LlmCall.Operation{next: %EncodedRequest{} = encoded}) do
+    fetch(client, encoded)
+  end
+
   def fetch(%Client{} = client, %EncodedRequest{} = encoded) do
     case perform(client, encoded) do
       {:ok, %{status: status} = response} when status in 200..299 ->

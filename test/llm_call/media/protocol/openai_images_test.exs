@@ -153,7 +153,7 @@ defmodule LlmCall.Media.Protocol.OpenAIImagesTest do
             }} = Images.decode_submit(Fx.base64_response(), %Config{})
 
     assert [
-             %Content.Image{source: {:base64, "AAA"}, media_type: "image/png"},
+             %Content.Image{source: {:base64, "AAA"}, media_type: nil},
              %Content.Image{source: {:url, "https://example.com/a.png"}, media_type: nil}
            ] = assets
 

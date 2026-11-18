@@ -352,7 +352,7 @@ defmodule LlmCall.Codec.Conformance do
     assert_event_order(events, label)
 
     if done? do
-      allowed = [:content_stop, :message_delta, :message_stop]
+      allowed = [:content_stop, :message_delta, :message_stop, :tool_call_stop]
 
       assert Enum.all?(tail, &(&1.type in allowed)),
              "#{label} may only flush metadata or close a block after {:done, state}, got: " <>

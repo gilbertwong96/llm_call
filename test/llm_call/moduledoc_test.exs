@@ -9,4 +9,13 @@ defmodule LlmCall.ModuledocTest do
 
     assert offenders == [], "modules without a moduledoc: #{inspect(offenders)}"
   end
+
+  test "every application module carries a moduledoc" do
+    missing =
+      for module <- elem(:application.get_key(:llm_call, :modules), 1),
+          {:docs_v1, _, _, _, :none, _, _} <- [Code.fetch_docs(module)],
+          do: module
+
+    assert missing == [], "modules without a moduledoc: #{inspect(missing)}"
+  end
 end

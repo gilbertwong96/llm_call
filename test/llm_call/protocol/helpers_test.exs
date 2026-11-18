@@ -3,6 +3,14 @@ defmodule LlmCall.Protocol.HelpersTest do
 
   alias LlmCall.Protocol.Helpers
 
+  test "capture_response/2 keeps a map and ignores any other term" do
+    config = %LlmCall.Config{capture_raw: :all}
+
+    assert Helpers.capture_response(config, %{"a" => 1}) == %{"a" => 1}
+    assert Helpers.capture_response(config, [1, 2]) == nil
+    assert Helpers.capture_response(%LlmCall.Config{}, %{"a" => 1}) == nil
+  end
+
   test "retryable?/2 is the single rule for the retry hint" do
     assert Helpers.retryable?("rate_limit_exceeded", ["rate_limit_exceeded"])
     refute Helpers.retryable?(nil, ["rate_limit_exceeded"])

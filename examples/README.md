@@ -8,7 +8,7 @@ A provider is a module you write, not a catalog entry:
 ```elixir
 defmodule MyApp.Groq do
   use LlmCall.Provider,
-    base_url: "https://api.groq.com/openai/v1",
+    base_url: "https://api.groq.com/openai",
     auth: :bearer,
     codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
 end

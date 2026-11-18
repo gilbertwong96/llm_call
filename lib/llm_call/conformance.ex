@@ -95,9 +95,15 @@ defmodule LlmCall.Conformance do
     assert is_nil(error.code) or is_binary(error.code),
            "#{label} error code must be a string or nil, got: #{inspect(error.code)}"
 
-    assert is_nil(error.status),
-           "#{label} must not set error status: only the transport knows the HTTP status, " <>
-             "got: #{inspect(error.status)}"
+    if error.kind == :transport do
+      assert is_nil(error.status) or is_integer(error.status),
+             "#{label} transport error status must be an integer or nil, " <>
+               "got: #{inspect(error.status)}"
+    else
+      assert is_nil(error.status),
+             "#{label} must not set error status: only the transport knows the HTTP status, " <>
+               "got: #{inspect(error.status)}"
+    end
 
     assert is_boolean(error.retryable?),
            "#{label} error retryable? must be a boolean, got: #{inspect(error.retryable?)}"

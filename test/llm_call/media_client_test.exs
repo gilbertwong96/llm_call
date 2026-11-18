@@ -70,7 +70,7 @@ defmodule LlmCall.MediaClientTest do
     assert sent.body == nil
   end
 
-  test "fetch/3 sends a GET for an asset request and returns bytes" do
+  test "fetch/2 sends a GET for an asset request and returns bytes" do
     FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: <<1, 2>>}})
 
     encoded = %LlmCall.EncodedRequest{method: :get, path: "/assets/1"}
@@ -122,7 +122,23 @@ defmodule LlmCall.MediaClientTest do
              LlmCall.generate(client(), request(), codec: :images)
   end
 
-  test "fetch/3 returns asset bytes without decoding" do
+  test "fetch/2 accepts an :asset operation and fetches its next request" do
+    FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: <<9>>}})
+
+    encoded = %LlmCall.EncodedRequest{method: :get, path: "/asset"}
+
+    operation = %LlmCall.Operation{
+      status: :completed,
+      next: encoded,
+      next_kind: :asset,
+      next_media_type: "video/mp4"
+    }
+
+    assert {:ok, %{body: <<9>>}} = LlmCall.fetch(client(), operation)
+    assert [%{method: :get, url: "https://media.example.test/asset"}] = FakeHTTP.requests()
+  end
+
+  test "fetch/2 returns asset bytes without decoding" do
     FakeHTTP.put_response({:ok, %{status: 200, headers: [], body: <<1, 2, 3>>}})
 
     encoded = %LlmCall.EncodedRequest{method: :get, path: "/asset"}
