@@ -77,12 +77,11 @@ defmodule LlmCall.HTTP do
   Later entries win, so a codec's protocol header overrides a caller's, and a
   caller's header overrides a provider default.
   """
-  @spec merge_headers([[{String.t(), String.t()}] | [{String.t(), String.t()}]]) :: [
-          {String.t(), String.t()}
-        ]
+  @spec merge_headers([[{String.t(), String.t()}]]) :: [{String.t(), String.t()}]
   def merge_headers(header_lists) do
     header_lists
     |> List.flatten()
+    |> Enum.reject(&is_nil/1)
     |> Enum.reduce([], fn {name, value}, acc ->
       name = name |> to_string() |> String.downcase()
       [{name, value} | Enum.reject(acc, fn {existing, _} -> existing == name end)]

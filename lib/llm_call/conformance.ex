@@ -13,7 +13,7 @@ defmodule LlmCall.Conformance do
 
   @credential_headers ["authorization", "x-api-key", "api-key"]
 
-  @error_kinds [:protocol, :validation, :invalid_response, :provider]
+  @error_kinds [:protocol, :validation, :invalid_response, :provider, :transport]
 
   @stop_reasons [
     :end_turn,
