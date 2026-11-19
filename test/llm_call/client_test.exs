@@ -99,7 +99,7 @@ defmodule LlmCall.ClientTest do
     assert {:error, %Error{kind: :transport, message: message}} =
              LlmCall.complete(client, request())
 
-    assert message =~ "econnrefused"
+    assert message == "transport error: connection refused"
   end
 
   test "stream: true is rejected in favour of stream/3" do
