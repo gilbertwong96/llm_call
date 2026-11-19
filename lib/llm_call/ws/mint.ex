@@ -10,6 +10,11 @@ defmodule LlmCall.WS.Mint do
   Pings are answered with their payload inside `recv/2` and `feed/2`; pongs are
   ignored. A peer close is returned as `{:close, code, reason}`; closing the
   socket is the caller's decision.
+
+  Options: `:timeout` (connect and upgrade, default 15 seconds),
+  `:transport_opts`, `:proxy`, `:proxy_headers`, `:log`. The socket must stay
+  active, so `mode: :active` is the only accepted value; anything else is
+  `{:error, {:unsupported_mode, mode}}` rather than a connect timeout.
   """
 
   @behaviour LlmCall.WS
@@ -18,10 +23,21 @@ defmodule LlmCall.WS.Mint do
 
   @impl true
   def connect(url, headers, opts \\ []) do
-    with {:ok, uri, scheme} <- parse_url(url),
+    with :ok <- validate_mode(opts),
+         {:ok, uri, scheme} <- parse_url(url),
          {:ok, conn} <-
            Mint.HTTP.connect(transport_scheme(scheme), uri.host, uri.port, connect_opts(opts)) do
       start_upgrade(conn, scheme, uri, headers, opts)
+    end
+  end
+
+  # `recv/2` and `feed/2` deliver through active-mode socket messages, so a
+  # passive connection can never complete the upgrade; reject it up front
+  # instead of waiting for the connect timeout.
+  defp validate_mode(opts) do
+    case Keyword.get(opts, :mode, :active) do
+      :active -> :ok
+      other -> {:error, {:unsupported_mode, other}}
     end
   end
 
@@ -312,7 +328,7 @@ defmodule LlmCall.WS.Mint do
       |> Keyword.put_new(:timeout, timeout)
 
     [transport_opts: transport_opts, protocols: [:http1]] ++
-      Keyword.take(opts, [:mode, :proxy, :proxy_headers, :log])
+      Keyword.take(opts, [:proxy, :proxy_headers, :log])
   end
 
   defp timeout(opts), do: Keyword.get(opts, :timeout, @default_timeout)

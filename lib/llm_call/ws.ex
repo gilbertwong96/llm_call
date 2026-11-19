@@ -27,7 +27,9 @@ defmodule LlmCall.WS do
   Opens a connection to `url` (`ws://` or `wss://`) with the given headers.
 
   Options are implementation-specific; `LlmCall.WS.Mint` accepts `:timeout`
-  (connect and upgrade, default 15 seconds) and `:transport_opts`.
+  (connect and upgrade, default 15 seconds), `:transport_opts`, `:proxy`,
+  `:proxy_headers` and `:log`. It requires an active socket: `mode: :active` is
+  accepted and anything else is `{:error, {:unsupported_mode, mode}}`.
   """
   @callback connect(url(), [{String.t(), String.t()}], keyword()) ::
               {:ok, conn()} | {:error, error()}

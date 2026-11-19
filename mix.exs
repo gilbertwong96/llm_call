@@ -16,6 +16,10 @@ defmodule LlmCall.MixProject do
         "LLM wire-protocol codecs with a canonical IR, a one-call client on Finch, and a replaceable JSON layer.",
       package: package(),
       docs: docs(),
+      test_coverage: [
+        summary: [threshold: 85],
+        ignore_modules: [~r/^LlmCall\.Examples\./]
+      ],
       dialyzer: [
         plt_add_apps: [:ex_unit],
         plt_local_path: "priv/plts",
@@ -85,7 +89,7 @@ defmodule LlmCall.MixProject do
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
-        "test",
+        "test --cover",
         "credo --strict",
         "dialyzer",
         "spec_lint --warnings-as-errors",
