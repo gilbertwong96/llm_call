@@ -32,12 +32,16 @@ defmodule LlmCall.Provider do
 
   ## Resolution
 
-  `http_opts`, `json_library` and `timeout` may be declared here, and each
-  resolves call option → provider → `config :llm_call, ...` → built-in default. The
-  JSON module is written into the client's `%LlmCall.Config{}`, so the codecs use
-  the same implementation as the transport. A `config:` call option supplies the
-  base config; a `json_library:` call option still wins over it, and the
-  declaration's `json_library:` applies only when the caller passes neither.
+  `http_opts` and `timeout` may be declared here, and each resolves call option →
+  provider → `config :llm_call, ...` → built-in default. A declaration that omits
+  them leaves the value `nil`, so the application setting still applies.
+
+  `json_library` resolves call option → provider → the compile-time application
+  default (`Application.compile_env(:llm_call, :json_library, JSON)`). It is
+  written into the client's `%LlmCall.Config{}`, so the codecs use the same
+  implementation as the transport. A `config:` call option supplies the base
+  config; a `json_library:` call option still wins over it, and the declaration's
+  `json_library:` applies only when the caller passes neither.
   """
 
   alias LlmCall.{Client, Config}
@@ -286,7 +290,7 @@ defmodule LlmCall.Provider do
 
     base_url = required_literal!(opts, :base_url, __CALLER__)
     headers = literal!(opts, :headers, __CALLER__, []) || []
-    http_opts = literal!(opts, :http_opts, __CALLER__, []) || []
+    http_opts = literal!(opts, :http_opts, __CALLER__, nil)
     timeout = literal!(opts, :timeout, __CALLER__, nil)
     auth = literal!(opts, :auth, __CALLER__, :none)
     json_library = literal!(opts, :json_library, __CALLER__, nil)
@@ -300,7 +304,7 @@ defmodule LlmCall.Provider do
       raise ArgumentError, "provider option :headers must be a list of string pairs"
     end
 
-    unless Keyword.keyword?(http_opts) do
+    unless is_nil(http_opts) or Keyword.keyword?(http_opts) do
       raise ArgumentError, "provider option :http_opts must be a keyword list"
     end
 
