@@ -15,7 +15,13 @@ back to `llm_call` because it now ships the client that name promised.
   `execute/2`, `fetch/2`, with `LlmCall.Provider` (`use LlmCall.Provider`) and
   `%LlmCall.Client{}`. HTTP is Finch; JSON is a behaviour (`LlmCall.JSON`)
   resolved call option → provider → `config :llm_call, ...` → default. The
-  transport is not replaceable.
+  transport is not replaceable. Calls accept `headers:` merged after the client
+  headers and before the codec's protocol headers.
+- `LlmCall.Error.retry_after_ms` carries the parsed `Retry-After` hint; retry
+  policy stays outside the core.
+- Codecs validate the types of known native `provider_options` keys
+  (`access_programs`, `logprobs`, `metadata`, `safetySettings`, ...); unknown
+  native keys still pass through.
 - WebSocket transport: the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, with
   the upgrade, text/binary frames, ping handling and peer close. Mint's HTTP
   proxy options are forwarded (`ws://` forward proxy, `wss://` CONNECT).

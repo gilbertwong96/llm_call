@@ -263,6 +263,22 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
            ]
   end
 
+  test "known native provider options are type-checked" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             GenerateContent.validate_request(
+               text_request(provider_options: %{gemini: %{"safetySettings" => "bad"}}),
+               %Config{}
+             )
+
+    assert message =~ "safetySettings"
+
+    assert :ok ==
+             GenerateContent.validate_request(
+               text_request(provider_options: %{gemini: %{"safetySettings" => []}}),
+               %Config{}
+             )
+  end
+
   test "provider_options accept the :google alias and reject reserved keys" do
     assert encode(text_request(provider_options: %{google: %{"safetySettings" => []}})).body[
              "safetySettings"

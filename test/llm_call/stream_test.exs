@@ -134,6 +134,19 @@ defmodule LlmCall.StreamTest do
              LlmCall.Stream.reduce(stream, :ok, fn _event, acc -> {:cont, acc} end)
   end
 
+  test "a non-2xx stream carries Retry-After on the raised error" do
+    TestHTTP.put_events([
+      {:status, 429},
+      {:headers, [{"retry-after", "1"}]},
+      {:data, ~s({"error":{"message":"slow down"}})}
+    ])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{status: 429, retry_after_ms: 1_000} = HTTP.Error.error(exception)
+  end
+
   test "a 401 raises with the decoded provider error and status" do
     TestHTTP.put_events([
       {:status, 401},

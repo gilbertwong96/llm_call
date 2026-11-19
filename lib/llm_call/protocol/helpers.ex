@@ -314,6 +314,68 @@ defmodule LlmCall.Protocol.Helpers do
     do: error(codec, "tools must be a list")
 
   @doc """
+  Validates the types of known native provider options.
+
+  `schema` maps a native key (string or atom) to `:boolean`, `:string`, `:map`,
+  `:list`, `:number`, `:integer`, or `{:enum, values}`. Unknown keys pass: a
+  provider may add a field before the codec learns about it.
+  """
+  @spec validate_native_options(map(), map(), codec(), String.t()) ::
+          :ok | {:error, Error.t()}
+  def validate_native_options(options, schema, codec, label \\ "provider_options")
+
+  def validate_native_options(options, schema, codec, label) when is_map(options) do
+    first_error(Map.to_list(options), fn {key, value} ->
+      case Map.fetch(schema, key) do
+        :error -> validate_native_key(key, value, schema, codec, label)
+        {:ok, spec} -> validate_native_value(spec, value, key, codec, label)
+      end
+    end)
+  end
+
+  def validate_native_options(_options, _schema, codec, label) do
+    error(codec, "#{label} must be a map")
+  end
+
+  defp validate_native_key(key, value, schema, codec, label) do
+    case Map.fetch(schema, to_string(key)) do
+      {:ok, spec} -> validate_native_value(spec, value, key, codec, label)
+      :error -> :ok
+    end
+  end
+
+  defp validate_native_value(:boolean, value, _key, _codec, _label) when is_boolean(value),
+    do: :ok
+
+  defp validate_native_value(:string, value, _key, _codec, _label) when is_binary(value),
+    do: :ok
+
+  defp validate_native_value(:map, value, _key, _codec, _label) when is_map(value), do: :ok
+  defp validate_native_value(:list, value, _key, _codec, _label) when is_list(value), do: :ok
+  defp validate_native_value(:number, value, _key, _codec, _label) when is_number(value), do: :ok
+
+  defp validate_native_value(:integer, value, _key, _codec, _label) when is_integer(value),
+    do: :ok
+
+  defp validate_native_value({:enum, values}, value, key, codec, label) do
+    if value in values,
+      do: :ok,
+      else: error(codec, "#{label}.#{key} must be #{describe_spec({:enum, values})}")
+  end
+
+  defp validate_native_value(spec, _value, key, codec, label) do
+    error(codec, "#{label}.#{key} must be #{describe_spec(spec)}")
+  end
+
+  defp describe_spec({:enum, values}), do: "one of #{inspect(values)}"
+  defp describe_spec(:boolean), do: "a boolean"
+  defp describe_spec(:string), do: "a string"
+  defp describe_spec(:map), do: "a map"
+  defp describe_spec(:list), do: "a list"
+  defp describe_spec(:number), do: "a number"
+  defp describe_spec(:integer), do: "an integer"
+
+  @doc """
   Validates a tool call's arguments: a decoded map, or a raw string that decodes
   to an object. A malformed fragment is an error, never `%{}`. A map that the
   configured JSON module cannot encode is an error too, because the codec has to

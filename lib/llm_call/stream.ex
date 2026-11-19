@@ -57,6 +57,7 @@ defmodule LlmCall.Stream do
       stream_state: stream.state,
       on_event: stream.on_event,
       status: nil,
+      headers: [],
       error_body: "",
       done?: false,
       halted?: false
@@ -74,7 +75,7 @@ defmodule LlmCall.Stream do
   end
 
   defp handle_event({:status, status}, state), do: {:cont, %{state | status: status}}
-  defp handle_event({:headers, _headers}, state), do: {:cont, state}
+  defp handle_event({:headers, headers}, state), do: {:cont, %{state | headers: headers}}
 
   defp handle_event({:data, chunk}, %{status: status} = state)
        when is_integer(status) and status not in 200..299 do
@@ -183,7 +184,8 @@ defmodule LlmCall.Stream do
           transport_error("HTTP #{status}: body is not a JSON object")
       end
 
-    raise HTTP.Error, error: %{error | status: status}
+    retry_after = HTTP.retry_after_ms(state.headers)
+    raise HTTP.Error, error: %{error | status: status, retry_after_ms: retry_after}
   end
 
   defp finish(%{done?: true} = state), do: {:done, untag(state.downstream)}

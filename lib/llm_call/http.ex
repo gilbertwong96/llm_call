@@ -88,7 +88,78 @@ defmodule LlmCall.HTTP do
     |> Enum.reverse()
   end
 
+  @months %{
+    "Jan" => 1,
+    "Feb" => 2,
+    "Mar" => 3,
+    "Apr" => 4,
+    "May" => 5,
+    "Jun" => 6,
+    "Jul" => 7,
+    "Aug" => 8,
+    "Sep" => 9,
+    "Oct" => 10,
+    "Nov" => 11,
+    "Dec" => 12
+  }
+
   @default_pool LlmCall.Finch
+
+  @doc """
+  Parses a `Retry-After` header into milliseconds.
+
+  Accepts delta-seconds or an IMF-fixdate HTTP-date; returns `nil` when the
+  header is missing or malformed. Header names are matched case-insensitively.
+  """
+  @spec retry_after_ms([{String.t(), String.t()}]) :: non_neg_integer() | nil
+  def retry_after_ms(headers) when is_list(headers) do
+    Enum.find_value(headers, fn
+      {name, value} ->
+        if String.downcase(to_string(name)) == "retry-after" do
+          parse_retry_after(value)
+        else
+          nil
+        end
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp parse_retry_after(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case Integer.parse(value) do
+      {seconds, ""} when seconds >= 0 -> seconds * 1_000
+      _other -> parse_http_date(value)
+    end
+  end
+
+  defp parse_retry_after(_value), do: nil
+
+  defp parse_http_date(value) do
+    with [_, day, month, year, hour, minute, second] <-
+           Regex.run(
+             ~r/^[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/,
+             value
+           ),
+         {:ok, month} <- Map.fetch(@months, month),
+         {:ok, datetime} <-
+           NaiveDateTime.new(
+             String.to_integer(year),
+             month,
+             String.to_integer(day),
+             String.to_integer(hour),
+             String.to_integer(minute),
+             String.to_integer(second)
+           ) do
+      now = :calendar.universal_time()
+      seconds = NaiveDateTime.to_erl(datetime) |> :calendar.datetime_to_gregorian_seconds()
+      max(0, seconds - :calendar.datetime_to_gregorian_seconds(now)) * 1_000
+    else
+      _other -> nil
+    end
+  end
 
   @doc "Performs one request and returns the whole response."
   @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}

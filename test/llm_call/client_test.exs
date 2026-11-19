@@ -52,6 +52,41 @@ defmodule LlmCall.ClientTest do
     assert {:error, %Error{kind: :invalid_response}} = LlmCall.complete(client(), request())
   end
 
+  test "a non-2xx Retry-After becomes retry_after_ms" do
+    TestHTTP.put_response(
+      {:ok,
+       %{
+         status: 429,
+         headers: [{"retry-after", "2"}],
+         body: ~s({"error":{"message":"slow down"}})
+       }}
+    )
+
+    assert {:error, %Error{kind: :provider, status: 429, retry_after_ms: 2_000}} =
+             LlmCall.complete(client(), request())
+  end
+
+  test "an invalid Retry-After is left nil" do
+    TestHTTP.put_response(
+      {:ok,
+       %{
+         status: 429,
+         headers: [{"retry-after", "soon"}],
+         body: ~s({"error":{"message":"slow down"}})
+       }}
+    )
+
+    assert {:error, %Error{retry_after_ms: nil}} = LlmCall.complete(client(), request())
+  end
+
+  test "execute/2 reports Retry-After on a non-2xx transport error" do
+    TestHTTP.put_response({:ok, %{status: 503, headers: [{"retry-after", "3"}], body: ""}})
+    encoded = %LlmCall.EncodedRequest{method: :get, path: "/asset"}
+
+    assert {:error, %Error{kind: :transport, status: 503, retry_after_ms: 3_000}} =
+             LlmCall.execute(client(), encoded)
+  end
+
   test "an undecodable error body is :transport with the status" do
     TestHTTP.put_response({:ok, %{status: 502, headers: [], body: "<html>"}})
 
@@ -310,6 +345,46 @@ defmodule LlmCall.ClientTest do
       end
       """)
     end
+  end
+
+  test "per-call headers override client headers and codec headers still win" do
+    TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
+
+    client = client(headers: [{"x-scope", "client"}, {"x-override", "client"}])
+
+    assert {:ok, _response} =
+             LlmCall.complete(client, request(),
+               headers: [
+                 {"x-scope", "call"},
+                 {"x-override", "call"},
+                 {"content-type", "text/plain"}
+               ]
+             )
+
+    assert [sent] = TestHTTP.requests()
+    assert {"x-scope", "call"} in sent.headers
+    assert {"x-override", "call"} in sent.headers
+
+    assert {"content-type", "text/plain"} in sent.headers
+  end
+
+  test "stream/3 accepts per-call headers" do
+    TestHTTP.put_events([{:status, 200}, {:data, "data: {}\n\n"}])
+
+    assert {:ok, stream} =
+             LlmCall.stream(client(), request(), headers: [{"x-stream", "1"}])
+
+    assert [_ | _] = Enum.to_list(stream)
+    assert [sent] = TestHTTP.requests()
+    assert {"x-stream", "1"} in sent.headers
+  end
+
+  test "malformed per-call headers are a validation error before any request" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.complete(client(), request(), headers: [{"x", 1}])
+
+    assert message =~ "headers:"
+    assert TestHTTP.requests() == []
   end
 
   test "a caller header replaces the provider header of the same name" do

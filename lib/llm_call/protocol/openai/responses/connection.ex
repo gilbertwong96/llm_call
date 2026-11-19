@@ -27,6 +27,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   An in-flight lane cannot be resumed: its subscriber receives a `:transport`
   error. Continuing a conversation across a reconnect is the caller's decision,
   using `previous_response_id` and the input it wants to resend.
+
+  `start_link/1` accepts `headers:` for the WebSocket handshake; they are merged
+  after the client headers and reused on reconnect.
   """
 
   use GenServer
@@ -102,7 +105,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   def init(opts) do
     case connection_config(opts) do
       {:ok, config} ->
-        case connect(config.client, config.ws, config.ws_opts) do
+        case connect(config.client, config.ws, config.ws_opts, config.headers) do
           {:ok, conn} -> {:ok, schedule_max_age(%{config | conn: conn})}
           {:error, reason} -> {:stop, {:connect_failed, reason}}
         end
@@ -116,6 +119,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     client = Keyword.get(opts, :client)
     ws = Keyword.get(opts, :ws, WS.Mint)
     ws_opts = Keyword.get(opts, :ws_opts, [])
+    headers = Keyword.get(opts, :headers, [])
     max_age = Keyword.get(opts, :max_age_ms, @default_max_age)
     reconnect? = Keyword.get(opts, :reconnect, true)
     max_attempts = Keyword.get(opts, :max_reconnect_attempts, 5)
@@ -123,6 +127,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     max_retry_delay = Keyword.get(opts, :max_retry_delay_ms, 60_000)
 
     with :ok <- validate_client(client),
+         :ok <- validate_headers(headers),
          :ok <- validate_max_age(max_age),
          :ok <- validate_attempts(max_attempts),
          :ok <- validate_delays(retry_delay, max_retry_delay) do
@@ -131,6 +136,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
          client: client,
          ws: ws,
          ws_opts: ws_opts,
+         headers: headers,
          conn: nil,
          status: :connected,
          max_age: max_age,
@@ -148,6 +154,19 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
        }}
     end
   end
+
+  defp validate_headers(headers) when is_list(headers) do
+    if Enum.all?(headers, fn
+         {name, value} when is_binary(name) and is_binary(value) -> true
+         _other -> false
+       end) do
+      :ok
+    else
+      {:error, :invalid_headers}
+    end
+  end
+
+  defp validate_headers(_headers), do: {:error, :invalid_headers}
 
   defp validate_client(%Client{}), do: :ok
   defp validate_client(_client), do: {:error, :client_required}
@@ -308,7 +327,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   def handle_info({:retry, ref}, %{retry_ref: ref} = state) do
     state = %{state | retry_timer: nil, retry_ref: nil}
 
-    case connect(state.client, state.ws, state.ws_opts) do
+    case connect(state.client, state.ws, state.ws_opts, state.headers) do
       {:ok, conn} -> {:noreply, connected(%{state | conn: conn})}
       {:error, _error} -> {:noreply, schedule_retry(state)}
     end
@@ -339,8 +358,8 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     :ok
   end
 
-  defp connect(client, ws, ws_opts) do
-    ws.connect(ws_url(client), client.headers, ws_opts)
+  defp connect(client, ws, ws_opts, headers) do
+    ws.connect(ws_url(client), LlmCall.HTTP.merge_headers([client.headers, headers]), ws_opts)
   end
 
   defp ws_url(%Client{base_url: base_url}) do
@@ -467,7 +486,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     state = %{state | lanes: %{}} |> cancel_max_age() |> cancel_retry()
     safe_close(state.ws, state.conn)
 
-    case connect(state.client, state.ws, state.ws_opts) do
+    case connect(state.client, state.ws, state.ws_opts, state.headers) do
       {:ok, conn} -> {:ok, connected(%{state | conn: conn})}
       {:error, error} -> {:error, error, disconnected(%{state | conn: nil})}
     end

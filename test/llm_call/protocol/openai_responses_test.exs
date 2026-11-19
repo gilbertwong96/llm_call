@@ -222,6 +222,26 @@ defmodule LlmCall.Protocol.OpenAIResponsesTest do
     assert body["previous_response_id"] == "resp_0"
   end
 
+  test "known native provider options are type-checked" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Responses.validate_request(
+               text_request(provider_options: %{openai: %{"access_programs" => "blue"}}),
+               %Config{}
+             )
+
+    assert message =~ "access_programs"
+
+    assert :ok ==
+             Responses.validate_request(
+               text_request(
+                 provider_options: %{
+                   openai: %{"access_programs" => %{"cyber" => "daybreak_blue"}}
+                 }
+               ),
+               %Config{}
+             )
+  end
+
   test "config default provider options apply and the request wins" do
     config = %Config{
       default_provider_options: %{openai: %{"store" => false, "metadata" => %{"a" => 1}}}

@@ -30,6 +30,19 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
 
   @tool_reserved_keys ~w(name description parameters strict)
   @reasoning_reserved_keys ~w(effort summary)
+
+  @native_options %{
+    "access_programs" => :map,
+    "store" => :boolean,
+    "previous_response_id" => :string,
+    "include" => :list,
+    "parallel_tool_calls" => :boolean,
+    "truncation" => {:enum, ["auto", "disabled"]},
+    "background" => :boolean,
+    "service_tier" => :string,
+    "safety_identifier" => :string,
+    "prompt_cache_key" => :string
+  }
   @builtin_tools :passthrough
   @param_keys [:max_tokens, :temperature, :top_p]
   @efforts [:none, :minimal, :low, :medium, :high]
@@ -437,8 +450,22 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
            ),
          request_options = Map.get(request.provider_options, :openai, %{}),
          default_options = Map.get(config.default_provider_options, :openai, %{}),
-         :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec) do
-      Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec)
+         :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec),
+         :ok <-
+           Helpers.validate_native_options(
+             request_options,
+             @native_options,
+             @codec,
+             "provider_options"
+           ) do
+      with :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec) do
+        Helpers.validate_native_options(
+          default_options,
+          @native_options,
+          @codec,
+          "default_provider_options"
+        )
+      end
     end
   end
 

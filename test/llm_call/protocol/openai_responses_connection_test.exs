@@ -25,6 +25,29 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     def close(_conn, _code, _reason), do: :ok
   end
 
+  defmodule HeadersWS do
+    @moduledoc false
+    @behaviour LlmCall.WS
+
+    @impl true
+    def connect(url, headers, opts) do
+      send(opts[:test_pid], {:connect, url, headers})
+      {:ok, :conn}
+    end
+
+    @impl true
+    def send_frame(:conn, _frame), do: {:ok, :conn}
+
+    @impl true
+    def feed(:conn, _message), do: {:ok, [], :conn}
+
+    @impl true
+    def recv(:conn, _timeout), do: {:error, :timeout}
+
+    @impl true
+    def close(_conn, _code, _reason), do: :ok
+  end
+
   defmodule WSProvider do
     @moduledoc "Provider pointing at the local test WebSocket server."
 
@@ -430,6 +453,22 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "main")) end)
     assert :ok = Connection.cancel(connection, "main")
     assert {:ok, "resp_main"} = Connection.response_id(connection, "main")
+
+    Connection.close(connection)
+  end
+
+  test "handshake headers merge the client headers with the connection headers" do
+    {:ok, connection} =
+      Connection.start_link(
+        client: client(),
+        ws: HeadersWS,
+        ws_opts: [test_pid: self()],
+        headers: [{"x-call", "1"}]
+      )
+
+    assert_receive {:connect, _url, headers}
+    assert {"authorization", "Bearer secret"} in headers
+    assert {"x-call", "1"} in headers
 
     Connection.close(connection)
   end
