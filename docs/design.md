@@ -39,7 +39,7 @@ LlmCall.Codec.encode_request/2
 encoded request  ----  LlmCall.HTTP (default Finch)  ---->  provider
       |
       v
-provider response term   (LlmCall.JSON, default OTP :json)
+provider response term   (LlmCall.JSON, default Elixir JSON)
       |
       v
 LlmCall.Codec.decode_response/2
@@ -87,7 +87,7 @@ Providers do not agree on:
   application's own module or a third-party package (see §14)
 
 Its HTTP execution is in the core on Finch; JSON encoding is behind
-`LlmCall.JSON` (OTP `:json` by default). SSE framing (`LlmCall.SSE`) is a core
+`LlmCall.JSON` (Elixir `JSON` by default). SSE framing (`LlmCall.SSE`) is a core
 module, and WebSocket connections go through the `LlmCall.WS` behaviour with
 `LlmCall.WS.Mint` as the implementation. HTTP and SSE are not replaceable seams;
 WebSocket has a behaviour, but no config-level transport resolution.
@@ -193,7 +193,7 @@ layer in every application cost more than shipping it.
 ### B. SDK with a replaceable JSON edge (chosen)
 
 Canonical IR and codecs plus a one-call client on Finch; JSON lives behind
-`LlmCall.JSON`, with OTP `:json` as the default; providers are user modules.
+`LlmCall.JSON`, with Elixir `JSON` as the default; providers are user modules.
 
 - one call works after `mix deps.get`
 - the JSON module can be replaced per application, provider or client
@@ -1793,6 +1793,15 @@ header emitted by the codec still wins. An invalid list is a `:validation`
 error before any request. WebSocket handshake headers are connection-level:
 pass `headers:` to `Connection.start_link/1`; they are merged with the client
 headers and reused on reconnect.
+
+JSON resolution has a compile-time default and runtime overrides. The default
+is read with `Application.compile_env(:llm_call, :json, ...)` (with
+`:json_library` as the Phoenix-style alias) and defaults to Elixir `JSON`.
+Changing it recompiles the library. A provider declaration, a client `json:`
+option or an explicit `%LlmCall.Config{}` overrides it. `LlmCall.JSON.encode/2`
+and `decode/2` accept a module with tagged `encode/1`/`decode/1` (Torque, Jason,
+Poison) or bang `encode!/1`/`decode!/1` (Elixir `JSON`) and normalize to tagged
+tuples.
 
 The encode/decode boundary stays public for callers that own a transport:
 

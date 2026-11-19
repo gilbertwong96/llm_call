@@ -376,10 +376,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   end
 
   defp encode(state, event) do
-    case state.client.config.json.encode(event) do
+    case LlmCall.JSON.encode(state.client.config.json, event) do
       {:ok, json} when is_binary(json) -> {:ok, json}
       {:error, reason} -> {:error, transport(reason)}
-      _other -> {:error, transport(:json_encoder_returned_invalid_value)}
     end
   end
 
@@ -400,7 +399,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp dispatch([_frame | rest], state), do: dispatch(rest, state)
 
   defp handle_text(data, state) do
-    case state.client.config.json.decode(data) do
+    case LlmCall.JSON.decode(state.client.config.json, data) do
       {:ok, %{} = event} -> route_event(event, state)
       {:ok, _other} -> {:error, :non_object_event, state}
       {:error, reason} -> {:error, {:invalid_json, reason}, state}

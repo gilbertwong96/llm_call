@@ -191,7 +191,7 @@ defmodule LlmCall.Protocol.Helpers do
   def decode_raw_arguments(raw, json \\ LlmCall.JSON)
 
   def decode_raw_arguments(raw, json) when is_binary(raw) do
-    case json.decode(raw) do
+    case LlmCall.JSON.decode(json, raw) do
       {:ok, %{} = decoded} -> decoded
       _not_a_map -> nil
     end
@@ -385,7 +385,7 @@ defmodule LlmCall.Protocol.Helpers do
           :ok | {:error, Error.t()}
   def validate_tool_call_arguments(%ToolCall{arguments: arguments}, codec, json)
       when is_map(arguments) do
-    case json.encode(arguments) do
+    case LlmCall.JSON.encode(json, arguments) do
       {:ok, _encoded} -> :ok
       {:error, _reason} -> error(codec, "tool call arguments must be JSON-encodable")
     end
@@ -394,7 +394,7 @@ defmodule LlmCall.Protocol.Helpers do
   def validate_tool_call_arguments(%ToolCall{raw_arguments: nil}, _codec, _json), do: :ok
 
   def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec, json) do
-    case json.decode(raw) do
+    case LlmCall.JSON.decode(json, raw) do
       {:ok, %{}} -> :ok
       _not_an_object -> error(codec, "tool call raw_arguments must decode to an object")
     end
@@ -408,7 +408,7 @@ defmodule LlmCall.Protocol.Helpers do
   """
   @spec encode_arguments(map(), codec(), module()) :: {:ok, String.t()} | {:error, Error.t()}
   def encode_arguments(arguments, codec, json) do
-    case json.encode(arguments) do
+    case LlmCall.JSON.encode(json, arguments) do
       {:ok, encoded} -> {:ok, encoded}
       {:error, _reason} -> error(codec, "tool call arguments must be JSON-encodable")
     end
@@ -438,7 +438,7 @@ defmodule LlmCall.Protocol.Helpers do
   def decode_arguments(nil, _json), do: {nil, nil}
 
   def decode_arguments(raw, json) when is_binary(raw) do
-    case json.decode(raw) do
+    case LlmCall.JSON.decode(json, raw) do
       {:ok, decoded} when is_map(decoded) -> {decoded, nil}
       _not_a_map -> {nil, {:invalid_json, raw}}
     end
