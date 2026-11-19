@@ -457,6 +457,17 @@ defmodule LlmCall.ClientTest do
     end
   end
 
+  test "a client base_url must be an http(s) URL with a host" do
+    for url <- ["api.openai.com", "ftp://example.test", "https://", "://bad"] do
+      assert_raise ArgumentError, ~r/:base_url must be an http\(s\) URL/, fn ->
+        TestProvider.client(api_key: "k", base_url: url)
+      end
+    end
+
+    assert %Client{base_url: "https://api.example.test"} =
+             TestProvider.client(api_key: "k", base_url: "https://api.example.test")
+  end
+
   test "a non-list headers value is a compile error" do
     assert_raise ArgumentError, ~r/:headers must be a list/, fn ->
       Code.compile_string("""
