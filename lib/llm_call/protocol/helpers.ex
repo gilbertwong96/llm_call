@@ -164,6 +164,17 @@ defmodule LlmCall.Protocol.Helpers do
   @model_id_pattern ~r/\A[A-Za-z0-9._-]+\z/
 
   @doc """
+  Normalizes a provider-supplied stream index.
+
+  A non-negative integer is kept; anything else (a string, a float, a negative
+  number) becomes `nil`, so a malformed index cannot violate
+  `LlmCall.StreamEvent.index` or crash `LlmCall.StreamAssembler`.
+  """
+  @spec index(term()) :: non_neg_integer() | nil
+  def index(value) when is_integer(value) and value >= 0, do: value
+  def index(_value), do: nil
+
+  @doc """
   Validates a Gemini-style bare model id.
 
   The model is interpolated into a request path, so only characters that are

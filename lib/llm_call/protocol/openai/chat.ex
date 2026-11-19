@@ -710,7 +710,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp choice_events(choice, term, config, data) do
     delta = choice["delta"] || %{}
-    index = choice["index"]
+    index = Helpers.index(choice["index"])
 
     {tool_events, data} = tool_events(delta, index, term, config, data)
     {stop_events, data} = finish_events(choice["finish_reason"], term, config, data)
@@ -776,7 +776,7 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp tool_events(%{"tool_calls" => calls}, index, term, config, data) when is_list(calls) do
     Enum.reduce(calls, {[], data}, fn call, {events, data} ->
-      tool_index = call["index"] || index || 0
+      tool_index = Helpers.index(call["index"]) || index || 0
       function = call["function"] || %{}
       seen? = tool_index in data.tool_indexes
       data = %{data | tool_indexes: Enum.uniq([tool_index | data.tool_indexes])}

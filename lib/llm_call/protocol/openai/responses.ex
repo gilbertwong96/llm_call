@@ -559,7 +559,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
       ) do
     data = StreamState.data(state)
     item = map_or_empty(term["item"])
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
 
     case item["type"] do
       "function_call" ->
@@ -592,7 +592,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %StreamState{} = state
       ) do
     data = StreamState.data(state)
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
     part = map_or_empty(term["part"])
     type = part["type"] || "unknown"
     data = %{data | blocks: Map.put(data.blocks, index, type)}
@@ -606,7 +606,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %Config{} = config,
         %StreamState{} = state
       ) do
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
 
     delta = %StreamDelta.Text{text: term["delta"]}
     {:ok, [Helpers.event(:text_delta, index, delta, term, config)], state}
@@ -625,7 +625,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %Config{} = config,
         %StreamState{} = state
       ) do
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
     {:ok, [Helpers.event(:content_stop, index, nil, term, config)], state}
   end
 
@@ -634,7 +634,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %Config{} = config,
         %StreamState{} = state
       ) do
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
 
     delta = %StreamDelta.ToolCall{arguments: term["delta"], index: index}
     {:ok, [Helpers.event(:tool_call_delta, index, delta, term, config)], state}
@@ -646,7 +646,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %StreamState{} = state
       ) do
     data = StreamState.data(state)
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
 
     delta = %StreamDelta.ToolCall{
       id: term["call_id"],
@@ -668,7 +668,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
       ) do
     data = StreamState.data(state)
     item = map_or_empty(term["item"])
-    index = term["output_index"]
+    index = Helpers.index(term["output_index"])
 
     if item["type"] == "function_call" and index in data.pending_tools do
       delta = %StreamDelta.ToolCall{
@@ -693,7 +693,10 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %StreamState{} = state
       ) do
     delta = %StreamDelta.Thinking{text: term["delta"], signature: nil}
-    {:ok, [Helpers.event(:thinking_delta, term["output_index"], delta, term, config)], state}
+
+    {:ok,
+     [Helpers.event(:thinking_delta, Helpers.index(term["output_index"]), delta, term, config)],
+     state}
   end
 
   def decode_stream_event(
@@ -702,7 +705,10 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %StreamState{} = state
       ) do
     delta = %StreamDelta.Thinking{text: term["delta"], signature: nil}
-    {:ok, [Helpers.event(:thinking_delta, term["output_index"], delta, term, config)], state}
+
+    {:ok,
+     [Helpers.event(:thinking_delta, Helpers.index(term["output_index"]), delta, term, config)],
+     state}
   end
 
   def decode_stream_event(

@@ -130,6 +130,31 @@ defmodule LlmCall.ClientTest do
     assert sent.path == "/asset?x=1"
   end
 
+  test "execute/2 and fetch/2 reject a malformed encoded request instead of raising" do
+    client = client()
+
+    for encoded <- [
+          %LlmCall.EncodedRequest{method: :get, path: nil},
+          %LlmCall.EncodedRequest{method: :get, path: "/x", query: %{"a" => {1, 2}}},
+          %LlmCall.EncodedRequest{method: :post, path: "/x", headers: ["bad"], body: %{}}
+        ] do
+      assert {:error, %Error{kind: :validation}} = LlmCall.execute(client, encoded)
+      assert {:error, %Error{kind: :validation}} = LlmCall.fetch(client, encoded)
+    end
+
+    assert TestHTTP.requests() == []
+  end
+
+  test "a base_url with a trailing slash does not produce a double slash" do
+    TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
+
+    client = client(base_url: TestHTTP.url() <> "/")
+
+    assert {:ok, %Response{}} = LlmCall.complete(client, request())
+    assert [sent] = TestHTTP.requests()
+    assert sent.path == "/fake"
+  end
+
   test "an unencodable body is :validation, before any request" do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: "{}"}})
 

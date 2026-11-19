@@ -678,7 +678,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp stream_events(%{"type" => "content_block_start"} = term, config, data) do
-    index = term["index"]
+    index = Helpers.index(term["index"])
     block = term["content_block"] || %{}
 
     case block["type"] do
@@ -704,7 +704,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp stream_events(%{"type" => "content_block_stop"} = term, config, data) do
-    index = term["index"]
+    index = Helpers.index(term["index"])
 
     case Map.get(data.blocks, index) do
       :tool_use ->
@@ -743,7 +743,7 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   defp block_delta(term, config, data) do
-    index = term["index"]
+    index = Helpers.index(term["index"])
     delta = term["delta"] || %{}
 
     case delta["type"] do

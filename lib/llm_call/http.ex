@@ -136,6 +136,8 @@ defmodule LlmCall.HTTP do
     end)
   end
 
+  def retry_after_ms(_headers), do: nil
+
   defp parse_retry_after(value) when is_binary(value) do
     value = String.trim(value)
 
