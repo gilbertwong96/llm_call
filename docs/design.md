@@ -661,7 +661,7 @@ client sets it**: a codec never sees the response status, so it always leaves it
 `nil`.
 
 `retry_after_ms` is transport metadata: the client parses the `Retry-After`
-response header (delta-seconds or HTTP-date) and sets it on the error; a codec
+response header (delta-seconds or IMF-fixdate) and sets it on the error; a codec
 leaves it `nil`. It is a hint, like `retryable?`; backoff policy stays outside.
 
 `kind` says who is speaking:
