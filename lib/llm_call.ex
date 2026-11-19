@@ -277,7 +277,7 @@ defmodule LlmCall do
   defp encode_body(_client, nil), do: {:ok, ""}
 
   defp encode_body(%Client{config: %Config{json: json}}, body) do
-    case json.encode(body) do
+    case LlmCall.JSON.encode(json, body) do
       {:ok, encoded} -> {:ok, encoded}
       {:error, _reason} -> {:error, invalid("request body is not JSON-encodable", :validation)}
     end
@@ -310,7 +310,7 @@ defmodule LlmCall do
     retry_after = HTTP.retry_after_ms(headers)
 
     payload =
-      case client.config.json.decode(raw) do
+      case LlmCall.JSON.decode(client.config.json, raw) do
         {:ok, term} -> term
         {:error, _reason} -> nil
       end
@@ -337,7 +337,7 @@ defmodule LlmCall do
   end
 
   defp decode_json_body(%Client{config: %Config{json: json}}, %{body: raw} = response) do
-    case json.decode(raw) do
+    case LlmCall.JSON.decode(json, raw) do
       {:ok, term} -> {:ok, %{response | body: term}}
       {:error, _reason} -> {:error, invalid("response body is not JSON", :invalid_response)}
     end

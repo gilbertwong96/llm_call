@@ -136,6 +136,14 @@ defmodule LlmCall.StructsTest do
 
     assert LlmCall.JSON.decode(~s({"a":1})) == {:ok, %{"a" => 1}}
     assert {:error, _reason} = LlmCall.JSON.decode("{")
-    assert {:error, :not_a_binary} = LlmCall.JSON.decode(:not_a_string)
+    assert {:error, {:not_a_binary, :not_a_string}} = LlmCall.JSON.decode(:not_a_string)
+  end
+
+  test "JSON facade accepts tagged and bang modules" do
+    assert {:ok, ~s({"a":1})} = LlmCall.JSON.encode(Elixir.JSON, %{a: 1})
+    assert {:ok, %{"a" => 1}} = LlmCall.JSON.decode(Elixir.JSON, ~s({"a":1}))
+
+    assert {:ok, "MARKER:" <> _} = LlmCall.JSON.encode(LlmCall.MarkerJSON, %{a: 1})
+    assert {:ok, %{"a" => 1}} = LlmCall.JSON.decode(LlmCall.MarkerJSON, ~s({"a":1}))
   end
 end

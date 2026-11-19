@@ -816,7 +816,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp part_events(_part, _term, _config, data), do: {[], data}
 
   defp encoded_arguments(args, json) do
-    case json.encode(args || %{}) do
+    case LlmCall.JSON.encode(json, args || %{}) do
       {:ok, encoded} -> encoded
       {:error, _reason} -> nil
     end

@@ -13,9 +13,9 @@ back to `llm_call` because it now ships the client that name promised.
 
 - One-call client: `LlmCall.complete/3`, `stream/3`, `generate/3`, `poll/3`,
   `execute/2`, `fetch/2`, with `LlmCall.Provider` (`use LlmCall.Provider`) and
-  `%LlmCall.Client{}`. HTTP is Finch; JSON is a behaviour (`LlmCall.JSON`)
-  resolved call option → provider → `config :llm_call, ...` → default. The
-  transport is not replaceable. Calls accept `headers:` merged after the client
+  `%LlmCall.Client{}`. HTTP is Finch; JSON is the `LlmCall.JSON` facade over
+  Elixir's built-in `JSON`, with `json:`/`json_library:` resolved at compile
+  time; Torque, Jason and Poison work directly. Calls accept `headers:` merged after the client
   headers and before the codec's protocol headers.
 - `LlmCall.Error.retry_after_ms` carries the parsed `Retry-After` hint; retry
   policy stays outside the core.

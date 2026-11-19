@@ -1,17 +1,12 @@
 defmodule LlmCall.ConfigTest do
   use ExUnit.Case, async: false
 
-  alias LlmCall.{Config, JSON, MarkerJSON}
+  alias LlmCall.{Config, MarkerJSON}
 
-  test "new/1 prefers its option, then the application environment, then the default" do
-    on_exit(fn -> Application.delete_env(:llm_call, :json) end)
-    Application.delete_env(:llm_call, :json)
-
-    assert Config.new().json == JSON
-
-    Application.put_env(:llm_call, :json, MarkerJSON)
-    assert Config.new().json == MarkerJSON
-    assert Config.new(json: JSON).json == JSON
+  test "new/1 prefers its options over the compile-time default" do
+    assert Config.new().json == Elixir.JSON
+    assert Config.new(json: MarkerJSON).json == MarkerJSON
+    assert Config.new(json_library: MarkerJSON).json == MarkerJSON
   end
 
   test "new/1 carries default_provider_options" do
@@ -19,10 +14,7 @@ defmodule LlmCall.ConfigTest do
              %{openai: %{"logprobs" => true}}
   end
 
-  test "an explicit %Config{} opts out of the application default" do
-    on_exit(fn -> Application.delete_env(:llm_call, :json) end)
-    Application.put_env(:llm_call, :json, MarkerJSON)
-
-    assert %Config{}.json == JSON
+  test "an explicit %Config{} uses the compiled default" do
+    assert %Config{}.json == Elixir.JSON
   end
 end

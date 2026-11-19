@@ -174,25 +174,31 @@ codec cannot express is a validation error, never a silent drop.
 
 ## Replaceable JSON layer
 
-HTTP is Finch, one implementation. JSON is a behaviour resolved at client-build
-time in this order: the call option, the provider declaration,
-`config :llm_call, ...`, the built-in default.
+HTTP is Finch, one implementation. JSON is a module resolved at client-build
+time: the call option, the provider declaration, the compile-time application
+default, then Elixir's built-in `JSON`.
 
-| Layer | Behaviour | Default |
+| Layer | Module | Default |
 | --- | --- | --- |
-| JSON | `LlmCall.JSON` | OTP `:json` |
+| JSON | `LlmCall.JSON` facade | Elixir `JSON` |
 
 ```elixir
 # config/config.exs of the host application
 config :llm_call,
-  json: Jason,
+  json: Torque,
   http_opts: [name: MyApp.Finch],
   timeout: 30_000
 ```
 
-The JSON module is written into the client's `%LlmCall.Config{}`, so the codecs
-decode tool-call arguments with the same implementation as the transport. An
-explicit `%LlmCall.Config{}` opts out of the application default.
+`Torque`, `Jason` and `Poison` expose tagged `encode/1`/`decode/1`; Elixir
+`JSON` exposes `encode!/1`/`decode!/1`. The `LlmCall.JSON` facade accepts either
+shape and normalizes it, so no adapter module is needed. `json_library:` is
+accepted as the Phoenix-style alias for `json:`.
+
+The application default is read with `Application.compile_env/3`; changing it
+requires recompiling the library. Per-client `json:` and provider declarations
+still override it without touching the compiled default. An explicit
+`%LlmCall.Config{}` uses the compiled default.
 
 `LlmCall.Application` starts a Finch pool named `LlmCall.Finch`; pass
 `http_opts: [name: MyPool]` to use your own.

@@ -92,7 +92,8 @@ defmodule LlmCall.Provider do
   defp base_config(opts, _declaration), do: opts[:config] || Config.new()
 
   defp json_option(opts, declaration) do
-    if Keyword.has_key?(opts, :config), do: opts[:json], else: opts[:json] || declaration[:json]
+    call = opts[:json] || opts[:json_library]
+    if Keyword.has_key?(opts, :config), do: call, else: call || declaration[:json]
   end
 
   defp put_json(config, nil), do: config

@@ -101,7 +101,7 @@ defmodule LlmCall.Stream do
   defp decode_payload(state, "[DONE]"), do: decode_event(state, "[DONE]")
 
   defp decode_payload(state, payload) do
-    case state.client.config.json.decode(payload) do
+    case LlmCall.JSON.decode(state.client.config.json, payload) do
       {:ok, term} -> decode_event(state, term)
       {:error, _reason} -> raise HTTP.Error, error: invalid_response("stream payload is not JSON")
     end
@@ -176,7 +176,7 @@ defmodule LlmCall.Stream do
 
   defp finish(%{status: status} = state) when is_integer(status) and status not in 200..299 do
     error =
-      case state.client.config.json.decode(state.error_body) do
+      case LlmCall.JSON.decode(state.client.config.json, state.error_body) do
         {:ok, %{} = payload} ->
           stream_error(state.codec.decode_error(payload, state.client.config))
 
