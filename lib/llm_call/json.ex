@@ -63,9 +63,11 @@ defmodule LlmCall.JSON do
 
   def decode(other), do: {:error, {:not_a_binary, other}}
 
-  defp exports?(module, function, arity) do
+  defp exports?(module, function, arity) when is_atom(module) do
     Code.ensure_loaded?(module) and function_exported?(module, function, arity)
   end
+
+  defp exports?(_module, _function, _arity), do: false
 
   defp bang_encode(fun) do
     normalize_encode({:ok, fun.()})

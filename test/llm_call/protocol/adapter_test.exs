@@ -16,6 +16,38 @@ defmodule LlmCall.Protocol.AdapterTest do
     end
   end
 
+  test "@headers must be valid header pairs" do
+    assert_raise ArgumentError, ~r/@headers/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.BadHeaders do
+        @moduledoc false
+        @path "/bad"
+        @headers ["bad"]
+        use LlmCall.Protocol.Adapter, codec: :bad_headers
+
+        @impl true
+        def info, do: %LlmCall.Codec.Info{name: :bad_headers, protocol: :bad_headers, ir_version: 1}
+
+        @impl true
+        def capabilities(_request, _config), do: %LlmCall.Capabilities{}
+
+        @impl true
+        def validate_request(_request, _config), do: :ok
+
+        @impl true
+        def decode_response(_term, _config),
+          do: {:error, %LlmCall.Error{kind: :invalid_response, message: "bad"}}
+
+        @impl true
+        def decode_error(_term, _config),
+          do: %LlmCall.Error{kind: :provider, message: "bad"}
+
+        defp body(_request, _config), do: {:ok, %{}}
+      end
+      """)
+    end
+  end
+
   test "@path and @headers may be declared after use" do
     [{module, _binary}] =
       Code.compile_string("""

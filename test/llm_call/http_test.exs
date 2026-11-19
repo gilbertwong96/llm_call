@@ -64,6 +64,17 @@ defmodule LlmCall.HTTPTest do
     assert HTTP.valid_headers?(nil)
   end
 
+  test "valid_headers?/1 rejects non-token header names and bad merge input" do
+    refute HTTP.valid_headers?([{"bad name", "v"}])
+    refute HTTP.valid_headers?([{"bad:name", "v"}])
+    refute HTTP.valid_headers?([{"x", "v\r\nInjected: yes"}])
+    assert HTTP.valid_headers?([{"x-test", ""}])
+
+    assert_raise ArgumentError, ~r/headers/, fn ->
+      HTTP.merge_headers([["bad"]])
+    end
+  end
+
   test "retry_after_ms/1 parses delta-seconds and rejects malformed values" do
     assert HTTP.retry_after_ms([{"Retry-After", "5"}]) == 5_000
     assert HTTP.retry_after_ms([{"retry-after", "soon"}]) == nil

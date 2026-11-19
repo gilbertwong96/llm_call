@@ -178,7 +178,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
   defp poll_request(id) do
     %EncodedRequest{
       method: :get,
-      path: @path <> "/" <> id,
+      path: @path <> "/" <> URI.encode(to_string(id), &URI.char_unreserved?/1),
       query: %{},
       headers: @headers,
       body: %{}
@@ -243,7 +243,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
 
   defp validate_references(references) when is_list(references) do
     with :ok <- validate_reference_count(references) do
-      Helpers.first_error(references, &validate_reference/1)
+      Helpers.first_error(references, &Helpers.validate_media_reference(&1, @codec))
     end
   end
 
@@ -254,19 +254,6 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
   defp validate_reference_count(_references) do
     Helpers.error(@codec, "at most #{@max_references} reference images are supported")
   end
-
-  defp validate_reference(%Content.Image{source: {:url, url}}) when is_binary(url), do: :ok
-  defp validate_reference(%Content.Image{source: source}) when is_binary(source), do: :ok
-
-  defp validate_reference(%Content.Image{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 reference requires media_type")
-
-  defp validate_reference(%Content.Image{source: {:base64, _data}}), do: :ok
-
-  defp validate_reference(%Content.Image{}),
-    do: Helpers.error(@codec, "reference image source is not supported")
-
-  defp validate_reference(_part), do: Helpers.error(@codec, "only image references are supported")
 
   defp validate_provider_options(request, config) do
     case provider_options(request, config) do
