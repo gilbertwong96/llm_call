@@ -349,6 +349,25 @@ defmodule LlmCall.Protocol.OpenAIResponsesTest do
     assert call.raw_arguments == ~s({"city":"Oslo"})
   end
 
+  test "non-list annotations are ignored instead of raising" do
+    payload =
+      put_in(
+        Fx.text_response(),
+        ["output", Access.at(0), "content", Access.at(0), "annotations"],
+        %{"unexpected" => true}
+      )
+
+    assert {:ok, %{content: [%Content.Text{text: "Hello there"}]}} =
+             Responses.decode_response(payload, %Config{})
+  end
+
+  test "a non-object stream event is an invalid_response error" do
+    assert {:ok, state} = Responses.init_stream(text_request(), %Config{})
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             Responses.decode_stream_event("not an event", %Config{}, state)
+  end
+
   test "decodes reasoning summaries into thinking with the encrypted signature" do
     assert {:ok, %{content: [%Content.Thinking{} = thinking, %Content.Text{}]}} =
              Responses.decode_response(Fx.reasoning_response(), %Config{})

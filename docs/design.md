@@ -2338,6 +2338,8 @@ Enum.to_list(stream)
   the lane.
 - `store` and `previous_response_id` stay in the request's `provider_options`;
   the connection does not model server-side conversation state.
+- `response_id/2` returns the provider id from `response.created`, so a caller can
+  use it as `previous_response_id`. Finished lanes keep the last 32 ids.
 - The connection reconnects before the 60-minute limit (`:max_age_ms`, default 55
   minutes) and on an unexpected close, with exponential backoff
   (`:retry_delay_ms` 5s, `:max_retry_delay_ms` 60s) and a bounded budget
