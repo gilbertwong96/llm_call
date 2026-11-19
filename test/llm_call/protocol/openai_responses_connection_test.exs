@@ -114,6 +114,28 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "an event for an unknown lane does not tear down the connection" do
+    {:ok, connection} = start()
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+    assert [_ | _] = Enum.to_list(stream)
+
+    {:ok, ghost} =
+      LlmCall.JSON.encode(%{
+        "type" => "response.output_text.delta",
+        "stream_id" => "ghost",
+        "output_index" => 0,
+        "delta" => "ignored"
+      })
+
+    TestWSServer.send_frame({:text, ghost})
+    Process.sleep(20)
+
+    assert {:ok, next} = Connection.create(connection, request(), stream_id: "next")
+    assert [_ | _] = Enum.to_list(next)
+
+    Connection.close(connection)
+  end
+
   test "the wire create event carries the type, lane and no stream flag" do
     {:ok, connection} = start()
 

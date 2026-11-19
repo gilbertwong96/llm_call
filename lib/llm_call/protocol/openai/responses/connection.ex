@@ -255,10 +255,19 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   def handle_call({:cancel, stream_id}, _from, state) do
     case Map.fetch(state.lanes, stream_id) do
       {:ok, lane} ->
-        state = send_cancel(state, stream_id, lane.response_id)
-        state = remember_response(state, stream_id, lane.response_id)
-        send(lane.subscriber, {:responses_ws, lane.ref, :done})
-        {:reply, :ok, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+        case send_cancel(state, stream_id, lane.response_id) do
+          {:ok, state} ->
+            state = remember_response(state, stream_id, lane.response_id)
+            send(lane.subscriber, {:responses_ws, lane.ref, :done})
+            {:reply, :ok, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+
+          {:error, %Error{} = error, state} ->
+            {:reply, {:error, error}, state}
+
+          {:error, reason, state} ->
+            state = send_failure(state, reason)
+            {:reply, {:error, transport(reason)}, state}
+        end
 
       :error ->
         {:reply, :ok, state}
@@ -281,8 +290,11 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
         {:noreply, state}
 
       {stream_id, lane} ->
-        state = send_cancel(state, stream_id, lane.response_id)
-        {:noreply, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+        case send_cancel(state, stream_id, lane.response_id) do
+          {:ok, state} -> {:noreply, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+          {:error, %Error{}, state} -> {:noreply, state}
+          {:error, reason, state} -> {:noreply, send_failure(state, reason)}
+        end
     end
   end
 
@@ -388,6 +400,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp route_event(event, state) do
     case lane_for(event, state) do
       {:ok, stream_id, lane} -> decode_for_lane(event, stream_id, lane, state)
+      :ignore -> {:ok, state}
       :error when map_size(state.lanes) == 0 -> {:ok, state}
       :error -> {:error, :unroutable_event, state}
     end
@@ -396,7 +409,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp lane_for(%{"stream_id" => stream_id}, state) when is_binary(stream_id) do
     case Map.fetch(state.lanes, stream_id) do
       {:ok, lane} -> {:ok, stream_id, lane}
-      :error -> :error
+      :error -> :ignore
     end
   end
 
@@ -487,15 +500,12 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
       %{"type" => "response.cancel", "stream_id" => stream_id}
       |> maybe_put("response_id", response_id)
 
-    case encode(state, event) do
-      {:ok, json} ->
-        case state.ws.send_frame(state.conn, {:text, json}) do
-          {:ok, conn} -> %{state | conn: conn}
-          {:error, _reason} -> state
-        end
-
-      {:error, _error} ->
-        state
+    with {:ok, json} <- encode(state, event),
+         {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
+      {:ok, %{state | conn: conn}}
+    else
+      {:error, %Error{} = error} -> {:error, error, state}
+      {:error, reason} -> {:error, reason, state}
     end
   end
 
