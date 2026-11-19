@@ -612,5 +612,29 @@ defmodule LlmCall.CodecConformanceTest do
         LlmCall.Conformance.assert_error(error, "probe")
       end
     end
+
+    test "accepts a structured transport reason" do
+      for reason <- [:econnrefused, :timeout, {:unknown_pool, MyPool}, {:tls_alert, "bad"}] do
+        error = %LlmCall.Error{kind: :transport, message: "boom", reason: reason}
+
+        assert :ok == LlmCall.Conformance.assert_error(error, "probe")
+      end
+    end
+
+    test "rejects a reason on a codec error" do
+      error = %LlmCall.Error{kind: :provider, message: "bad", reason: :econnrefused}
+
+      assert_raise ExUnit.AssertionError, ~r/only the transport knows/, fn ->
+        LlmCall.Conformance.assert_error(error, "probe")
+      end
+    end
+
+    test "rejects a non-atom, non-tuple transport reason" do
+      error = %LlmCall.Error{kind: :transport, message: "boom", reason: "econnrefused"}
+
+      assert_raise ExUnit.AssertionError, ~r/reason must be an atom/, fn ->
+        LlmCall.Conformance.assert_error(error, "probe")
+      end
+    end
   end
 end

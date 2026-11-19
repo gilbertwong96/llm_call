@@ -207,7 +207,7 @@ defmodule LlmCall.HTTP do
       end
     end
   rescue
-    error in [ArgumentError] -> {:error, Exception.message(error)}
+    error in [ArgumentError] -> {:error, {:exception, Exception.message(error)}}
   end
 
   @doc """

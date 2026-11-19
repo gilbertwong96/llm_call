@@ -18,7 +18,9 @@ back to `llm_call` because it now ships the client that name promised.
   Torque, Jason and Poison work directly. Calls accept `headers:` merged after the client
   headers and before the codec's protocol headers.
 - `LlmCall.Error.retry_after_ms` carries the parsed `Retry-After` hint; retry
-  policy stays outside the core.
+  policy stays outside the core. `LlmCall.Error.reason` carries the structured
+  transport reason (`:econnrefused`, `:timeout`, `:unknown_pool`, ...), so callers
+  match on it instead of parsing the message.
 - Codecs validate the types of known native `provider_options` keys
   (`access_programs`, `logprobs`, `metadata`, `safetySettings`, ...); unknown
   native keys still pass through.

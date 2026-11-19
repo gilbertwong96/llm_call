@@ -327,16 +327,33 @@ defmodule LlmCall do
   end
 
   defp normalize(_client, {:error, reason}) do
-    {:error, transport_error(describe_reason(reason), nil)}
+    {:error,
+     %Error{
+       kind: :transport,
+       message: describe_reason(reason),
+       reason: structured_reason(reason)
+     }}
   end
 
-  # Finch only returns `Finch.error/0` values or the binary this module rescues
-  # into, but a transport that grows a new error shape must not crash the call.
+  # Finch only returns `Finch.error/0` values or the tagged values this module
+  # produces, but a transport that grows a new error shape must not crash the
+  # call.
   @dialyzer {:nowarn_function, describe_reason: 1}
   defp describe_reason({:unknown_pool, name}), do: "unknown pool: #{inspect(name)}"
+  defp describe_reason({:exception, message}), do: "transport error: #{message}"
   defp describe_reason(reason) when is_binary(reason), do: "transport error: #{reason}"
   defp describe_reason(%_{} = error), do: "transport error: #{Exception.message(error)}"
   defp describe_reason(reason), do: "transport error: #{inspect(reason)}"
+
+  @dialyzer {:nowarn_function, structured_reason: 1}
+  defp structured_reason({:unknown_pool, _name} = reason), do: reason
+  defp structured_reason({:exception, _message}), do: :exception
+  defp structured_reason(%Finch.TransportError{reason: reason}), do: reason
+  defp structured_reason(%Finch.HTTPError{reason: reason}), do: reason
+  defp structured_reason(%Finch.Error{reason: reason}), do: reason
+  defp structured_reason(%Mint.TransportError{reason: reason}), do: reason
+  defp structured_reason(reason) when is_binary(reason), do: nil
+  defp structured_reason(reason), do: reason
 
   defp call_and_decode(%Client{} = client, encoded, codec, decode_fun, call_headers) do
     case perform(client, encoded, call_headers) do
@@ -505,7 +522,7 @@ defmodule LlmCall do
      )}
   end
 
-  defp transport_error(message, status, retry_after_ms \\ nil) do
+  defp transport_error(message, status, retry_after_ms) do
     %Error{
       kind: :transport,
       message: message,
