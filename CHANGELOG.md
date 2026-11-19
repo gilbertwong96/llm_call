@@ -17,7 +17,8 @@ back to `llm_call` because it now ships the client that name promised.
   resolved call option → provider → `config :llm_call, ...` → default. The
   transport is not replaceable.
 - WebSocket transport: the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, with
-  the upgrade, text/binary frames, ping handling and peer close.
+  the upgrade, text/binary frames, ping handling and peer close. Mint's HTTP
+  proxy options are forwarded (`ws://` forward proxy, `wss://` CONNECT).
 - Responses WebSocket connection: one socket multiplexed by `stream_id`,
   `Connection.response_id/2` for `previous_response_id`,
   `response.create`/`response.steer`/`response.cancel`, per-lane event decoding,

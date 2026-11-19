@@ -2318,6 +2318,11 @@ blocking form; `feed/2` lets a process that already owns the socket (a connectio
 decode the messages Mint delivers in active mode. Connections are HTTP/1.1;
 Mint's HTTP/2 extended CONNECT is not used.
 
+Mint's HTTP proxy options are forwarded (`ws_opts: [proxy: ..., proxy_headers: ...]`),
+so `ws://` through a forward proxy and `wss://` through a `CONNECT` tunnel are
+transport concerns of the proxy, not of the OpenAI endpoint. SOCKS proxies are
+not supported by Mint.
+
 ### 24.1 Responses connection
 
 `LlmCall.Protocol.OpenAI.Responses.Connection` is a `GenServer` that owns one

@@ -99,20 +99,20 @@ defmodule LlmCall.WS.Mint do
   # Dialyzer cannot see Mint.WebSocket.new/4's HTTP/1 success branch through
   # Mint's opaque connection type; the status and protocol are checked here.
   @dialyzer {:nowarn_function, upgrade: 2}
-  defp upgrade(%{conn: %Mint.HTTP1{}} = state, headers) do
-    case Mint.WebSocket.new(state.conn, state.ref, 101, headers) do
-      {:ok, conn, websocket} ->
-        {:ok, %{state | conn: conn, websocket: websocket}}
+  defp upgrade(state, headers) do
+    if Mint.HTTP.protocol(state.conn) == :http1 do
+      case Mint.WebSocket.new(state.conn, state.ref, 101, headers) do
+        {:ok, conn, websocket} ->
+          {:ok, %{state | conn: conn, websocket: websocket}}
 
-      {:error, conn, reason} ->
-        Mint.HTTP.close(conn)
-        {:error, reason}
+        {:error, conn, reason} ->
+          Mint.HTTP.close(conn)
+          {:error, reason}
+      end
+    else
+      Mint.HTTP.close(state.conn)
+      {:error, :unsupported_protocol}
     end
-  end
-
-  defp upgrade(state, _headers) do
-    Mint.HTTP.close(state.conn)
-    {:error, :unsupported_protocol}
   end
 
   defp do_recv(state, deadline) do
@@ -313,7 +313,7 @@ defmodule LlmCall.WS.Mint do
       |> Keyword.put_new(:timeout, timeout)
 
     [transport_opts: transport_opts, protocols: [:http1]] ++
-      Keyword.take(opts, [:mode, :log])
+      Keyword.take(opts, [:mode, :proxy, :proxy_headers, :log])
   end
 
   defp timeout(opts), do: Keyword.get(opts, :timeout, @default_timeout)
