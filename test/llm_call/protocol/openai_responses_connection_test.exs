@@ -398,6 +398,42 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "stale timer references are ignored" do
+    {:ok, connection} = start()
+
+    send(connection, {:retry, make_ref()})
+    send(connection, {:max_age, make_ref()})
+    Process.sleep(20)
+
+    assert Process.alive?(connection)
+    assert {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+    assert [_ | _] = Enum.to_list(stream)
+
+    Connection.close(connection)
+  end
+
+  test "max_age with reconnect: false stops the connection" do
+    Process.flag(:trap_exit, true)
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start(max_age_ms: 30, reconnect: false)
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert eventually(fn -> not Process.alive?(connection) end)
+    assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
+  end
+
+  test "cancelling a lane keeps its response id" do
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start()
+    {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "main")) end)
+    assert :ok = Connection.cancel(connection, "main")
+    assert {:ok, "resp_main"} = Connection.response_id(connection, "main")
+
+    Connection.close(connection)
+  end
+
   test "a missing client is rejected at start" do
     Process.flag(:trap_exit, true)
     assert {:error, :client_required} = Connection.start_link(client: nil)
