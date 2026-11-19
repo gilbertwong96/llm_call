@@ -8,12 +8,13 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection.Stream do
   and unsubscribes the lane.
   """
 
-  defstruct [:connection, :stream_id, :ref]
+  defstruct [:connection, :stream_id, :ref, :subscriber]
 
   @type t :: %__MODULE__{
           connection: GenServer.server(),
           stream_id: String.t(),
-          ref: reference()
+          ref: reference(),
+          subscriber: pid()
         }
 end
 
@@ -21,6 +22,11 @@ defimpl Enumerable, for: LlmCall.Protocol.OpenAI.Responses.Connection.Stream do
   alias LlmCall.{Error, WS}
 
   def reduce(stream, acc, fun) do
+    if self() != stream.subscriber do
+      raise ArgumentError,
+            "a Responses connection stream must be reduced by the process that created it"
+    end
+
     monitor = Process.monitor(stream.connection)
 
     try do
@@ -44,6 +50,9 @@ defimpl Enumerable, for: LlmCall.Protocol.OpenAI.Responses.Connection.Stream do
           {:halt, acc} ->
             GenServer.cast(stream.connection, {:unsubscribe, stream.ref})
             {:halted, acc}
+
+          {:suspend, _acc} ->
+            raise ArgumentError, "suspending a stream is not supported"
         end
 
       {:responses_ws, ref, :done} when ref == stream.ref ->
@@ -59,6 +68,7 @@ defimpl Enumerable, for: LlmCall.Protocol.OpenAI.Responses.Connection.Stream do
 
   defp untag({:cont, acc}), do: acc
   defp untag({:halt, acc}), do: acc
+  defp untag({:suspend, _acc}), do: raise(ArgumentError, "suspending a stream is not supported")
   defp untag(acc), do: acc
 
   defp connection_error(:normal),

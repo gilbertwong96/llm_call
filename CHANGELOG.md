@@ -19,6 +19,7 @@ back to `llm_call` because it now ships the client that name promised.
 - WebSocket transport: the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, with
   the upgrade, text/binary frames, ping handling and peer close.
 - Responses WebSocket connection: one socket multiplexed by `stream_id`,
+  `Connection.response_id/2` for `previous_response_id`,
   `response.create`/`response.steer`/`response.cancel`, per-lane event decoding,
   and reconnect before the 60-minute limit. Reconnect failures keep the connection
   process alive with exponential backoff; while disconnected, creates return a

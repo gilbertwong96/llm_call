@@ -49,6 +49,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   @doc """
   Starts one response on `stream_id` (generated when omitted) and returns its
   event stream. `stream_id` must be unique among active lanes.
+
+  The stream must be reduced by the caller of this function: the connection
+  sends that process the events. Reducing it elsewhere raises `ArgumentError`.
   """
   @spec create(t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Protocol.OpenAI.Responses.Connection.Stream.t()} | {:error, Error.t()}
@@ -191,7 +194,8 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
       stream = %LlmCall.Protocol.OpenAI.Responses.Connection.Stream{
         connection: self(),
         stream_id: stream_id,
-        ref: ref
+        ref: ref,
+        subscriber: pid
       }
 
       state = %{state | conn: conn, lanes: Map.put(state.lanes, stream_id, lane)}
@@ -384,7 +388,8 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp route_event(event, state) do
     case lane_for(event, state) do
       {:ok, stream_id, lane} -> decode_for_lane(event, stream_id, lane, state)
-      :error -> {:ok, state}
+      :error when map_size(state.lanes) == 0 -> {:ok, state}
+      :error -> {:error, :unroutable_event, state}
     end
   end
 
@@ -400,10 +405,17 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     {:ok, stream_id, lane}
   end
 
-  defp lane_for(_event, _state), do: :error
+  defp lane_for(event, %{lanes: lanes}) do
+    response_id = response_id(event)
+
+    Enum.find_value(lanes, :error, fn {stream_id, lane} ->
+      if is_binary(response_id) and lane.response_id == response_id,
+        do: {:ok, stream_id, lane}
+    end)
+  end
 
   defp decode_for_lane(event, stream_id, lane, state) do
-    response_id = get_in(event, ["response", "id"]) || lane.response_id
+    response_id = response_id(event) || lane.response_id
 
     case Responses.decode_stream_event(event, state.client.config, lane.state) do
       {:ok, events, stream_state} ->
@@ -423,10 +435,13 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
 
       {:error, %Error{} = error} ->
         send(lane.subscriber, {:responses_ws, lane.ref, {:error, error}})
-        state = remember_response(state, stream_id, lane.response_id)
+        state = remember_response(state, stream_id, response_id || lane.response_id)
         {:ok, %{state | lanes: Map.delete(state.lanes, stream_id)}}
     end
   end
+
+  defp response_id(%{"response" => %{"id" => id}}) when is_binary(id), do: id
+  defp response_id(_event), do: nil
 
   defp send_events(lane, events) do
     Enum.each(events, fn event ->
@@ -494,6 +509,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   end
 
   defp disconnected(state) do
+    safe_close(state.ws, state.conn)
     state = %{state | status: :disconnected, conn: nil, lanes: %{}}
     state = cancel_max_age(state)
 
@@ -503,7 +519,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp remember_response(state, _stream_id, nil), do: state
 
   defp remember_response(state, stream_id, response_id) do
-    finished = List.keystore(state.finished, stream_id, 0, {stream_id, response_id})
+    finished = [{stream_id, response_id} | List.keydelete(state.finished, stream_id, 0)]
     %{state | finished: Enum.take(finished, 32)}
   end
 

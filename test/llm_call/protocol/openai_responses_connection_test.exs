@@ -99,6 +99,21 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "response_id keeps the most recent 32 finished lanes" do
+    {:ok, connection} = start()
+
+    for n <- 1..33 do
+      stream_id = "lane-#{n}"
+      {:ok, stream} = Connection.create(connection, request(), stream_id: stream_id)
+      assert [_ | _] = Enum.to_list(stream)
+    end
+
+    assert {:ok, "resp_lane-33"} = Connection.response_id(connection, "lane-33")
+    assert :error = Connection.response_id(connection, "lane-1")
+
+    Connection.close(connection)
+  end
+
   test "the wire create event carries the type, lane and no stream flag" do
     {:ok, connection} = start()
 

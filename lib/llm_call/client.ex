@@ -3,8 +3,8 @@ defmodule LlmCall.Client do
   A provider, resolved for calling.
 
   Built by a provider module's `client/1`, which turns the declaration plus the
-  call options into concrete values: endpoint, headers (including auth), transport
-  module and options, timeout, and the `%LlmCall.Config{}` the codecs receive.
+  call options into concrete values: endpoint, headers (including auth),
+  transport options, timeout, and the `%LlmCall.Config{}` the codecs receive.
 
   The client holds **no selected codec**: `codecs` is the provider's map, and each
   call names one (`codec: :chat` by default for `complete/3` and `stream/3`).
@@ -29,7 +29,6 @@ defmodule LlmCall.Client do
     :provider,
     :codecs,
     :base_url,
-    :http,
     :timeout,
     :config,
     headers: [],
