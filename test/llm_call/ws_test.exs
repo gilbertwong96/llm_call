@@ -2,6 +2,7 @@ defmodule LlmCall.WSTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.TestHTTPServer
+  alias LlmCall.TestProxy
   alias LlmCall.TestWSServer, as: Server
   alias LlmCall.WS.Mint
 
@@ -16,6 +17,14 @@ defmodule LlmCall.WSTest do
     assert {:ok, conn} = Mint.send_frame(conn, {:text, "hello"})
     assert {:ok, {:text, "hello"}, conn} = Mint.recv(conn, 2_000)
     assert :ok = Mint.close(conn)
+  end
+
+  test "reassembles fragmented binary frames" do
+    assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
+    Server.send_fragments([<<1, 2>>, <<3>>], :binary)
+
+    assert {:ok, {:binary, <<1, 2, 3>>}, conn} = Mint.recv(conn, 2_000)
+    Mint.close(conn)
   end
 
   test "binary frames round-trip" do
@@ -113,6 +122,21 @@ defmodule LlmCall.WSTest do
       attempts <= 0 -> false
       true -> Process.sleep(20) && eventually(fun, attempts - 1)
     end
+  end
+
+  test "connects through an HTTP forward proxy" do
+    {_pid, proxy_port} = TestProxy.start(Server.url())
+    on_exit(&TestProxy.stop/0)
+
+    assert {:ok, conn} =
+             Mint.connect(Server.url(), [],
+               timeout: 2_000,
+               proxy: {:http, "127.0.0.1", proxy_port, []}
+             )
+
+    assert {:ok, conn} = Mint.send_frame(conn, {:text, "proxied"})
+    assert {:ok, {:text, "proxied"}, conn} = Mint.recv(conn, 2_000)
+    Mint.close(conn)
   end
 
   test "rejects a failed upgrade" do

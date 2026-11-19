@@ -5,6 +5,26 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
 
   alias LlmCall.Protocol.OpenAI.Responses.Connection
 
+  defmodule FailingSendWS do
+    @moduledoc false
+    @behaviour LlmCall.WS
+
+    @impl true
+    def connect(_url, _headers, _opts), do: {:ok, :conn}
+
+    @impl true
+    def send_frame(:conn, _frame), do: {:error, :closed}
+
+    @impl true
+    def feed(:conn, _message), do: {:ok, [], :conn}
+
+    @impl true
+    def recv(:conn, _timeout), do: {:error, :timeout}
+
+    @impl true
+    def close(_conn, _code, _reason), do: :ok
+  end
+
   defmodule WSProvider do
     @moduledoc "Provider pointing at the local test WebSocket server."
 
@@ -339,6 +359,42 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     end)
 
     assert_receive {:result, {:raised, ArgumentError}}, 2_000
+    Connection.close(connection)
+  end
+
+  test "a write failure marks the connection disconnected" do
+    {:ok, connection} =
+      Connection.start_link(
+        client: client(),
+        ws: FailingSendWS,
+        ws_opts: []
+      )
+
+    assert {:error, %Error{kind: :transport}} =
+             Connection.create(connection, request(), stream_id: "main")
+
+    assert {:error, %Error{kind: :transport, message: message}} =
+             Connection.create(connection, request())
+
+    assert message =~ "disconnected"
+
+    Connection.close(connection)
+  end
+
+  test "halting a stream unsubscribes the lane" do
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start()
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert [%LlmCall.StreamEvent{}] = Enum.take(stream, 1)
+
+    assert eventually(fn ->
+             match?(
+               {:ok, _stream},
+               Connection.create(connection, request(), stream_id: "main")
+             )
+           end)
+
     Connection.close(connection)
   end
 

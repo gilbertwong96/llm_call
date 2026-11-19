@@ -94,8 +94,9 @@ defmodule LlmCall.TestWSServer do
     send(pid(), {:send_many, frames})
   end
 
-  def send_fragments(parts) when is_list(parts) do
-    send(pid(), {:send_fragments, parts})
+  def send_fragments(parts, type \\ :text)
+      when is_list(parts) and type in [:text, :binary] do
+    send(pid(), {:send_fragments, parts, type})
   end
 
   def close(code \\ 1000, reason \\ "") do
@@ -249,8 +250,8 @@ defmodule LlmCall.TestWSServer do
         :gen_tcp.send(socket, Enum.map(frames, &encode_frame/1))
         loop(socket, state)
 
-      {:send_fragments, parts} ->
-        :gen_tcp.send(socket, encode_fragments(parts))
+      {:send_fragments, parts, type} ->
+        :gen_tcp.send(socket, encode_fragments(parts, type))
         loop(socket, state)
 
       {:close, code, reason} ->
@@ -426,14 +427,15 @@ defmodule LlmCall.TestWSServer do
   defp encode_frame({:pong, data}), do: encode(10, data)
   defp encode_frame(:pong), do: encode(10, "")
 
-  defp encode_fragments(parts) do
+  defp encode_fragments(parts, type) do
     last = length(parts) - 1
+    first_opcode = if type == :binary, do: 2, else: 1
 
     parts
     |> Enum.with_index()
     |> Enum.map(fn {part, index} ->
       fin = if index == last, do: 1, else: 0
-      opcode = if index == 0, do: 1, else: 0
+      opcode = if index == 0, do: first_opcode, else: 0
       encode_frame(fin, opcode, part)
     end)
   end
