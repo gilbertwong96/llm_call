@@ -149,6 +149,7 @@ The core must not contain:
 - tool execution or callbacks
 - approval, audit, or timeout policies
 - conversation persistence or server-side state management
+- evaluation, rerank, or embedding orchestration
 - prompt templates, chains, memory, or agent loops
 
 HTTP execution is in the core on Finch; JSON encoding is behind `LlmCall.JSON`
@@ -2358,3 +2359,63 @@ Enum.to_list(stream)
 
 Scope is the Responses protocol. There is no realtime audio session, audio
 format handling, VAD, or WebRTC in 0.1.
+
+## 25. Boundary with catalog, routing and evaluation layers
+
+A full LLM client such as ReqLLM grows a catalog, provider registry, execution
+metadata, evaluation, rerank, embeddings, pricing and gateway contracts. Those
+are real needs, but they are a different layer. `LlmCall` deliberately stops at
+the wire boundary; this section records the split so the core does not drift.
+
+### 25.1 What belongs here
+
+- Canonical wire IR: request, messages, content, tool data, response, stream
+  events, usage tokens, errors.
+- Protocol codecs and their capability declarations (protocol-level, not
+  model-level).
+- One-call HTTP/SSE and Responses WebSocket transports, with reconnect for the
+  WebSocket connection.
+- Provider declaration modules (`use LlmCall.Provider`): origin, auth shape,
+  codec names, and transport defaults.
+- `provider_options` as a namespaced, documented escape hatch for native fields.
+
+### 25.2 What belongs above
+
+- Model catalog, model IDs, limits, modalities per model, pricing and cost
+  estimates.
+- Routing by execution metadata, gateway contracts, fallback between providers,
+  retries/backoff policy and rate limiting.
+- Evaluation, rerank and embedding orchestration: each is a separate protocol
+  family with its own endpoint and response shape, not a field on `Request`.
+- Subscription OAuth, Claude Code version management and other product-specific
+  auth flows; the key/header is supplied by the caller.
+- Telemetry, tracing, budgets and approval policies.
+
+### 25.3 Rules that follow
+
+1. **A new operation is a new IR + codec.** `Media` is the precedent: separate
+   request, response, capabilities and codec behaviour. Evaluation, rerank and
+   embeddings would follow the same shape instead of growing `Request`.
+2. **Provider-specific does not mean catalog.** A native field such as an access
+   program or a thought-summary toggle stays in `provider_options`; it does not
+   become a model registry.
+3. **Capabilities are protocol-level.** `Capabilities` answers "can this wire
+   format express it", not "does this model support it". Model limits surface as
+   provider errors; a caller that needs model selection consults its own catalog.
+4. **Transport metadata stays at the boundary.** Response headers, `Retry-After`
+   and provider-reported cost are wire data. The core may expose them, but it
+   never computes a catalog estimate. `Error.retryable?` is a hint; retry policy
+   belongs above.
+5. **Dynamic headers are a known gap.** The client supports per-client headers
+   and codecs emit their protocol headers, but there is no per-call `headers:`
+   option yet. If added, the precedence must be explicit: codec protocol
+   headers, then call headers, then client headers, with authentication headers
+   protected. This is what makes a Claude Code version or a gateway routing
+   header possible without a library release.
+6. **Routing uses public metadata.** An external router can read
+   `Codec.Info`, `Capabilities` and `Provider.__provider__/0`; it does not need a
+   registry in the core.
+7. **No silent precedence.** When native options interact (for example a
+   structured-output request that disables thought summaries), the codec must
+   either validate the conflict or document the winning rule; it must not drop
+   the loser silently.
