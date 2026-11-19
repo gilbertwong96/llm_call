@@ -31,10 +31,10 @@ Three questions, in order:
    `LlmCall.Media.Protocol.*` (media) and are listed in `LlmCall.Media`; anything
    else is your own module or a third-party package.
 
-Reference adapters are OpenAI Chat, Anthropic Messages, and Gemini
-GenerateContent. Vendored media adapters are OpenAI Images, Gemini Imagen,
-Seedance, and MiniMax. Everything else — OpenAI Responses, Bedrock, Cohere,
-Ollama, Mistral, Sora, Veo — is written outside this repository.
+Reference adapters are OpenAI Chat, OpenAI Responses, Anthropic Messages, and
+Gemini GenerateContent. Vendored media adapters are OpenAI Images, Gemini Imagen,
+Seedance, and MiniMax. Everything else — Bedrock, Cohere, Ollama, Mistral, Sora,
+Veo — is written outside this repository.
 
 ## Namespace rules
 

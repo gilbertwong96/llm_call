@@ -962,7 +962,15 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
     end
 
     test "model ids that would break the request path are rejected" do
-      for model <- ["models/gemini-2.5-pro", "gemini-2.5-pro:generateContent", "tunedModels/x"] do
+      for model <- [
+            "models/gemini-2.5-pro",
+            "gemini-2.5-pro:generateContent",
+            "tunedModels/x",
+            "gemini-2.5-pro?alt=json",
+            "gemini-2.5-pro#fragment",
+            "gemini 2.5 pro",
+            "gemini%2Fpro"
+          ] do
         assert {:error, %Error{kind: :validation}} =
                  GenerateContent.validate_request(text_request(model: model), %Config{})
 

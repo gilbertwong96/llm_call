@@ -36,8 +36,8 @@ def deps do
 end
 ```
 
-Requires Elixir 1.18+ on OTP 27+. The only runtime dependency is Finch;
-everything else is dev/test only.
+Requires Elixir 1.18+ on OTP 27+. Runtime dependencies are Finch and
+`mint_web_socket`; everything else is dev/test only.
 
 ## Providers
 

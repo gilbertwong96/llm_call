@@ -309,20 +309,10 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
     do: Helpers.validate_tool_choice(choice, tools, @codec)
 
   defp validate_parts(messages, json) do
-    Helpers.first_error(messages, fn %Message{role: role, content: content} ->
-      with :ok <- validate_content_list(content) do
-        Helpers.first_error(content, &validate_part(role, &1, json))
-      end
+    Helpers.validate_parts(messages, @codec, fn role, part ->
+      validate_part(role, part, json)
     end)
   end
-
-  defp validate_content_list([]),
-    do: Helpers.error(@codec, "message requires at least one content part")
-
-  defp validate_content_list(content) when is_list(content), do: :ok
-
-  defp validate_content_list(_content),
-    do: Helpers.error(@codec, "message content must be a list of content parts")
 
   defp validate_part(:assistant, %Content.Image{}, _json),
     do: Helpers.error(@codec, "images belong to user messages")
@@ -437,12 +427,13 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   @impl true
   def decode_response(term, %Config{} = config) when is_map(term) do
     with {:ok, choice} <- first_choice(term),
-         {:ok, message} <- fetch_message(choice) do
+         {:ok, message} <- fetch_message(choice),
+         {:ok, content} <- message_content(message, config) do
       {:ok,
        %Response{
          id: term["id"],
          model: term["model"],
-         content: message_content(message, config) ++ extra_choices(term),
+         content: content ++ extra_choices(term),
          stop_reason: stop_reason(choice["finish_reason"]),
          usage: decode_usage(term["usage"]),
          raw: Helpers.capture_response(config, term)
@@ -541,11 +532,24 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   defp message_content(message, config) do
-    thinking_content(message) ++
-      text_content(message) ++
-      Enum.map(message["tool_calls"] || [], &decode_tool_call(&1, config)) ++
-      refusal_content(message) ++
-      unknown_content(message)
+    with {:ok, tool_calls} <- decode_tool_calls(message["tool_calls"], config) do
+      {:ok,
+       thinking_content(message) ++
+         text_content(message) ++
+         tool_calls ++
+         refusal_content(message) ++
+         unknown_content(message)}
+    end
+  end
+
+  defp decode_tool_calls(nil, _config), do: {:ok, []}
+
+  defp decode_tool_calls(calls, config) when is_list(calls) do
+    Helpers.map_ok(calls, &decode_tool_call(&1, config))
+  end
+
+  defp decode_tool_calls(_calls, _config) do
+    {:error, invalid_response("tool_calls must be a list")}
   end
 
   defp thinking_content(%{"reasoning_content" => text})
@@ -578,18 +582,35 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
         do: %Content.Raw{type: key, data: %{key => value}}
   end
 
-  defp decode_tool_call(entry, config) do
-    function = entry["function"] || %{}
+  defp decode_tool_call(entry, config) when is_map(entry) do
+    case entry["function"] do
+      nil ->
+        decode_tool_call(entry, %{}, config)
+
+      function when is_map(function) ->
+        decode_tool_call(entry, function, config)
+
+      _other ->
+        {:error, invalid_response("tool call function is not an object")}
+    end
+  end
+
+  defp decode_tool_call(_entry, _config) do
+    {:error, invalid_response("tool call is not an object")}
+  end
+
+  defp decode_tool_call(entry, function, config) do
     raw = function["arguments"]
     {arguments, arguments_error} = decode_arguments(raw, config.json)
 
-    %ToolCall{
-      id: entry["id"],
-      name: function["name"],
-      arguments: arguments,
-      raw_arguments: raw,
-      arguments_error: arguments_error
-    }
+    {:ok,
+     %ToolCall{
+       id: entry["id"],
+       name: function["name"],
+       arguments: arguments,
+       raw_arguments: raw,
+       arguments_error: arguments_error
+     }}
   end
 
   defp decode_arguments(raw, json), do: Helpers.decode_arguments(raw, json)

@@ -516,25 +516,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   def decode_response(term, %Config{} = config) when is_map(term) do
     case term["candidates"] do
       [candidate | extra] when is_map(candidate) ->
-        case fetch_parts(candidate) do
-          {:ok, parts} ->
-            content =
-              Enum.map(parts, &decode_part/1) ++
-                Enum.map(extra, &%Content.Raw{type: "candidate", data: &1})
-
-            {:ok,
-             %Response{
-               id: term["responseId"],
-               model: term["modelVersion"],
-               content: content,
-               stop_reason: response_stop_reason(candidate["finishReason"], content),
-               usage: decode_usage(term["usageMetadata"]),
-               raw: Helpers.capture_response(config, term)
-             }}
-
-          {:error, _error} = error ->
-            candidate_without_content(candidate, extra, term, config, error)
-        end
+        decode_candidate(candidate, extra, term, config)
 
       _absent_or_empty ->
         if blocked?(term) do
@@ -555,6 +537,36 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   def decode_response(_term, _config) do
     {:error, invalid_response("payload is not a JSON object")}
+  end
+
+  defp decode_candidate(candidate, extra, term, config) do
+    case fetch_parts(candidate) do
+      {:ok, parts} ->
+        decode_candidate_parts(candidate, extra, parts, term, config)
+
+      {:error, _error} = error ->
+        candidate_without_content(candidate, extra, term, config, error)
+    end
+  end
+
+  defp decode_candidate_parts(candidate, extra, parts, term, config) do
+    case decode_parts(parts) do
+      {:ok, decoded} ->
+        content = decoded ++ Enum.map(extra, &%Content.Raw{type: "candidate", data: &1})
+
+        {:ok,
+         %Response{
+           id: term["responseId"],
+           model: term["modelVersion"],
+           content: content,
+           stop_reason: response_stop_reason(candidate["finishReason"], content),
+           usage: decode_usage(term["usageMetadata"]),
+           raw: Helpers.capture_response(config, term)
+         }}
+
+      {:error, _error} = error ->
+        error
+    end
   end
 
   @impl true
@@ -710,6 +722,25 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp decode_part(part) when is_map(part) do
     %Content.Raw{type: part |> Map.keys() |> Enum.sort() |> List.first(), data: part}
+  end
+
+  defp decode_part(_part), do: :error
+
+  defp decode_parts(parts) do
+    parts
+    |> Enum.reduce_while({:ok, []}, fn part, {:ok, acc} ->
+      case decode_part(part) do
+        :error ->
+          {:halt, {:error, invalid_response("content part is not an object")}}
+
+        decoded ->
+          {:cont, {:ok, [decoded | acc]}}
+      end
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
+      error -> error
+    end
   end
 
   defp response_stop_reason(nil, _content), do: :unknown

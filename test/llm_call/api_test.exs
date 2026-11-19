@@ -5,14 +5,56 @@ defmodule LlmCall.ApiTest do
     Capabilities,
     Config,
     Content,
+    EncodedRequest,
     Error,
     Message,
+    Operation,
     Request,
     StreamEvent,
     StreamState
   }
 
   alias LlmCall.TestCodec.{Fake, TextOnly}
+
+  defmodule EncodeOnly do
+    @moduledoc false
+
+    def validate_request(_request, _config), do: :ok
+
+    def encode_request(request, _config) do
+      {:ok, %LlmCall.EncodedRequest{path: "/only", body: %{"model" => request.model}}}
+    end
+
+    def capabilities(_request, _config), do: %LlmCall.Capabilities{}
+  end
+
+  defmodule EncodeOnlyProvider do
+    @moduledoc false
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1:1",
+      auth: :none,
+      codecs: [chat: EncodeOnly]
+  end
+
+  defmodule SubmitOnly do
+    @moduledoc false
+
+    def validate_request(_request, _config), do: :ok
+
+    def encode_submit(request, _config) do
+      {:ok, %LlmCall.EncodedRequest{path: "/submit", body: %{"prompt" => request.prompt}}}
+    end
+  end
+
+  defmodule SubmitOnlyProvider do
+    @moduledoc false
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1:1",
+      auth: :none,
+      codecs: [images: SubmitOnly]
+  end
 
   defp request do
     %Request{
@@ -133,5 +175,60 @@ defmodule LlmCall.ApiTest do
 
     assert {:ok, [%StreamEvent{raw: nil}], _state} =
              LlmCall.decode_stream_event(Fake, %{"delta" => "a"}, %Config{}, state)
+  end
+
+  test "fetch/2 rejects an operation without a next request" do
+    client = LlmCall.TestProvider.client(api_key: "k", base_url: "http://127.0.0.1:1")
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.fetch(client, %Operation{})
+
+    assert message =~ "no next request"
+  end
+
+  test "fetch/2 rejects a poll operation instead of returning its raw body" do
+    client = LlmCall.TestProvider.client(api_key: "k", base_url: "http://127.0.0.1:1")
+
+    operation = %Operation{
+      next_kind: :poll,
+      next: %EncodedRequest{method: :get, path: "/poll"}
+    }
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.fetch(client, operation)
+
+    assert message =~ "poll/3"
+  end
+
+  test "complete/3 rejects a codec without decode_response/2 before sending" do
+    LlmCall.TestHTTPServer.start()
+    on_exit(&LlmCall.TestHTTPServer.stop/0)
+
+    LlmCall.TestHTTPServer.put_response({:ok, %{status: 200, headers: [], body: "{}"}})
+
+    client = EncodeOnlyProvider.client(base_url: LlmCall.TestHTTPServer.url())
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.complete(client, request())
+
+    assert message =~ "decode_response/2"
+    assert LlmCall.TestHTTPServer.requests() == []
+  end
+
+  test "generate/3 rejects a media codec without decode_submit/2 before sending" do
+    LlmCall.TestHTTPServer.start()
+    on_exit(&LlmCall.TestHTTPServer.stop/0)
+
+    LlmCall.TestHTTPServer.put_response({:ok, %{status: 200, headers: [], body: "{}"}})
+
+    client = SubmitOnlyProvider.client(base_url: LlmCall.TestHTTPServer.url())
+
+    media = %LlmCall.Media.Request{modality: :image, model: "m", prompt: "p"}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.generate(client, media, codec: :images)
+
+    assert message =~ "decode_submit/2"
+    assert LlmCall.TestHTTPServer.requests() == []
   end
 end

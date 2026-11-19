@@ -184,6 +184,11 @@ defmodule LlmCall.TestHTTPServer do
     end
   end
 
+  defp respond(socket, {:response, {:ok, %{delay: delay} = response}}) do
+    Process.sleep(delay)
+    respond(socket, {:response, {:ok, Map.delete(response, :delay)}})
+  end
+
   defp respond(_socket, {:response, {:error, _reason}}), do: :ok
 
   defp respond(socket, {:response, {:ok, %{status: status, headers: headers, body: body}}}) do

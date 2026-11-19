@@ -59,4 +59,8 @@ defmodule LlmCall.SSETest do
   test "normalises CRLF" do
     assert {["a"], _state} = SSE.parse(SSE.new(), "data: a\r\n\r\n")
   end
+
+  test "normalises CR-only line endings" do
+    assert {["a"], _state} = SSE.parse(SSE.new(), "data: a\r\r")
+  end
 end

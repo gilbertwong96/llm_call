@@ -169,12 +169,19 @@ defmodule LlmCall.HTTP do
 
   def valid_headers?(headers) when is_list(headers) do
     Enum.all?(headers, fn
-      {name, value} when is_binary(name) and is_binary(value) -> true
-      _other -> false
+      {name, value} when is_binary(name) and is_binary(value) ->
+        name != "" and valid_header_text?(name) and valid_header_text?(value)
+
+      _other ->
+        false
     end)
   end
 
   def valid_headers?(_headers), do: false
+
+  defp valid_header_text?(text) do
+    not String.contains?(text, ["\r", "\n"])
+  end
 
   @doc "Performs one request and returns the whole response."
   @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}
@@ -226,11 +233,13 @@ defmodule LlmCall.HTTP do
     Finch.build(request.method, request.url, headers, request.body)
   end
 
-  defp forward(opts, %Request{receive_timeout: nil}), do: Keyword.take(opts, [:pool_timeout])
+  defp forward(opts, %Request{receive_timeout: nil}) do
+    Keyword.take(opts, [:pool_timeout, :request_timeout, :pool_strategy])
+  end
 
   defp forward(opts, %Request{receive_timeout: timeout}) do
     opts
-    |> Keyword.take([:pool_timeout])
+    |> Keyword.take([:pool_timeout, :request_timeout, :pool_strategy])
     |> Keyword.put(:receive_timeout, timeout)
   end
 end

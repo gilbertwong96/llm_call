@@ -1963,7 +1963,8 @@ Settled:
    `ToolCall.describe/2` into `ToolSpec` itself.
 4. **First protocol set:** OpenAI Chat, Anthropic Messages, Gemini
    GenerateContent.
-5. **OpenAI Responses timing:** an ecosystem package, not a core adapter.
+5. **OpenAI Responses:** a core reference adapter over HTTP/SSE and the
+   Responses WebSocket connection.
 6. **Stream assembler:** pure helper in core, protocol-neutral.
 7. **SSE parser:** in core, because the default client streams.
 8. **Codec discovery:** explicit codec module selection, named on a provider

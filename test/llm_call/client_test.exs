@@ -156,6 +156,35 @@ defmodule LlmCall.ClientTest do
              client(http_opts: [name: MyPool], timeout: 5_000)
   end
 
+  test "request_timeout in http_opts reaches the transport" do
+    TestHTTP.put_response(
+      {:ok, %{status: 200, headers: [], body: ~s({"text":"late"}), delay: 200}}
+    )
+
+    client = client(http_opts: [request_timeout: 1])
+
+    assert {:error, %Error{kind: :transport}} = LlmCall.complete(client, request())
+  end
+
+  test "client headers must be string pairs" do
+    assert_raise ArgumentError, ~r/:headers must be/, fn ->
+      client(headers: ["bad"])
+    end
+  end
+
+  test "client timeout must be positive or infinity" do
+    assert_raise ArgumentError, ~r/:timeout must be/, fn -> client(timeout: -1) end
+    assert_raise ArgumentError, ~r/:timeout must be/, fn -> client(timeout: "soon") end
+  end
+
+  test "client http_opts must be a keyword list" do
+    assert_raise ArgumentError, ~r/:http_opts must be/, fn -> client(http_opts: :not_a_list) end
+  end
+
+  test "unknown client options are rejected" do
+    assert_raise ArgumentError, ~r/unknown option :json/, fn -> client(json: MarkerJSON) end
+  end
+
   test "the documented example base URL composes the real endpoint" do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
 
@@ -175,6 +204,61 @@ defmodule LlmCall.ClientTest do
         use LlmCall.Provider,
           base_url: Application.fetch_env!(:llm_call, :missing),
           auth: :none,
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
+  test "json_library and auth declarations must be literals" do
+    assert_raise ArgumentError, ~r/:json_library must be a literal/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.NonLiteralJSON do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          json_library: System.get_env("LLM_JSON"),
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+
+    assert_raise ArgumentError, ~r/:auth must be a literal/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.NonLiteralAuth do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: System.get_env("AUTH"),
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+  end
+
+  test "provider timeout and headers are validated at compile time" do
+    assert_raise ArgumentError, ~r/:timeout must be/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.BadTimeout do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          timeout: -1,
+          codecs: [chat: LlmCall.TestCodec.Fake]
+      end
+      """)
+    end
+
+    assert_raise ArgumentError, ~r/:headers must be/, fn ->
+      Code.compile_string("""
+      defmodule LlmCall.TestCodec.BadHeaders do
+        @moduledoc false
+        use LlmCall.Provider,
+          base_url: "https://x.test",
+          auth: :none,
+          headers: ["bad"],
           codecs: [chat: LlmCall.TestCodec.Fake]
       end
       """)
