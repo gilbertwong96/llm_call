@@ -201,7 +201,8 @@ declarations still override it without touching the compiled default. An
 explicit `%LlmCall.Config{}` uses the compiled default.
 
 `LlmCall.Application` starts a Finch pool named `LlmCall.Finch`; pass
-`http_opts: [name: MyPool]` to use your own.
+`http_opts: [name: MyPool]` to use your own. If that name is already taken when
+`:llm_call` starts, the existing pool is used and no second one is started.
 
 ## Tools
 

@@ -327,8 +327,16 @@ defmodule LlmCall do
   end
 
   defp normalize(_client, {:error, reason}) do
-    {:error, transport_error("transport error: #{inspect(reason)}", nil)}
+    {:error, transport_error(describe_reason(reason), nil)}
   end
+
+  # Finch only returns `Finch.error/0` values or the binary this module rescues
+  # into, but a transport that grows a new error shape must not crash the call.
+  @dialyzer {:nowarn_function, describe_reason: 1}
+  defp describe_reason({:unknown_pool, name}), do: "unknown pool: #{inspect(name)}"
+  defp describe_reason(reason) when is_binary(reason), do: "transport error: #{reason}"
+  defp describe_reason(%_{} = error), do: "transport error: #{Exception.message(error)}"
+  defp describe_reason(reason), do: "transport error: #{inspect(reason)}"
 
   defp call_and_decode(%Client{} = client, encoded, codec, decode_fun, call_headers) do
     case perform(client, encoded, call_headers) do
