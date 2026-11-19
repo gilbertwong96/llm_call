@@ -118,6 +118,18 @@ defmodule LlmCall.ClientTest do
     assert message =~ ":chat"
   end
 
+  test "Client.codec/2 and codec!/2 resolve a named codec" do
+    client = client()
+
+    assert Client.codec(client, :chat) == LlmCall.TestCodec.Fake
+    assert Client.codec!(client, :chat) == LlmCall.TestCodec.Fake
+    assert Client.codec(client, :vision) == nil
+
+    assert_raise ArgumentError, ~r/does not declare a :vision codec/, fn ->
+      Client.codec!(client, :vision)
+    end
+  end
+
   test "execute/2 decodes the body; fetch/2 returns bytes" do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"a":1})}})
 

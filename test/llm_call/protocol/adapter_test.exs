@@ -1,5 +1,7 @@
 defmodule LlmCall.Protocol.AdapterTest do
-  use ExUnit.Case, async: true
+  # Runtime `Code.compile_string/1` is not safe to run from two test processes
+  # at once, and client_test.exs compiles modules too.
+  use ExUnit.Case, async: false
 
   test "a codec that supplies its own encode_request/2 must pass encode: false" do
     assert_raise ArgumentError, ~r/encode: false/, fn ->

@@ -38,3 +38,11 @@ jobs:
 
       - name: Build the docs
         run: MIX_ENV=dev mix docs --warnings-as-errors
+
+      - name: Upload coverage
+        if: matrix.elixir == '1.20.5'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cover
+          path: cover/
+          if-no-files-found: ignore
