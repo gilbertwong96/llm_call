@@ -259,6 +259,22 @@ defmodule LlmCall.Protocol.OpenAIChatTest do
            ]
   end
 
+  test "known native provider options are type-checked" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Chat.validate_request(
+               text_request(provider_options: %{openai: %{"logprobs" => "yes"}}),
+               %Config{}
+             )
+
+    assert message =~ "logprobs"
+
+    assert :ok ==
+             Chat.validate_request(
+               text_request(provider_options: %{openai: %{"logprobs" => true}}),
+               %Config{}
+             )
+  end
+
   test "provider_options are merged but reserved keys are rejected" do
     body =
       encode(text_request(provider_options: %{openai: %{"logprobs" => true, "top_k" => 5}})).body

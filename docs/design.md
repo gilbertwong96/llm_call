@@ -649,6 +649,7 @@ provider-specific extension.
   code: "invalid_request_error" | nil,
   status: 400 | nil,
   retryable?: false,
+  retry_after_ms: 2_000 | nil,
   raw: map() | nil
 }
 ```
@@ -658,6 +659,10 @@ Anthropic's error type, Google's status such as `"RESOURCE_EXHAUSTED"`,
 MiniMax's numeric code stringified). `status` is the HTTP status, and **only the
 client sets it**: a codec never sees the response status, so it always leaves it
 `nil`.
+
+`retry_after_ms` is transport metadata: the client parses the `Retry-After`
+response header (delta-seconds or HTTP-date) and sets it on the error; a codec
+leaves it `nil`. It is a hint, like `retryable?`; backoff policy stays outside.
 
 `kind` says who is speaking:
 
@@ -1251,6 +1256,23 @@ What no generic suite can check is usage *mapping* (which provider field lands i
 which counter) and whether a decoded text matches the provider's semantics; an
 adapter covers those with its own fixture assertions. C1 is closed.
 
+### 10.4 Native provider options
+
+`provider_options` is a namespaced escape hatch, not a free-for-all: each codec
+declares the native keys it knows and a small type contract for them. Known keys
+are validated (`:boolean`, `:string`, `:map`, `:list`, `:number`, `:integer`, or
+an enum); an invalid value is a `:validation` error. Unknown keys still pass
+through, because a provider may add a field before the codec learns about it.
+
+This is documentation plus early diagnostics, not a catalog: the codec does not
+infer model support, pricing, or routing from an option. The first schemas cover
+OpenAI Responses (`access_programs`, `store`, `previous_response_id`, `include`,
+`parallel_tool_calls`, `truncation`, `background`, `service_tier`,
+`safety_identifier`, `prompt_cache_key`), OpenAI Chat (`logprobs`, `top_logprobs`,
+`logit_bias`, `stream_options`, `parallel_tool_calls`, `service_tier`, `user`,
+`store`, `metadata`, `prediction`, `modalities`, `audio`, `web_search_options`),
+Anthropic Messages, and Gemini GenerateContent.
+
 ## 11. Encoded request boundary
 
 ```elixir
@@ -1755,13 +1777,22 @@ assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 The one-call API is the default:
 
 ```elixir
-LlmCall.complete(client, request, opts \\ [])
-LlmCall.stream(client, request, opts \\ [])  # opts: codec:, on_event:
-LlmCall.generate(client, media_request, opts)
-LlmCall.poll(client, operation_or_encoded, opts)
+LlmCall.complete(client, request, opts \\ [])   # opts: codec:, headers:
+LlmCall.stream(client, request, opts \\ [])     # opts: codec:, on_event:, headers:
+LlmCall.generate(client, media_request, opts)    # opts: codec:, headers:
+LlmCall.poll(client, operation_or_encoded, opts) # opts: codec:, headers:
 LlmCall.execute(client, encoded)
 LlmCall.fetch(client, encoded)
 ```
+
+`headers:` is a list of string `{name, value}` pairs for this call only. The
+client merges them in this order: client/provider headers, then call headers,
+then the codec's encoded headers. Later entries win, so a call can override a
+provider default (a gateway routing header, a beta flag), while a protocol
+header emitted by the codec still wins. An invalid list is a `:validation`
+error before any request. WebSocket handshake headers are connection-level:
+pass `headers:` to `Connection.start_link/1`; they are merged with the client
+headers and reused on reconnect.
 
 The encode/decode boundary stays public for callers that own a transport:
 
@@ -2403,15 +2434,16 @@ the wire boundary; this section records the split so the core does not drift.
    format express it", not "does this model support it". Model limits surface as
    provider errors; a caller that needs model selection consults its own catalog.
 4. **Transport metadata stays at the boundary.** Response headers, `Retry-After`
-   and provider-reported cost are wire data. The core may expose them, but it
-   never computes a catalog estimate. `Error.retryable?` is a hint; retry policy
-   belongs above.
-5. **Dynamic headers are a known gap.** The client supports per-client headers
-   and codecs emit their protocol headers, but there is no per-call `headers:`
-   option yet. If added, the precedence must be explicit: codec protocol
-   headers, then call headers, then client headers, with authentication headers
-   protected. This is what makes a Claude Code version or a gateway routing
-   header possible without a library release.
+   and provider-reported cost are wire data. `Error.retry_after_ms` exposes the
+   retry hint; the core never computes a catalog estimate or applies a retry
+   policy. Provider-reported cost stays in `raw` (use `capture_raw: :response`)
+   or in the upper layer; the canonical `Usage` remains token-only.
+5. **Dynamic headers are call options.** `complete/3`, `stream/3`, `generate/3`
+   and `poll/3` accept `headers:`; the precedence is client headers, then call
+   headers, then codec headers. A call header can override a provider default
+   (gateway routing, a Claude Code version, a beta flag); a protocol header
+   emitted by the codec still wins. Authentication remains caller-supplied; a
+   call header is an explicit override, not a policy.
 6. **Routing uses public metadata.** An external router can read
    `Codec.Info`, `Capabilities` and `Provider.__provider__/0`; it does not need a
    registry in the core.

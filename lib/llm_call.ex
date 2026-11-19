@@ -63,11 +63,18 @@ defmodule LlmCall do
   @spec complete(Client.t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Response.t()} | {:error, Error.t()}
   def complete(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
-    with :ok <- reject_streaming(request),
+    with :ok <- validate_headers(opts[:headers]),
+         :ok <- reject_streaming(request),
          {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :encode_request, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config) do
-      call_and_decode(client, encoded, codec, &codec.decode_response(&1, client.config))
+      call_and_decode(
+        client,
+        encoded,
+        codec,
+        &codec.decode_response(&1, client.config),
+        opts[:headers]
+      )
     end
   end
 
@@ -92,13 +99,14 @@ defmodule LlmCall do
   def stream(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
     request = %{request | stream: true}
 
-    with :ok <- validate_on_event(opts[:on_event]),
+    with :ok <- validate_headers(opts[:headers]),
+         :ok <- validate_on_event(opts[:on_event]),
          {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :init_stream, 2),
          :ok <- require_callback(codec, :decode_stream_event, 3),
          :ok <- require_callback(codec, :finish_stream, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config),
-         {:ok, http_request} <- build_http_request(client, encoded),
+         {:ok, http_request} <- build_http_request(client, encoded, opts[:headers]),
          {:ok, state} <- codec.init_stream(request, client.config) do
       {:ok,
        %LlmCall.Stream{
@@ -122,10 +130,17 @@ defmodule LlmCall do
   @spec generate(Client.t(), LlmCall.Media.Request.t(), keyword()) ::
           {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
   def generate(%Client{} = client, %LlmCall.Media.Request{} = request, opts \\ []) do
-    with {:ok, codec} <- fetch_media_codec(client, opts),
+    with :ok <- validate_headers(opts[:headers]),
+         {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :encode_submit, 2),
          {:ok, encoded} <- codec.encode_submit(request, client.config) do
-      call_and_decode(client, encoded, codec, &codec.decode_submit(&1, client.config))
+      call_and_decode(
+        client,
+        encoded,
+        codec,
+        &codec.decode_submit(&1, client.config),
+        opts[:headers]
+      )
     end
   end
 
@@ -160,9 +175,16 @@ defmodule LlmCall do
   end
 
   def poll(%Client{} = client, %EncodedRequest{} = encoded, opts) do
-    with {:ok, codec} <- fetch_media_codec(client, opts),
+    with :ok <- validate_headers(opts[:headers]),
+         {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :decode_operation, 2) do
-      call_and_decode(client, encoded, codec, &codec.decode_operation(&1, client.config))
+      call_and_decode(
+        client,
+        encoded,
+        codec,
+        &codec.decode_operation(&1, client.config),
+        opts[:headers]
+      )
     end
   end
 
@@ -181,8 +203,8 @@ defmodule LlmCall do
       {:ok, %{status: status} = response} when status in 200..299 ->
         decode_json_body(client, response)
 
-      {:ok, %{status: status}} ->
-        {:error, transport_error("HTTP #{status}", status)}
+      {:ok, %{status: status, headers: headers}} ->
+        {:error, transport_error("HTTP #{status}", status, HTTP.retry_after_ms(headers))}
 
       {:error, %Error{}} = error ->
         error
@@ -206,32 +228,41 @@ defmodule LlmCall do
       {:ok, %{status: status} = response} when status in 200..299 ->
         {:ok, response}
 
-      {:ok, %{status: status}} ->
-        {:error, transport_error("HTTP #{status}", status)}
+      {:ok, %{status: status, headers: headers}} ->
+        {:error, transport_error("HTTP #{status}", status, HTTP.retry_after_ms(headers))}
 
       {:error, %Error{}} = error ->
         error
     end
   end
 
-  defp perform(%Client{} = client, %EncodedRequest{} = encoded) do
-    with {:ok, request} <- build_http_request(client, encoded) do
+  defp perform(%Client{} = client, %EncodedRequest{} = encoded, call_headers \\ []) do
+    with {:ok, request} <- build_http_request(client, encoded, call_headers) do
       normalize(client, HTTP.request(request, client.http_opts))
     end
   end
 
-  defp build_http_request(%Client{} = client, %EncodedRequest{method: :get} = encoded) do
-    {:ok, HTTP.Request.get(url(client, encoded), headers(client, encoded), client.timeout)}
+  defp build_http_request(
+         %Client{} = client,
+         %EncodedRequest{method: :get} = encoded,
+         call_headers
+       ) do
+    headers = headers(client, encoded, call_headers)
+    {:ok, HTTP.Request.get(url(client, encoded), headers, client.timeout)}
   end
 
-  defp build_http_request(%Client{} = client, %EncodedRequest{method: :post} = encoded) do
+  defp build_http_request(
+         %Client{} = client,
+         %EncodedRequest{method: :post} = encoded,
+         call_headers
+       ) do
     with {:ok, body} <- encode_body(client, encoded.body) do
-      {:ok,
-       HTTP.Request.post(url(client, encoded), headers(client, encoded), body, client.timeout)}
+      headers = headers(client, encoded, call_headers)
+      {:ok, HTTP.Request.post(url(client, encoded), headers, body, client.timeout)}
     end
   end
 
-  defp build_http_request(_client, %EncodedRequest{method: method}) do
+  defp build_http_request(_client, %EncodedRequest{method: method}, _call_headers) do
     {:error, invalid("unsupported request method #{inspect(method)}", :validation)}
   end
 
@@ -239,8 +270,8 @@ defmodule LlmCall do
     client.base_url <> encoded.path <> encode_query(encoded.query)
   end
 
-  defp headers(%Client{} = client, %EncodedRequest{} = encoded) do
-    HTTP.merge_headers([client.headers, encoded.headers])
+  defp headers(%Client{} = client, %EncodedRequest{} = encoded, call_headers) do
+    HTTP.merge_headers([client.headers, call_headers || [], encoded.headers])
   end
 
   defp encode_body(_client, nil), do: {:ok, ""}
@@ -260,8 +291,8 @@ defmodule LlmCall do
     {:error, transport_error("transport error: #{inspect(reason)}", nil)}
   end
 
-  defp call_and_decode(%Client{} = client, encoded, codec, decode_fun) do
-    case perform(client, encoded) do
+  defp call_and_decode(%Client{} = client, encoded, codec, decode_fun, call_headers) do
+    case perform(client, encoded, call_headers) do
       {:ok, %{status: status} = response} when status in 200..299 ->
         with {:ok, %{body: body}} <- decode_json_body(client, response) do
           decode_fun.(body)
@@ -275,7 +306,9 @@ defmodule LlmCall do
     end
   end
 
-  defp decode_failure(%Client{} = client, codec, %{status: status, body: raw}) do
+  defp decode_failure(%Client{} = client, codec, %{status: status, headers: headers, body: raw}) do
+    retry_after = HTTP.retry_after_ms(headers)
+
     payload =
       case client.config.json.decode(raw) do
         {:ok, term} -> term
@@ -286,7 +319,7 @@ defmodule LlmCall do
       %{} = payload ->
         case codec.decode_error(payload, client.config) do
           %Error{} = error ->
-            {:error, %{error | status: status}}
+            {:error, %{error | status: status, retry_after_ms: retry_after}}
 
           other ->
             {:error,
@@ -298,7 +331,8 @@ defmodule LlmCall do
         end
 
       _not_an_object ->
-        {:error, transport_error("HTTP #{status}: body is not a JSON object", status)}
+        {:error,
+         transport_error("HTTP #{status}: body is not a JSON object", status, retry_after)}
     end
   end
 
@@ -307,6 +341,23 @@ defmodule LlmCall do
       {:ok, term} -> {:ok, %{response | body: term}}
       {:error, _reason} -> {:error, invalid("response body is not JSON", :invalid_response)}
     end
+  end
+
+  defp validate_headers(nil), do: :ok
+
+  defp validate_headers(headers) when is_list(headers) do
+    if Enum.all?(headers, fn
+         {name, value} when is_binary(name) and is_binary(value) -> true
+         _other -> false
+       end) do
+      :ok
+    else
+      {:error, invalid("headers: must be a list of {name, value} string tuples", :validation)}
+    end
+  end
+
+  defp validate_headers(_headers) do
+    {:error, invalid("headers: must be a list of {name, value} string tuples", :validation)}
   end
 
   defp validate_on_event(nil), do: :ok
@@ -361,8 +412,13 @@ defmodule LlmCall do
 
   defp invalid(message, kind), do: %Error{kind: kind, message: message}
 
-  defp transport_error(message, status) do
-    %Error{kind: :transport, message: message, status: status}
+  defp transport_error(message, status, retry_after_ms \\ nil) do
+    %Error{
+      kind: :transport,
+      message: message,
+      status: status,
+      retry_after_ms: retry_after_ms
+    }
   end
 
   @doc "Encodes a canonical request into one protocol's wire request."

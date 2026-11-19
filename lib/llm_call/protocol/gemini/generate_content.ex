@@ -34,6 +34,12 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   @namespaces [:gemini, :google]
 
+  @native_options %{
+    "safetySettings" => :list,
+    "cachedContent" => :string,
+    "labels" => :map
+  }
+
   use LlmCall.Protocol.Adapter, codec: :gemini_generate_content, encode: false
 
   @impl true
@@ -487,7 +493,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp validate_native_options(options, label) do
     native = Helpers.alias_options(%{}, options, :gemini, :google)
 
-    with :ok <- Helpers.validate_option_keys(native, @envelope_keys, @codec) do
+    with :ok <- Helpers.validate_option_keys(native, @envelope_keys, @codec),
+         :ok <- Helpers.validate_native_options(native, @native_options, @codec, label) do
       validate_generation_config(native, label)
     end
   end

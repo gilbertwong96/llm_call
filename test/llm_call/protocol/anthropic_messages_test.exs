@@ -253,6 +253,22 @@ defmodule LlmCall.Protocol.AnthropicMessagesTest do
              Messages.encode_request(text_request(messages: no_signature), %Config{})
   end
 
+  test "known native provider options are type-checked" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(
+               text_request(provider_options: %{anthropic: %{"metadata" => "user"}}),
+               %Config{}
+             )
+
+    assert message =~ "metadata"
+
+    assert :ok ==
+             Messages.validate_request(
+               text_request(provider_options: %{anthropic: %{"metadata" => %{"user_id" => "u"}}}),
+               %Config{}
+             )
+  end
+
   test "provider_options are merged but reserved keys are rejected" do
     assert encode(
              text_request(provider_options: %{anthropic: %{"metadata" => %{"user_id" => "u1"}}})

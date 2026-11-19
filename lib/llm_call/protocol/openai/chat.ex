@@ -27,6 +27,22 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   @namespaces [:openai]
 
+  @native_options %{
+    "logprobs" => :boolean,
+    "top_logprobs" => :integer,
+    "logit_bias" => :map,
+    "stream_options" => :map,
+    "parallel_tool_calls" => :boolean,
+    "service_tier" => :string,
+    "user" => :string,
+    "store" => :boolean,
+    "metadata" => :map,
+    "prediction" => :map,
+    "modalities" => :list,
+    "audio" => :map,
+    "web_search_options" => :map
+  }
+
   use LlmCall.Protocol.Adapter, codec: :openai_chat
 
   @impl true
@@ -386,6 +402,20 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
          default_options = Map.get(config.default_provider_options, :openai, %{}),
          :ok <- Helpers.validate_option_keys(request_options, @envelope_keys, @codec),
          :ok <- Helpers.validate_option_keys(default_options, @default_reserved_keys, @codec),
+         :ok <-
+           Helpers.validate_native_options(
+             request_options,
+             @native_options,
+             @codec,
+             "provider_options"
+           ),
+         :ok <-
+           Helpers.validate_native_options(
+             default_options,
+             @native_options,
+             @codec,
+             "default_provider_options"
+           ),
          :ok <- validate_stream_options(request_options) do
       validate_stream_options(default_options)
     end

@@ -57,6 +57,13 @@ defmodule LlmCall.HTTPTest do
     assert {:status, 401} in events
   end
 
+  test "retry_after_ms/1 parses delta-seconds and rejects malformed values" do
+    assert HTTP.retry_after_ms([{"Retry-After", "5"}]) == 5_000
+    assert HTTP.retry_after_ms([{"retry-after", "soon"}]) == nil
+    assert HTTP.retry_after_ms([{"retry-after", "Wed, 21 Oct 2015 07:28:00 GMT"}]) == 0
+    assert HTTP.retry_after_ms([]) == nil
+  end
+
   test "there is one transport module" do
     assert Code.ensure_loaded?(HTTP)
     assert function_exported?(HTTP, :request, 2)
