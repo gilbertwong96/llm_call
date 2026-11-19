@@ -88,6 +88,17 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "response_id/2 exposes the id needed for previous_response_id" do
+    {:ok, connection} = start()
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert [_ | _] = Enum.to_list(stream)
+    assert {:ok, "resp_main"} = Connection.response_id(connection, "main")
+    assert :error = Connection.response_id(connection, "missing")
+
+    Connection.close(connection)
+  end
+
   test "the wire create event carries the type, lane and no stream flag" do
     {:ok, connection} = start()
 

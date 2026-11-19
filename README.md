@@ -110,7 +110,8 @@ Enum.to_list(stream)
 An in-flight response cannot resume across a reconnect; its stream raises
 `LlmCall.WS.Error`. The connection reconnects with exponential backoff and does
 not stop on failure: while disconnected, `create/3` returns a `:transport` error
-and `Connection.reconnect/1` retries immediately.
+and `Connection.reconnect/1` retries immediately. `Connection.response_id/2`
+returns the provider id for `previous_response_id`.
 
 Tool-call fragments are assembled into complete calls by a pure helper, which never
 runs them:

@@ -722,8 +722,13 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
     {:error, stream_error(term)}
   end
 
-  def decode_stream_event(term, %Config{} = config, %StreamState{} = state) do
+  def decode_stream_event(term, %Config{} = config, %StreamState{} = state)
+      when is_map(term) do
     {:ok, [Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], state}
+  end
+
+  def decode_stream_event(term, _config, _state) do
+    {:error, invalid_response("stream event is not an object: #{inspect(term)}")}
   end
 
   @impl true
@@ -796,7 +801,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
   defp decode_message_part(%{"type" => "output_text", "text" => text} = part)
        when is_binary(text) do
     annotations =
-      for annotation <- part["annotations"] || [], is_map(annotation) do
+      for annotation <- annotations(part), is_map(annotation) do
         %Content.Raw{type: "annotation", data: annotation}
       end
 
@@ -811,6 +816,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
 
   defp decode_message_part(part),
     do: {:error, invalid_response("message content part is not an object: #{inspect(part)}")}
+
+  defp annotations(%{"annotations" => annotations}) when is_list(annotations), do: annotations
+  defp annotations(_part), do: []
 
   defp decode_function_call(%{"call_id" => call_id} = item, config) do
     raw = item["arguments"]
