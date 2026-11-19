@@ -97,6 +97,25 @@ defmodule LlmCall.WSTest do
     assert eventually(fn -> Server.close_ack() == {1001, "bye"} end)
   end
 
+  test "recv/2 leaves unrelated messages in the mailbox" do
+    assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
+    send(self(), :unrelated)
+
+    assert {:error, :timeout} = Mint.recv(conn, 20)
+    assert_received :unrelated
+
+    Mint.close(conn)
+  end
+
+  test "feed/2 returns a peer close frame" do
+    assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
+    Server.send_frame({:close, 1001, "bye"})
+
+    message = next_message()
+    assert {:ok, [{:close, 1001, "bye"}], conn} = Mint.feed(conn, message)
+    Mint.close(conn)
+  end
+
   test "times out when no frame arrives" do
     assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
     assert {:error, :timeout} = Mint.recv(conn, 20)
