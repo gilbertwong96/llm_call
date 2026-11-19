@@ -15,13 +15,28 @@ defmodule LlmCall.Error do
   MiniMax's numeric code stringified). `status` is the HTTP status, and **only the
   client sets it**: a codec never sees the response status, so it always leaves
   it `nil`.
+
+  `reason` is the structured counterpart of a `:transport` message, and only the
+  client sets it: `:unknown_pool` when the configured Finch pool is not running,
+  `:exception` when the transport raised, and otherwise the transport's own
+  reason (`:econnrefused`, `:timeout`, `:closed`, `:nxdomain`,
+  `{:tls_alert, ...}`). Match on it instead of the message; a codec leaves it
+  `nil`, and so does any failure that has a `status`.
   """
+
+  @typedoc """
+  A structured transport reason, or `nil` when the failure has none.
+
+  See the module documentation for the values the client produces.
+  """
+  @type reason :: :unknown_pool | :exception | atom() | tuple() | nil
 
   @type t :: %__MODULE__{
           kind: :validation | :invalid_response | :provider | :transport,
           message: String.t(),
           code: String.t() | nil,
           status: non_neg_integer() | nil,
+          reason: reason(),
           retryable?: boolean(),
           retry_after_ms: non_neg_integer() | nil,
           raw: map() | nil
@@ -31,6 +46,7 @@ defmodule LlmCall.Error do
             message: nil,
             code: nil,
             status: nil,
+            reason: nil,
             retryable?: false,
             retry_after_ms: nil,
             raw: nil

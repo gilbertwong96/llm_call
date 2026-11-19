@@ -83,6 +83,8 @@ defmodule LlmCall.Conformance do
 
   The status is always `nil` — only the transport knows the HTTP status — and a
   provider code is normalized to a string or `nil`, whatever the wire type was.
+  A codec never sets `reason` either; it is the client's structured transport
+  reason.
   """
   @spec assert_error(Error.t() | term(), String.t()) :: :ok
   def assert_error(%Error{} = error, label) do
@@ -99,10 +101,18 @@ defmodule LlmCall.Conformance do
       assert is_nil(error.status) or is_integer(error.status),
              "#{label} transport error status must be an integer or nil, " <>
                "got: #{inspect(error.status)}"
+
+      assert is_nil(error.reason) or is_atom(error.reason) or is_tuple(error.reason),
+             "#{label} transport error reason must be an atom, a tuple or nil, " <>
+               "got: #{inspect(error.reason)}"
     else
       assert is_nil(error.status),
              "#{label} must not set error status: only the transport knows the HTTP status, " <>
                "got: #{inspect(error.status)}"
+
+      assert is_nil(error.reason),
+             "#{label} must not set error reason: only the transport knows it, " <>
+               "got: #{inspect(error.reason)}"
     end
 
     assert is_boolean(error.retryable?),
