@@ -206,6 +206,24 @@ defmodule LlmCall.ClientTest do
     assert_raise ArgumentError, ~r/:http_opts must be/, fn -> client(http_opts: :not_a_list) end
   end
 
+  test "client http_opts values are type checked" do
+    for opts <- [
+          [request_timeout: "x"],
+          [receive_timeout: -1],
+          [pool_timeout: nil],
+          [name: "not-an-atom"],
+          [pool_strategy: :bogus]
+        ] do
+      assert_raise ArgumentError, ~r/:http_opts/, fn -> client(http_opts: opts) end
+    end
+
+    assert %Client{http_opts: [request_timeout: 5_000, pool_timeout: 1_000]} =
+             client(http_opts: [request_timeout: 5_000, pool_timeout: 1_000])
+
+    assert %Client{http_opts: [pool_strategy: :random]} =
+             client(http_opts: [pool_strategy: :random])
+  end
+
   test "unknown client options are rejected" do
     assert_raise ArgumentError, ~r/unknown option :json/, fn -> client(json: MarkerJSON) end
   end

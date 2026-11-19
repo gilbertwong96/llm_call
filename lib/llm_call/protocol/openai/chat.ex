@@ -680,12 +680,14 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp decode_usage(%{} = usage) do
     %Usage{
-      input_tokens: usage["prompt_tokens"],
-      output_tokens: usage["completion_tokens"],
-      total_tokens: usage["total_tokens"],
-      cache_read_tokens: get_in(usage, ["prompt_tokens_details", "cached_tokens"]),
+      input_tokens: Helpers.token(usage["prompt_tokens"]),
+      output_tokens: Helpers.token(usage["completion_tokens"]),
+      total_tokens: Helpers.token(usage["total_tokens"]),
+      cache_read_tokens:
+        Helpers.token(Helpers.nested(usage, ["prompt_tokens_details", "cached_tokens"])),
       cache_write_tokens: nil,
-      reasoning_tokens: get_in(usage, ["completion_tokens_details", "reasoning_tokens"])
+      reasoning_tokens:
+        Helpers.token(Helpers.nested(usage, ["completion_tokens_details", "reasoning_tokens"]))
     }
   end
 
@@ -864,14 +866,15 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp merge_usage(%Usage{} = current, wire) do
     %Usage{
-      input_tokens: wire["prompt_tokens"] || current.input_tokens,
-      output_tokens: wire["completion_tokens"] || current.output_tokens,
-      total_tokens: wire["total_tokens"] || current.total_tokens,
+      input_tokens: Helpers.token(wire["prompt_tokens"]) || current.input_tokens,
+      output_tokens: Helpers.token(wire["completion_tokens"]) || current.output_tokens,
+      total_tokens: Helpers.token(wire["total_tokens"]) || current.total_tokens,
       cache_read_tokens:
-        get_in(wire, ["prompt_tokens_details", "cached_tokens"]) || current.cache_read_tokens,
+        Helpers.token(Helpers.nested(wire, ["prompt_tokens_details", "cached_tokens"])) ||
+          current.cache_read_tokens,
       cache_write_tokens: current.cache_write_tokens,
       reasoning_tokens:
-        get_in(wire, ["completion_tokens_details", "reasoning_tokens"]) ||
+        Helpers.token(Helpers.nested(wire, ["completion_tokens_details", "reasoning_tokens"])) ||
           current.reasoning_tokens
     }
   end

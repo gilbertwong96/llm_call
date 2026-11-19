@@ -932,14 +932,16 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
     base = current || %Usage{}
 
     %Usage{
-      input_tokens: wire["input_tokens"] || base.input_tokens,
-      output_tokens: wire["output_tokens"] || base.output_tokens,
-      total_tokens: wire["total_tokens"] || base.total_tokens,
+      input_tokens: Helpers.token(wire["input_tokens"]) || base.input_tokens,
+      output_tokens: Helpers.token(wire["output_tokens"]) || base.output_tokens,
+      total_tokens: Helpers.token(wire["total_tokens"]) || base.total_tokens,
       cache_read_tokens:
-        get_in(wire, ["input_tokens_details", "cached_tokens"]) || base.cache_read_tokens,
+        Helpers.token(Helpers.nested(wire, ["input_tokens_details", "cached_tokens"])) ||
+          base.cache_read_tokens,
       cache_write_tokens: base.cache_write_tokens,
       reasoning_tokens:
-        get_in(wire, ["output_tokens_details", "reasoning_tokens"]) || base.reasoning_tokens
+        Helpers.token(Helpers.nested(wire, ["output_tokens_details", "reasoning_tokens"])) ||
+          base.reasoning_tokens
     }
   end
 

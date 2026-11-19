@@ -813,12 +813,12 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     base = current || %Usage{}
 
     %Usage{
-      input_tokens: wire["promptTokenCount"] || base.input_tokens,
-      output_tokens: wire["candidatesTokenCount"] || base.output_tokens,
-      total_tokens: wire["totalTokenCount"] || base.total_tokens,
-      cache_read_tokens: wire["cachedContentTokenCount"] || base.cache_read_tokens,
+      input_tokens: Helpers.token(wire["promptTokenCount"]) || base.input_tokens,
+      output_tokens: Helpers.token(wire["candidatesTokenCount"]) || base.output_tokens,
+      total_tokens: Helpers.token(wire["totalTokenCount"]) || base.total_tokens,
+      cache_read_tokens: Helpers.token(wire["cachedContentTokenCount"]) || base.cache_read_tokens,
       cache_write_tokens: base.cache_write_tokens,
-      reasoning_tokens: wire["thoughtsTokenCount"] || base.reasoning_tokens
+      reasoning_tokens: Helpers.token(wire["thoughtsTokenCount"]) || base.reasoning_tokens
     }
   end
 
@@ -834,7 +834,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp chunk_events(term, config, data) do
     case term["candidates"] do
       [candidate | _] when is_map(candidate) ->
-        parts = get_in(candidate, ["content", "parts"]) || []
+        parts = Helpers.nested(candidate, ["content", "parts"])
+        parts = if is_list(parts), do: parts, else: []
         {part_events, data} = parts_events(parts, term, config, data)
 
         {finish_events, data} =

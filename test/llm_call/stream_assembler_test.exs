@@ -178,6 +178,24 @@ defmodule LlmCall.StreamAssemblerTest do
     assert call.id == "call_1"
   end
 
+  test "a tool_call_start whose delta is not a ToolCall is ignored" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1)
+
+    assert {:ok, ^assembler, []} =
+             StreamAssembler.feed(assembler, %StreamEvent{
+               type: :tool_call_start,
+               index: 0,
+               delta: nil
+             })
+
+    assert {:ok, ^assembler, []} =
+             StreamAssembler.feed(assembler, %StreamEvent{
+               type: :tool_call_start,
+               index: 0,
+               delta: %StreamDelta.Text{text: "x"}
+             })
+  end
+
   test "StreamState carries codec and opaque data" do
     state = StreamState.new(SomeCodec, %{cursor: 1})
 

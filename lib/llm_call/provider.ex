@@ -110,13 +110,43 @@ defmodule LlmCall.Provider do
     end
   end
 
+  @http_timeout_keys [:pool_timeout, :receive_timeout, :request_timeout]
+
   defp validate_http_opts!(opts) do
-    if Keyword.keyword?(opts) do
-      opts
-    else
+    unless Keyword.keyword?(opts) do
       raise ArgumentError, "client option :http_opts must be a keyword list"
     end
+
+    Enum.each(opts, &validate_http_opt!/1)
+    opts
   end
+
+  defp validate_http_opt!({key, value}) when key in @http_timeout_keys do
+    unless value == :infinity or (is_integer(value) and value > 0) do
+      raise ArgumentError,
+            "client option :http_opts #{inspect(key)} must be a positive integer or :infinity, " <>
+              "got: #{inspect(value)}"
+    end
+  end
+
+  defp validate_http_opt!({:name, value}) do
+    unless is_atom(value) and not is_nil(value) do
+      raise ArgumentError,
+            "client option :http_opts :name must be a pool name atom, got: #{inspect(value)}"
+    end
+  end
+
+  defp validate_http_opt!({:pool_strategy, value})
+       when value in [:random, :ordered] or is_integer(value) or is_function(value, 2),
+       do: :ok
+
+  defp validate_http_opt!({:pool_strategy, value}) do
+    raise ArgumentError,
+          "client option :http_opts :pool_strategy must be :random, :ordered, an integer, " <>
+            "or a 2-arity function, got: #{inspect(value)}"
+  end
+
+  defp validate_http_opt!(_entry), do: :ok
 
   defp validate_timeout!(:infinity), do: :infinity
 

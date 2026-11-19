@@ -651,15 +651,17 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   defp decode_usage(_usage), do: nil
 
   defp merge_usage(%Usage{} = current, wire) when is_map(wire) do
-    input = wire["input_tokens"] || current.input_tokens
-    output = wire["output_tokens"] || current.output_tokens
+    input = Helpers.token(wire["input_tokens"]) || current.input_tokens
+    output = Helpers.token(wire["output_tokens"]) || current.output_tokens
 
     %Usage{
       input_tokens: input,
       output_tokens: output,
       total_tokens: total_tokens(input, output),
-      cache_read_tokens: wire["cache_read_input_tokens"] || current.cache_read_tokens,
-      cache_write_tokens: wire["cache_creation_input_tokens"] || current.cache_write_tokens,
+      cache_read_tokens:
+        Helpers.token(wire["cache_read_input_tokens"]) || current.cache_read_tokens,
+      cache_write_tokens:
+        Helpers.token(wire["cache_creation_input_tokens"]) || current.cache_write_tokens,
       reasoning_tokens: current.reasoning_tokens
     }
   end
@@ -668,7 +670,11 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp total_tokens(nil, _output), do: nil
   defp total_tokens(_input, nil), do: nil
-  defp total_tokens(input, output), do: input + output
+
+  defp total_tokens(input, output) when is_integer(input) and is_integer(output),
+    do: input + output
+
+  defp total_tokens(_input, _output), do: nil
 
   defp stream_events(%{"type" => "message_start"} = term, config, data) do
     message = term["message"] || %{}
