@@ -287,6 +287,61 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "reconnect: false stops the connection when the socket closes" do
+    Process.flag(:trap_exit, true)
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start(reconnect: false)
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+
+    TestWSServer.stop()
+
+    assert eventually(fn -> not Process.alive?(connection) end)
+    assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
+  end
+
+  test "max_age reconnects and interrupts in-flight lanes" do
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start(max_age_ms: 50, retry_delay_ms: 20)
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
+
+    TestWSServer.set_mode(:responses)
+    assert {:ok, next} = Connection.create(connection, request(), stream_id: "after")
+
+    assert types(next) == [
+             :message_start,
+             :content_start,
+             :text_delta,
+             :content_stop,
+             :message_delta,
+             :message_stop
+           ]
+
+    Connection.close(connection)
+  end
+
+  test "a stream must be reduced by the process that created it" do
+    {:ok, connection} = start()
+    {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+    parent = self()
+
+    spawn(fn ->
+      result =
+        try do
+          Enum.to_list(stream)
+          :ok
+        rescue
+          error -> {:raised, error.__struct__}
+        end
+
+      send(parent, {:result, result})
+    end)
+
+    assert_receive {:result, {:raised, ArgumentError}}, 2_000
+    Connection.close(connection)
+  end
+
   test "a missing client is rejected at start" do
     Process.flag(:trap_exit, true)
     assert {:error, :client_required} = Connection.start_link(client: nil)

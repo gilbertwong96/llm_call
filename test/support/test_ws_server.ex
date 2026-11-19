@@ -22,7 +22,15 @@ defmodule LlmCall.TestWSServer do
         {:ok, listen} = :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true])
         {:ok, port} = :inet.port(listen)
         send(parent, {:ws_port, self(), port, listen})
-        serve(listen, %{buffer: "", mode: mode, pongs: [], frames: []})
+
+        serve(listen, %{
+          buffer: "",
+          mode: mode,
+          pongs: [],
+          frames: [],
+          close_sent?: false,
+          close_ack: nil
+        })
       end)
 
     {port, listen} =
@@ -82,8 +90,26 @@ defmodule LlmCall.TestWSServer do
     send(pid(), {:send, frame})
   end
 
+  def send_frames(frames) when is_list(frames) do
+    send(pid(), {:send_many, frames})
+  end
+
+  def send_fragments(parts) when is_list(parts) do
+    send(pid(), {:send_fragments, parts})
+  end
+
   def close(code \\ 1000, reason \\ "") do
     send(pid(), {:close, code, reason})
+  end
+
+  def close_ack do
+    send(pid(), {:close_ack, self()})
+
+    receive do
+      {:close_ack, ack} -> ack
+    after
+      2_000 -> :none
+    end
   end
 
   defp pid do
@@ -165,6 +191,10 @@ defmodule LlmCall.TestWSServer do
         send(from, {:frames, Enum.reverse(state.frames)})
         control(listen, acceptor, state)
 
+      {:close_ack, from} ->
+        send(from, {:close_ack, state.close_ack})
+        control(listen, acceptor, state)
+
       :stop ->
         :gen_tcp.close(listen)
         Process.exit(acceptor, :kill)
@@ -181,8 +211,13 @@ defmodule LlmCall.TestWSServer do
             handle_frame(socket, frame, state)
           end)
 
-        :inet.setopts(socket, active: :once)
-        loop(socket, state)
+        if state.close_ack do
+          :gen_tcp.close(socket)
+          {:continue, state}
+        else
+          :inet.setopts(socket, active: :once)
+          loop(socket, state)
+        end
 
       {:tcp_closed, ^socket} ->
         {:continue, state}
@@ -202,14 +237,25 @@ defmodule LlmCall.TestWSServer do
         send(from, {:pongs, Enum.reverse(state.pongs)})
         loop(socket, state)
 
+      {:close_ack, from} ->
+        send(from, {:close_ack, state.close_ack})
+        loop(socket, state)
+
       {:send, frame} ->
         :gen_tcp.send(socket, encode_frame(frame))
         loop(socket, state)
 
+      {:send_many, frames} ->
+        :gen_tcp.send(socket, Enum.map(frames, &encode_frame/1))
+        loop(socket, state)
+
+      {:send_fragments, parts} ->
+        :gen_tcp.send(socket, encode_fragments(parts))
+        loop(socket, state)
+
       {:close, code, reason} ->
         :gen_tcp.send(socket, encode_frame({:close, code, reason}))
-        :gen_tcp.close(socket)
-        {:continue, state}
+        loop(socket, %{state | close_sent?: true})
 
       :stop ->
         :gen_tcp.close(socket)
@@ -243,7 +289,11 @@ defmodule LlmCall.TestWSServer do
     do: %{state | pongs: [{:pong, payload} | state.pongs]}
 
   defp handle_frame(_socket, :pong, state), do: %{state | pongs: [{:pong, ""} | state.pongs]}
-  defp handle_frame(_socket, {:close, _code, _reason}, state), do: state
+
+  defp handle_frame(_socket, {:close, code, reason}, state) do
+    %{state | close_ack: {code, reason}}
+  end
+
   defp handle_frame(_socket, _frame, state), do: state
 
   defp respond(socket, data, mode) do
@@ -375,6 +425,29 @@ defmodule LlmCall.TestWSServer do
   defp encode_frame({:ping, data}), do: encode(9, data)
   defp encode_frame({:pong, data}), do: encode(10, data)
   defp encode_frame(:pong), do: encode(10, "")
+
+  defp encode_fragments(parts) do
+    last = length(parts) - 1
+
+    parts
+    |> Enum.with_index()
+    |> Enum.map(fn {part, index} ->
+      fin = if index == last, do: 1, else: 0
+      opcode = if index == 0, do: 1, else: 0
+      encode_frame(fin, opcode, part)
+    end)
+  end
+
+  defp encode_frame(fin, opcode, payload) do
+    header =
+      case byte_size(payload) do
+        len when len < 126 -> <<fin::1, 0::3, opcode::4, 0::1, len::7>>
+        len when len < 65_536 -> <<fin::1, 0::3, opcode::4, 0::1, 126::7, len::16>>
+        len -> <<fin::1, 0::3, opcode::4, 0::1, 127::7, len::64>>
+      end
+
+    header <> payload
+  end
 
   defp encode(opcode, payload) do
     header =
