@@ -644,7 +644,7 @@ provider-specific extension.
 
 ```elixir
 %LlmCall.Error{
-  kind: :protocol | :validation | :invalid_response | :provider | :transport,
+  kind: :validation | :invalid_response | :provider | :transport,
   message: "...",
   code: "invalid_request_error" | nil,
   status: 400 | nil,
@@ -937,7 +937,7 @@ end
 
 defmodule LlmCall.Error do
   @type t :: %__MODULE__{
-          kind: :protocol | :validation | :invalid_response | :provider | :transport,
+          kind: :validation | :invalid_response | :provider | :transport,
           message: String.t(),
           code: String.t() | nil,
           status: non_neg_integer() | nil,

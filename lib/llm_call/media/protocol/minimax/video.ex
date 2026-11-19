@@ -101,7 +101,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
 
     {:ok,
      %Operation{
-       id: payload["task_id"],
+       id: Helpers.id(payload["task_id"]),
        status: :failed,
        error: %Error{
          kind: :provider,
@@ -149,15 +149,12 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
   end
 
   defp success_operation(payload, config) do
-    case payload["file_id"] do
-      file_id when is_binary(file_id) and file_id != "" ->
-        {:ok, in_progress_with(payload, retrieve_request(file_id), config)}
-
-      file_id when is_integer(file_id) ->
-        {:ok, in_progress_with(payload, retrieve_request(file_id), config)}
-
-      _absent ->
+    case Helpers.id(payload["file_id"]) do
+      nil ->
         {:error, invalid_response("Success response has no file_id")}
+
+      file_id ->
+        {:ok, in_progress_with(payload, retrieve_request(file_id), config)}
     end
   end
 
@@ -169,7 +166,7 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
 
   defp in_progress_with(payload, next, config) do
     %Operation{
-      id: payload["task_id"],
+      id: Helpers.id(payload["task_id"]),
       status: :in_progress,
       next: next,
       next_kind: :poll,
@@ -188,10 +185,12 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
     }
   end
 
-  defp fetch_task_id(%{"task_id" => task_id}) when is_binary(task_id) and task_id != "",
-    do: {:ok, task_id}
-
-  defp fetch_task_id(_payload), do: {:error, invalid_response("submit response has no task id")}
+  defp fetch_task_id(payload) do
+    case Helpers.id(payload["task_id"]) do
+      nil -> {:error, invalid_response("submit response has no task id")}
+      task_id -> {:ok, task_id}
+    end
+  end
 
   defp check_base_resp(payload) do
     case payload["base_resp"] do

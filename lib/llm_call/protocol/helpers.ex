@@ -175,6 +175,18 @@ defmodule LlmCall.Protocol.Helpers do
   def index(_value), do: nil
 
   @doc """
+  Normalizes a provider-supplied resource id.
+
+  Providers mix string and numeric ids (MiniMax returns `file_id` as either). A
+  non-empty string is kept, an integer is stringified, and anything else becomes
+  `nil`, so an `Operation.id` or `Error.code` never violates its declared type.
+  """
+  @spec id(term()) :: String.t() | nil
+  def id(value) when is_binary(value) and value != "", do: value
+  def id(value) when is_integer(value), do: Integer.to_string(value)
+  def id(_value), do: nil
+
+  @doc """
   Normalizes a provider-supplied token count.
 
   A non-negative integer is kept; anything else (a stringified count, a float, an

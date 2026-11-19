@@ -138,8 +138,12 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
     end
   end
 
-  defp fetch_id(%{"id" => id}) when is_binary(id) and id != "", do: {:ok, id}
-  defp fetch_id(_payload), do: {:error, invalid_response("task payload has no id")}
+  defp fetch_id(payload) do
+    case Helpers.id(payload["id"]) do
+      nil -> {:error, invalid_response("task payload has no id")}
+      id -> {:ok, id}
+    end
+  end
 
   defp completed_operation(payload, config) do
     content = payload["content"]
@@ -148,7 +152,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
       url when is_binary(url) and url != "" ->
         {:ok,
          %Operation{
-           id: payload["id"],
+           id: Helpers.id(payload["id"]),
            status: :completed,
            result: %Response{
              assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
@@ -165,7 +169,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
     error = if is_map(payload["error"]), do: payload["error"], else: %{}
 
     %Operation{
-      id: payload["id"],
+      id: Helpers.id(payload["id"]),
       status: :failed,
       error: %Error{
         kind: :provider,

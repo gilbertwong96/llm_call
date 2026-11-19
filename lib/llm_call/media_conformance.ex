@@ -159,16 +159,34 @@ defmodule LlmCall.MediaConformance do
     :ok
   end
 
+  defp assert_operation_id(%Operation{id: id}) do
+    assert is_nil(id) or (is_binary(id) and id != ""),
+           "Operation.id must be a non-empty string or nil, got: #{inspect(id)}"
+
+    :ok
+  end
+
+  defp assert_operation_progress(%Operation{progress: progress}) do
+    assert is_nil(progress) or (is_integer(progress) and progress in 0..100),
+           "Operation.progress must be an integer in 0..100 or nil, got: #{inspect(progress)}"
+
+    :ok
+  end
+
   @doc """
   Checks one `LlmCall.Operation` against the state-machine invariants.
 
   A state a codec can return must satisfy: `:queued`/`:in_progress` poll with no
   result; `:completed` never polls, always has a result, and an `:asset` fetch
-  names its media type; `:failed` carries an error and nothing else.
+  names its media type; `:failed` carries an error and nothing else. `id` is a
+  non-empty string or `nil`, `progress` is an integer in `0..100` or `nil`, and
+  `raw` is a map or `nil`.
   """
   @spec assert_operation(Operation.t()) :: :ok
   def assert_operation(%Operation{} = operation) do
     assert_operation_raw(operation)
+    assert_operation_id(operation)
+    assert_operation_progress(operation)
 
     if match?(%EncodedRequest{}, operation.next) do
       assert_encoded_request(operation.next, "Operation.next")
