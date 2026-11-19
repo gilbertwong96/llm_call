@@ -91,6 +91,13 @@ defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
     assert image["role"] == "first_frame"
   end
 
+  test "no references encodes without content images" do
+    for references <- [nil, []] do
+      body = encode_body(request(references: references))
+      assert [%{"type" => "text"}] = body["content"]
+    end
+  end
+
   test "durations below and above the declared union are rejected" do
     for duration <- [1, 31] do
       assert {:error, %Error{kind: :validation}} =

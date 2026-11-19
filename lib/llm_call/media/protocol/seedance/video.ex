@@ -187,11 +187,13 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
     }
   end
 
-  defp reference_parts(%Request{references: references}) do
+  defp reference_parts(%Request{references: references}) when is_list(references) do
     references
     |> Enum.with_index()
     |> Enum.map(fn {reference, index} -> image_part(image_url(reference), frame_role(index)) end)
   end
+
+  defp reference_parts(%Request{}), do: []
 
   defp image_url(%Content.Image{source: {:url, url}}), do: url
   defp image_url(%Content.Image{source: source}) when is_binary(source), do: source

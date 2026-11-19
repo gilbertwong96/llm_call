@@ -269,6 +269,21 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "malformed create options are a typed error and keep the connection alive" do
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start()
+
+    for opts <- [nil, %{}, "x", [:not_a_tuple], [bogus: 1]] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Connection.create(connection, request(), opts)
+
+      assert is_binary(message)
+    end
+
+    assert {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
+    Connection.close(connection)
+  end
+
   test "steer sends a response.steer event for the lane" do
     TestWSServer.set_mode(:hold)
     {:ok, connection} = start()

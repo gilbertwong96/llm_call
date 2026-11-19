@@ -182,46 +182,11 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   end
 
   def handle_call({:create, request, opts}, {pid, _tag}, state) do
-    stream_id =
-      Keyword.get(opts, :stream_id) ||
-        "lane-" <> Integer.to_string(System.unique_integer([:positive]))
-
-    with :ok <- validate_stream_id(stream_id),
-         false <- Map.has_key?(state.lanes, stream_id),
-         {:ok, encoded} <- Responses.encode_request(request, state.client.config),
-         {:ok, stream_state} <- Responses.init_stream(request, state.client.config),
-         {:ok, json} <- encode(state, create_event(encoded.body, stream_id)),
-         {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
-      ref = make_ref()
-      monitor = Process.monitor(pid)
-
-      lane = %{
-        ref: ref,
-        subscriber: pid,
-        monitor: monitor,
-        state: stream_state,
-        response_id: nil
-      }
-
-      stream = %LlmCall.Protocol.OpenAI.Responses.Connection.Stream{
-        connection: self(),
-        stream_id: stream_id,
-        ref: ref,
-        subscriber: pid
-      }
-
-      state = %{state | conn: conn, lanes: Map.put(state.lanes, stream_id, lane)}
-      {:reply, {:ok, stream}, state}
+    with :ok <- validate_create_opts(opts),
+         :ok <- validate_request(request) do
+      create_lane(request, opts, pid, state)
     else
-      true ->
-        {:reply, {:error, validation("stream_id #{inspect(stream_id)} is already in use")}, state}
-
-      {:error, %Error{} = error} ->
-        {:reply, {:error, error}, state}
-
-      {:error, reason} ->
-        state = send_failure(state, reason)
-        {:reply, {:error, transport(reason)}, state}
+      {:error, %Error{} = error} -> {:reply, {:error, error}, state}
     end
   end
 
@@ -292,6 +257,69 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     case do_reconnect(state, :reconnected) do
       {:ok, state} -> {:reply, :ok, state}
       {:error, error, state} -> {:reply, {:error, transport(error)}, state}
+    end
+  end
+
+  defp validate_request(%LlmCall.Request{}), do: :ok
+
+  defp validate_request(_request) do
+    {:error, validation("create requires a %LlmCall.Request{}")}
+  end
+
+  defp validate_create_opts(opts) do
+    cond do
+      not Keyword.keyword?(opts) ->
+        {:error, validation("create options must be a keyword list")}
+
+      Enum.any?(Keyword.keys(opts), &(&1 != :stream_id)) ->
+        {:error, validation("create options only accept :stream_id")}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp create_lane(request, opts, pid, state) do
+    stream_id =
+      Keyword.get(opts, :stream_id) ||
+        "lane-" <> Integer.to_string(System.unique_integer([:positive]))
+
+    with :ok <- validate_stream_id(stream_id),
+         false <- Map.has_key?(state.lanes, stream_id),
+         {:ok, encoded} <- Responses.encode_request(request, state.client.config),
+         {:ok, stream_state} <- Responses.init_stream(request, state.client.config),
+         {:ok, json} <- encode(state, create_event(encoded.body, stream_id)),
+         {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
+      ref = make_ref()
+      monitor = Process.monitor(pid)
+
+      lane = %{
+        ref: ref,
+        subscriber: pid,
+        monitor: monitor,
+        state: stream_state,
+        response_id: nil
+      }
+
+      stream = %LlmCall.Protocol.OpenAI.Responses.Connection.Stream{
+        connection: self(),
+        stream_id: stream_id,
+        ref: ref,
+        subscriber: pid
+      }
+
+      state = %{state | conn: conn, lanes: Map.put(state.lanes, stream_id, lane)}
+      {:reply, {:ok, stream}, state}
+    else
+      true ->
+        {:reply, {:error, validation("stream_id #{inspect(stream_id)} is already in use")}, state}
+
+      {:error, %Error{} = error} ->
+        {:reply, {:error, error}, state}
+
+      {:error, reason} ->
+        state = send_failure(state, reason)
+        {:reply, {:error, transport(reason)}, state}
     end
   end
 
