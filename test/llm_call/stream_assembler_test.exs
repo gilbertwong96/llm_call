@@ -156,6 +156,28 @@ defmodule LlmCall.StreamAssemblerTest do
              })
   end
 
+  test "a non-integer index is treated as absent instead of crashing" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start("0", "call_1", "f"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta("0", ~s({"a":1})))
+    {:ok, _assembler, [call]} = StreamAssembler.feed(assembler, stop("0"))
+
+    assert call.index == 0
+    assert call.id == "call_1"
+    assert call.arguments == %{"a" => 1}
+  end
+
+  test "a negative index is treated as absent instead of crashing" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(-1, "call_1", "f"))
+    {:ok, _assembler, [call]} = StreamAssembler.finish(assembler)
+
+    assert call.index == 0
+    assert call.id == "call_1"
+  end
+
   test "StreamState carries codec and opaque data" do
     state = StreamState.new(SomeCodec, %{cursor: 1})
 

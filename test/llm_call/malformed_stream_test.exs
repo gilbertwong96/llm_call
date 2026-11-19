@@ -13,6 +13,7 @@ defmodule LlmCall.MalformedStreamTest do
       LlmCall.Protocol.Anthropic.Messages -> %{base | model: "claude", params: %{max_tokens: 10}}
       LlmCall.Protocol.Gemini.GenerateContent -> %{base | model: "gemini-2.5-pro"}
       LlmCall.Protocol.OpenAI.Chat -> %{base | model: "gpt-4o"}
+      LlmCall.Protocol.OpenAI.Responses -> %{base | model: "gpt-4.1"}
     end
   end
 
@@ -61,6 +62,40 @@ defmodule LlmCall.MalformedStreamTest do
       assert {:error, %Error{kind: :invalid_response}} =
                codec.decode_stream_event(payload, %Config{}, state)
     end
+  end
+
+  test "a malformed stream index becomes nil instead of leaking a string" do
+    anthropic = LlmCall.Protocol.Anthropic.Messages
+    assert {:ok, state} = anthropic.init_stream(request(anthropic), %Config{})
+
+    assert {:ok, [event], _state} =
+             anthropic.decode_stream_event(
+               %{
+                 "type" => "content_block_start",
+                 "index" => "0",
+                 "content_block" => %{"type" => "tool_use", "id" => "t1", "name" => "f"}
+               },
+               %Config{},
+               state
+             )
+
+    assert event.index == nil
+
+    responses = LlmCall.Protocol.OpenAI.Responses
+    assert {:ok, rstate} = responses.init_stream(request(responses), %Config{})
+
+    assert {:ok, [revent], _state} =
+             responses.decode_stream_event(
+               %{
+                 "type" => "response.output_item.added",
+                 "output_index" => "0",
+                 "item" => %{"type" => "function_call", "call_id" => "c", "name" => "f"}
+               },
+               %Config{},
+               rstate
+             )
+
+    assert revent.index == nil
   end
 
   test "Gemini ignores a non-map usageMetadata instead of crashing" do

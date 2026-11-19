@@ -82,6 +82,11 @@ defmodule LlmCall.HTTPTest do
     assert HTTP.retry_after_ms([]) == nil
   end
 
+  test "retry_after_ms/1 tolerates a non-list argument" do
+    assert HTTP.retry_after_ms(nil) == nil
+    assert HTTP.retry_after_ms(%{"retry-after" => "5"}) == nil
+  end
+
   test "there is one transport module" do
     assert Code.ensure_loaded?(HTTP)
     assert function_exported?(HTTP, :request, 2)

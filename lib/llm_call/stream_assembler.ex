@@ -150,5 +150,6 @@ defmodule LlmCall.StreamAssembler do
   end
 
   defp normalize_index(nil), do: 0
-  defp normalize_index(index) when is_integer(index), do: index
+  defp normalize_index(index) when is_integer(index) and index >= 0, do: index
+  defp normalize_index(_index), do: 0
 end

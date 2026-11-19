@@ -265,8 +265,10 @@ defmodule LlmCall do
          %EncodedRequest{method: :get} = encoded,
          call_headers
        ) do
-    headers = headers(client, encoded, call_headers)
-    {:ok, HTTP.Request.get(url(client, encoded), headers, client.timeout)}
+    with {:ok, url} <- url(client, encoded),
+         {:ok, headers} <- headers(client, encoded, call_headers) do
+      {:ok, HTTP.Request.get(url, headers, client.timeout)}
+    end
   end
 
   defp build_http_request(
@@ -274,9 +276,10 @@ defmodule LlmCall do
          %EncodedRequest{method: :post} = encoded,
          call_headers
        ) do
-    with {:ok, body} <- encode_body(client, encoded.body) do
-      headers = headers(client, encoded, call_headers)
-      {:ok, HTTP.Request.post(url(client, encoded), headers, body, client.timeout)}
+    with {:ok, body} <- encode_body(client, encoded.body),
+         {:ok, url} <- url(client, encoded),
+         {:ok, headers} <- headers(client, encoded, call_headers) do
+      {:ok, HTTP.Request.post(url, headers, body, client.timeout)}
     end
   end
 
@@ -285,11 +288,26 @@ defmodule LlmCall do
   end
 
   defp url(%Client{} = client, %EncodedRequest{} = encoded) do
-    client.base_url <> encoded.path <> encode_query(encoded.query)
+    with :ok <- validate_path(encoded.path),
+         {:ok, query} <- encode_query(encoded.query) do
+      {:ok, String.trim_trailing(client.base_url, "/") <> encoded.path <> query}
+    end
+  end
+
+  defp validate_path(path) when is_binary(path), do: :ok
+
+  defp validate_path(path) do
+    {:error, invalid("request path must be a string, got: #{inspect(path)}", :validation)}
   end
 
   defp headers(%Client{} = client, %EncodedRequest{} = encoded, call_headers) do
-    HTTP.merge_headers([client.headers, call_headers || [], encoded.headers])
+    headers = [client.headers, call_headers || [], encoded.headers]
+
+    if Enum.all?(headers, &LlmCall.HTTP.valid_headers?/1) do
+      {:ok, HTTP.merge_headers(headers)}
+    else
+      {:error, invalid("headers: must be a list of {name, value} string tuples", :validation)}
+    end
   end
 
   defp encode_body(_client, nil), do: {:ok, ""}
@@ -413,10 +431,17 @@ defmodule LlmCall do
 
   defp reject_streaming(_request), do: :ok
 
-  defp encode_query(query) when query == %{}, do: ""
+  defp encode_query(query) when query == %{}, do: {:ok, ""}
+
+  defp encode_query(query) when is_map(query) do
+    {:ok, "?" <> URI.encode_query(query)}
+  rescue
+    _error ->
+      {:error, invalid("request query must be string-encodable", :validation)}
+  end
 
   defp encode_query(query) do
-    "?" <> URI.encode_query(query)
+    {:error, invalid("request query must be a map, got: #{inspect(query)}", :validation)}
   end
 
   defp invalid(message, kind), do: %Error{kind: kind, message: message}
