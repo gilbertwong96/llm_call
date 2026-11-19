@@ -90,6 +90,36 @@ defmodule LlmCall.StreamTest do
       codecs: [chat: NoDecodeErrorCodec]
   end
 
+  defmodule RaisingCodec do
+    @moduledoc false
+
+    alias LlmCall.{Capabilities, EncodedRequest, StreamState}
+
+    def validate_request(_request, _config), do: :ok
+
+    def encode_request(_request, _config),
+      do: {:ok, %EncodedRequest{method: :post, path: "/stream", body: %{"stream" => true}}}
+
+    def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+    def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+    def decode_error(_term, _config), do: %LlmCall.Error{kind: :provider, message: "boom"}
+
+    def decode_stream_event(_term, _config, _state), do: raise("boom")
+
+    def finish_stream(state, _config), do: {:ok, [], state}
+  end
+
+  defmodule RaisingProvider do
+    @moduledoc false
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1:1",
+      auth: :none,
+      codecs: [chat: RaisingCodec]
+  end
+
   setup do
     TestHTTP.start()
     on_exit(&TestHTTP.stop/0)
@@ -261,6 +291,20 @@ defmodule LlmCall.StreamTest do
 
     assert_received {:observed, :text_delta}
     refute_received {:observed, _}
+  end
+
+  test "a codec exception becomes HTTP.Error instead of escaping the stream" do
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"text":"x"}))}
+    ])
+
+    client = RaisingProvider.client(base_url: TestHTTP.url())
+    assert {:ok, stream} = LlmCall.stream(client, request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{kind: :invalid_response, message: message} = HTTP.Error.error(exception)
+    assert message =~ "boom"
   end
 
   test "a codec without decode_error is a validation error before the request" do
