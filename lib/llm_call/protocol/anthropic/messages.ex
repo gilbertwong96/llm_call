@@ -518,12 +518,32 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
   end
 
   def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
-    data = StreamState.data(state)
-    {events, data} = stream_events(term, config, data)
-    {:ok, events, StreamState.new(__MODULE__, data)}
+    with :ok <- validate_stream_chunk(term) do
+      data = StreamState.data(state)
+      {events, data} = stream_events(term, config, data)
+      {:ok, events, StreamState.new(__MODULE__, data)}
+    end
   end
 
   def decode_stream_event(_term, _config, %StreamState{} = state), do: {:ok, [], state}
+
+  defp validate_stream_chunk(%{"type" => "message_start", "message" => message})
+       when not is_nil(message) and not is_map(message),
+       do: {:error, invalid_response("message_start message must be an object")}
+
+  defp validate_stream_chunk(%{"type" => "content_block_start", "content_block" => block})
+       when not is_nil(block) and not is_map(block),
+       do: {:error, invalid_response("content_block_start content_block must be an object")}
+
+  defp validate_stream_chunk(%{"type" => "content_block_delta", "delta" => delta})
+       when not is_nil(delta) and not is_map(delta),
+       do: {:error, invalid_response("content_block_delta delta must be an object")}
+
+  defp validate_stream_chunk(%{"type" => "message_delta", "delta" => delta})
+       when not is_nil(delta) and not is_map(delta),
+       do: {:error, invalid_response("message_delta delta must be an object")}
+
+  defp validate_stream_chunk(_term), do: :ok
 
   @impl true
   def finish_stream(%StreamState{} = state, _config), do: {:ok, [], state}
@@ -544,11 +564,12 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     %Content.Thinking{text: text, signature: block["signature"]}
   end
 
-  defp decode_block(%{"type" => "tool_use"} = block) do
+  defp decode_block(%{"type" => "tool_use", "id" => id, "name" => name, "input" => input})
+       when is_binary(id) and id != "" and is_binary(name) and name != "" and is_map(input) do
     %ToolCall{
-      id: block["id"],
-      name: block["name"],
-      arguments: block["input"],
+      id: id,
+      name: name,
+      arguments: input,
       raw_arguments: nil,
       arguments_error: nil
     }

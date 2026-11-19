@@ -448,7 +448,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp decode_for_lane(event, stream_id, lane, state) do
     response_id = response_id(event) || lane.response_id
 
-    case Responses.decode_stream_event(event, state.client.config, lane.state) do
+    case safe_decode_event(event, state.client.config, lane.state) do
       {:ok, events, stream_state} ->
         send_events(lane, events)
         finished? = Enum.any?(events, &(&1.type == :message_stop))
@@ -469,6 +469,17 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
         state = remember_response(state, stream_id, response_id || lane.response_id)
         {:ok, drop_lane(state, stream_id, lane)}
     end
+  end
+
+  defp safe_decode_event(event, config, stream_state) do
+    Responses.decode_stream_event(event, config, stream_state)
+  rescue
+    error ->
+      {:error,
+       %Error{
+         kind: :invalid_response,
+         message: "responses stream codec raised: #{Exception.message(error)}"
+       }}
   end
 
   defp response_id(%{"response" => %{"id" => id}}) when is_binary(id), do: id

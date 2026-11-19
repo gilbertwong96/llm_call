@@ -58,4 +58,64 @@ defmodule LlmCall.MalformedDecodeTest do
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{data: %{"functionCall" => _}}]}} =
              LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
+
+  test "Gemini rejects a non-map functionResponse body as invalid_response" do
+    payload = %{
+      "candidates" => [
+        %{
+          "content" => %{
+            "parts" => [%{"functionResponse" => %{"name" => "f", "response" => "x"}}]
+          }
+        }
+      ]
+    }
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+  end
+
+  test "Anthropic keeps an invalid tool_use block as raw" do
+    payload = %{
+      "content" => [
+        %{"type" => "tool_use", "id" => "x", "name" => "f", "input" => "not-map"}
+      ]
+    }
+
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "tool_use"}]}} =
+             LlmCall.Protocol.Anthropic.Messages.decode_response(payload, %Config{})
+  end
+
+  test "Gemini keeps an inlineData block without bytes as raw" do
+    payload = %{
+      "candidates" => [
+        %{"content" => %{"parts" => [%{"inlineData" => %{"mimeType" => "image/png"}}]}}
+      ]
+    }
+
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "inlineData"}]}} =
+             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+  end
+
+  test "OpenAI Chat rejects empty tool call names" do
+    payload = %{
+      "choices" => [
+        %{
+          "message" => %{
+            "tool_calls" => [%{"id" => "id", "function" => %{"name" => "", "arguments" => "{}"}}]
+          }
+        }
+      ]
+    }
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
+  end
+
+  test "Seedance rejects a succeeded task with non-map content" do
+    assert {:error, %Error{kind: :invalid_response}} =
+             LlmCall.Media.Protocol.Seedance.Video.decode_operation(
+               %{"status" => "succeeded", "content" => "x"},
+               %Config{}
+             )
+  end
 end

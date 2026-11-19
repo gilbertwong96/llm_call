@@ -627,14 +627,35 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   end
 
   def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
-    data = StreamState.data(state)
-    data = %{data | usage: accumulate_usage(data.usage, term["usageMetadata"])}
+    with :ok <- validate_stream_chunk(term) do
+      data = StreamState.data(state)
+      data = %{data | usage: accumulate_usage(data.usage, term["usageMetadata"])}
 
-    {events, data} = chunk_events(term, config, data)
-    {:ok, events, StreamState.new(__MODULE__, data)}
+      {events, data} = chunk_events(term, config, data)
+      {:ok, events, StreamState.new(__MODULE__, data)}
+    end
   end
 
   def decode_stream_event(_term, _config, %StreamState{} = state), do: {:ok, [], state}
+
+  defp validate_stream_chunk(%{"candidates" => [candidate | _]}) when is_map(candidate) do
+    case candidate["content"] do
+      nil ->
+        :ok
+
+      content when is_map(content) ->
+        case content["parts"] do
+          nil -> :ok
+          parts when is_list(parts) -> :ok
+          _other -> {:error, invalid_response("content.parts must be a list")}
+        end
+
+      _other ->
+        {:error, invalid_response("candidate content must be an object")}
+    end
+  end
+
+  defp validate_stream_chunk(_term), do: :ok
 
   @impl true
   def finish_stream(%StreamState{} = state, %Config{} = config) do
@@ -712,8 +733,9 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     end
   end
 
-  defp decode_part(%{"inlineData" => %{} = data}) do
-    %Content.Image{source: {:base64, data["data"]}, media_type: data["mimeType"]}
+  defp decode_part(%{"inlineData" => %{"data" => bytes} = data})
+       when is_binary(bytes) and bytes != "" do
+    %Content.Image{source: {:base64, bytes}, media_type: data["mimeType"]}
   end
 
   defp decode_part(%{"fileData" => %{} = data}) do
@@ -725,13 +747,20 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   end
 
   defp decode_part(%{"functionResponse" => %{"name" => name} = response}) do
-    body = response["response"] || %{}
+    case response["response"] do
+      nil ->
+        %ToolResult{name: name, content: "", is_error: false}
 
-    %ToolResult{
-      name: name,
-      content: body["result"] || body["error"] || "",
-      is_error: Map.has_key?(body, "error")
-    }
+      body when is_map(body) ->
+        %ToolResult{
+          name: name,
+          content: body["result"] || body["error"] || "",
+          is_error: Map.has_key?(body, "error")
+        }
+
+      _other ->
+        :error
+    end
   end
 
   defp decode_part(part) when is_map(part) do

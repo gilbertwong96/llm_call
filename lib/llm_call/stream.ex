@@ -108,7 +108,7 @@ defmodule LlmCall.Stream do
   end
 
   defp decode_event(state, term) do
-    case state.codec.decode_stream_event(term, state.client.config, state.stream_state) do
+    case safe_decode_event(state, term) do
       {:ok, events, stream_state} ->
         state = %{state | stream_state: stream_state}
         yield_all(events, state)
@@ -123,8 +123,15 @@ defmodule LlmCall.Stream do
     end
   end
 
+  defp safe_decode_event(state, term) do
+    state.codec.decode_stream_event(term, state.client.config, state.stream_state)
+  rescue
+    error ->
+      {:error, invalid_response("stream codec raised: #{Exception.message(error)}")}
+  end
+
   defp finish_stream(state) do
-    case state.codec.finish_stream(state.stream_state, state.client.config) do
+    case safe_finish_stream(state) do
       {:ok, events, stream_state} ->
         state = %{state | stream_state: stream_state}
         yield_all(events, state)
@@ -132,6 +139,13 @@ defmodule LlmCall.Stream do
       {:error, %Error{} = error} ->
         raise HTTP.Error, error: error
     end
+  end
+
+  defp safe_finish_stream(state) do
+    state.codec.finish_stream(state.stream_state, state.client.config)
+  rescue
+    error ->
+      {:error, invalid_response("stream finish raised: #{Exception.message(error)}")}
   end
 
   defp yield_all(_events, %{halted?: true} = state), do: state

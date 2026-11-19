@@ -167,6 +167,14 @@ defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
     assert next.path == "/api/v3/contents/generations/tasks/foo%2Fbar"
   end
 
+  test "failed operations normalize numeric provider codes to strings" do
+    assert {:ok, %Operation{status: :failed, error: %Error{code: "123"}}} =
+             Video.decode_operation(
+               %{"status" => "failed", "error" => %{"code" => 123}},
+               %Config{}
+             )
+  end
+
   test "operation raw follows the capture_raw policy" do
     assert :ok =
              LlmCall.MediaConformance.assert_operation_capture_raw(

@@ -142,7 +142,9 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
   defp fetch_id(_payload), do: {:error, invalid_response("task payload has no id")}
 
   defp completed_operation(payload, config) do
-    case get_in(payload, ["content", "video_url"]) do
+    content = payload["content"]
+
+    case is_map(content) && content["video_url"] do
       url when is_binary(url) and url != "" ->
         {:ok,
          %Operation{
@@ -168,7 +170,7 @@ defmodule LlmCall.Media.Protocol.Seedance.Video do
       error: %Error{
         kind: :provider,
         message: error["message"] || "task #{terminal}",
-        code: error["code"] || terminal,
+        code: Helpers.code(error["code"]) || terminal,
         raw: payload
       },
       raw: Helpers.capture_response(config, payload)

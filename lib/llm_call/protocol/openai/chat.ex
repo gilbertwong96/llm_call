@@ -497,14 +497,46 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   end
 
   def decode_stream_event(term, %Config{} = config, %StreamState{} = state) when is_map(term) do
-    data = StreamState.data(state)
-    {events, data} = chunk_events(term, config, data)
-    {:ok, events, StreamState.new(__MODULE__, data)}
+    with :ok <- validate_stream_chunk(term) do
+      data = StreamState.data(state)
+      {events, data} = chunk_events(term, config, data)
+      {:ok, events, StreamState.new(__MODULE__, data)}
+    end
   end
 
   def decode_stream_event(term, _config, _state) do
     {:error, invalid_response("stream chunk is not an object: #{inspect(term)}")}
   end
+
+  defp validate_stream_chunk(%{"choices" => choices}) when is_list(choices) do
+    Enum.find_value(choices, :ok, fn
+      %{"delta" => %{"tool_calls" => nil}} ->
+        nil
+
+      %{"delta" => %{"tool_calls" => calls}} when is_list(calls) ->
+        if Enum.all?(calls, &valid_tool_call_chunk?/1),
+          do: nil,
+          else: {:error, invalid_response("tool_calls must contain objects")}
+
+      %{"delta" => %{"tool_calls" => _other}} ->
+        {:error, invalid_response("tool_calls must be a list")}
+
+      _choice ->
+        nil
+    end)
+  end
+
+  defp validate_stream_chunk(_term), do: :ok
+
+  defp valid_tool_call_chunk?(%{} = call) do
+    case call["function"] do
+      nil -> true
+      function when is_map(function) -> true
+      _other -> false
+    end
+  end
+
+  defp valid_tool_call_chunk?(_call), do: false
 
   @impl true
   def finish_stream(%StreamState{} = state, %Config{} = config) do
@@ -601,16 +633,21 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp decode_tool_call(entry, function, config) do
     raw = function["arguments"]
+    name = function["name"]
     {arguments, arguments_error} = decode_arguments(raw, config.json)
 
-    {:ok,
-     %ToolCall{
-       id: entry["id"],
-       name: function["name"],
-       arguments: arguments,
-       raw_arguments: raw,
-       arguments_error: arguments_error
-     }}
+    if is_binary(name) and name != "" do
+      {:ok,
+       %ToolCall{
+         id: entry["id"],
+         name: name,
+         arguments: arguments,
+         raw_arguments: raw,
+         arguments_error: arguments_error
+       }}
+    else
+      {:error, invalid_response("tool call requires a name")}
+    end
   end
 
   defp decode_arguments(raw, json), do: Helpers.decode_arguments(raw, json)
