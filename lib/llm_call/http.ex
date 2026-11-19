@@ -197,13 +197,17 @@ defmodule LlmCall.HTTP do
   def request(%Request{} = request, opts \\ []) do
     pool = Keyword.get(opts, :name, @default_pool)
 
-    case Finch.request(build(request), pool, forward(opts, request)) do
-      {:ok, %Finch.Response{status: status, headers: headers, body: body}} ->
-        {:ok, %{status: status, headers: headers, body: body}}
+    with :ok <- validate_pool(pool) do
+      case Finch.request(build(request), pool, forward(opts, request)) do
+        {:ok, %Finch.Response{status: status, headers: headers, body: body}} ->
+          {:ok, %{status: status, headers: headers, body: body}}
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
+  rescue
+    error in [ArgumentError] -> {:error, Exception.message(error)}
   end
 
   @doc """
@@ -230,9 +234,28 @@ defmodule LlmCall.HTTP do
       {:trailers, _trailers}, acc -> {:cont, acc}
     end
 
-    case Finch.stream_while(build(request), pool, acc, reducer, forward(opts, request)) do
-      {:ok, acc} -> {:ok, acc}
-      {:error, reason, _acc} -> {:error, reason}
+    with :ok <- validate_pool(pool) do
+      case Finch.stream_while(build(request), pool, acc, reducer, forward(opts, request)) do
+        {:ok, acc} -> {:ok, acc}
+        {:error, reason, _acc} -> {:error, reason}
+      end
+    end
+  end
+
+  # A missing pool makes Finch raise `unknown registry`, before any reducer runs.
+  # Checking it here keeps a client typo inside the error-tuple contract.
+  defp validate_pool(pool) do
+    if pool_alive?(pool), do: :ok, else: {:error, {:unknown_pool, pool}}
+  rescue
+    _error -> {:error, {:unknown_pool, pool}}
+  end
+
+  defp pool_alive?(name) when is_atom(name), do: Process.whereis(name) != nil
+
+  defp pool_alive?(name) do
+    case GenServer.whereis(name) do
+      nil -> false
+      pid -> Process.alive?(pid)
     end
   end
 

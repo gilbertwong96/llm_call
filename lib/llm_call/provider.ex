@@ -161,7 +161,17 @@ defmodule LlmCall.Provider do
           "client option :timeout must be a positive integer or :infinity, got: #{inspect(timeout)}"
   end
 
-  defp validate_base_url!(url) when is_binary(url) and url != "", do: url
+  defp validate_base_url!(url) when is_binary(url) and url != "" do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        url
+
+      _other ->
+        raise ArgumentError,
+              "client option :base_url must be an http(s) URL with a host, got: #{inspect(url)}"
+    end
+  end
 
   defp validate_base_url!(url) do
     raise ArgumentError,
