@@ -17,6 +17,11 @@ defmodule LlmCall.Stream do
   `{:error, %LlmCall.Error{}}` from `decode_stream_event/3`. An `Enumerable` cannot
   return a tuple at that point.
 
+  A codec that breaks the `LlmCall.Codec` contract is reported the same way, as
+  `:invalid_response`: an exception raised from `decode_stream_event/3` or
+  `finish_stream/2`, or a return value outside `{:ok, events, state}`,
+  `{:done, state}`, and `{:error, %LlmCall.Error{}}`.
+
   `{:halt, acc}` from the reducer stops the request and closes the connection;
   `finish_stream/2` is not called for a halted consumer. Suspension
   (`{:suspend, acc}`) is not supported and raises.
@@ -109,7 +114,7 @@ defmodule LlmCall.Stream do
 
   defp decode_event(state, term) do
     case safe_decode_event(state, term) do
-      {:ok, events, stream_state} ->
+      {:ok, events, stream_state} when is_list(events) ->
         state = %{state | stream_state: stream_state}
         yield_all(events, state)
 
@@ -120,6 +125,10 @@ defmodule LlmCall.Stream do
 
       {:error, %Error{} = error} ->
         raise HTTP.Error, error: error
+
+      other ->
+        raise HTTP.Error,
+          error: invalid_response("decode_stream_event/3 returned #{inspect(other)}")
     end
   end
 
@@ -132,12 +141,16 @@ defmodule LlmCall.Stream do
 
   defp finish_stream(state) do
     case safe_finish_stream(state) do
-      {:ok, events, stream_state} ->
+      {:ok, events, stream_state} when is_list(events) ->
         state = %{state | stream_state: stream_state}
         yield_all(events, state)
 
       {:error, %Error{} = error} ->
         raise HTTP.Error, error: error
+
+      other ->
+        raise HTTP.Error,
+          error: invalid_response("finish_stream/2 returned #{inspect(other)}")
     end
   end
 

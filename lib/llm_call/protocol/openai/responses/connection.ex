@@ -30,6 +30,18 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
 
   `start_link/1` accepts `headers:` for the WebSocket handshake; they are merged
   after the client headers and reused on reconnect.
+
+  ## Delivery
+
+  A lane's events are `send/2`-ed to the process that called `create/3`, which
+  reduces the returned stream. There is no backpressure: a subscriber that stops
+  reducing while its lane keeps producing will grow its own mailbox. Reduce each
+  lane, or `cancel/2` it.
+
+  A lane ends when the response finishes, when its subscriber halts the stream
+  (`cancel` is sent), when the subscriber exits (monitored), or on a connection
+  failure. An unknown or duplicate `stream_id` is a `:validation` error, not a
+  crash: a caller mistake never takes down the other lanes.
   """
 
   use GenServer
