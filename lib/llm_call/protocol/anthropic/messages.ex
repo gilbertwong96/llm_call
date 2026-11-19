@@ -539,11 +539,43 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
        when not is_nil(delta) and not is_map(delta),
        do: {:error, invalid_response("content_block_delta delta must be an object")}
 
+  defp validate_stream_chunk(%{"type" => "content_block_delta", "delta" => delta})
+       when is_map(delta),
+       do: validate_delta(delta)
+
   defp validate_stream_chunk(%{"type" => "message_delta", "delta" => delta})
        when not is_nil(delta) and not is_map(delta),
        do: {:error, invalid_response("message_delta delta must be an object")}
 
   defp validate_stream_chunk(_term), do: :ok
+
+  defp validate_delta(%{"type" => "text_delta", "text" => text}) when is_binary(text), do: :ok
+
+  defp validate_delta(%{"type" => "text_delta"}),
+    do: {:error, invalid_response("text_delta text must be a string")}
+
+  defp validate_delta(%{"type" => "thinking_delta", "thinking" => text})
+       when is_binary(text),
+       do: :ok
+
+  defp validate_delta(%{"type" => "thinking_delta"}),
+    do: {:error, invalid_response("thinking_delta thinking must be a string")}
+
+  defp validate_delta(%{"type" => "signature_delta", "signature" => signature})
+       when is_binary(signature),
+       do: :ok
+
+  defp validate_delta(%{"type" => "signature_delta"}),
+    do: {:error, invalid_response("signature_delta signature must be a string")}
+
+  defp validate_delta(%{"type" => "input_json_delta", "partial_json" => fragment})
+       when is_binary(fragment),
+       do: :ok
+
+  defp validate_delta(%{"type" => "input_json_delta"}),
+    do: {:error, invalid_response("input_json_delta partial_json must be a string")}
+
+  defp validate_delta(_delta), do: :ok
 
   @impl true
   def finish_stream(%StreamState{} = state, _config), do: {:ok, [], state}
@@ -561,7 +593,16 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp decode_block(%{"type" => "thinking", "thinking" => text} = block)
        when is_binary(text) do
-    %Content.Thinking{text: text, signature: block["signature"]}
+    case block["signature"] do
+      nil ->
+        %Content.Thinking{text: text, signature: nil}
+
+      signature when is_binary(signature) ->
+        %Content.Thinking{text: text, signature: signature}
+
+      _other ->
+        %Content.Raw{type: "thinking", data: block}
+    end
   end
 
   defp decode_block(%{"type" => "tool_use", "id" => id, "name" => name, "input" => input})

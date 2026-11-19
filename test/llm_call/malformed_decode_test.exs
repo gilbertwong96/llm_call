@@ -111,6 +111,52 @@ defmodule LlmCall.MalformedDecodeTest do
              LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
   end
 
+  test "OpenAI Chat rejects empty tool call ids" do
+    payload = %{
+      "choices" => [
+        %{
+          "message" => %{
+            "tool_calls" => [%{"id" => "", "function" => %{"name" => "f", "arguments" => "{}"}}]
+          }
+        }
+      ]
+    }
+
+    assert {:error, %Error{kind: :invalid_response}} =
+             LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
+  end
+
+  test "Gemini keeps a fileData block without fileUri as raw" do
+    payload = %{
+      "candidates" => [
+        %{"content" => %{"parts" => [%{"fileData" => %{"mimeType" => "image/png"}}]}}
+      ]
+    }
+
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "fileData"}]}} =
+             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+  end
+
+  test "Gemini keeps a thought block without text as raw" do
+    payload = %{
+      "candidates" => [
+        %{"content" => %{"parts" => [%{"thought" => true, "text" => nil}]}}
+      ]
+    }
+
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "text"}]}} =
+             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+  end
+
+  test "Anthropic keeps a thinking block with an invalid signature as raw" do
+    payload = %{
+      "content" => [%{"type" => "thinking", "thinking" => "x", "signature" => 1}]
+    }
+
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "thinking"}]}} =
+             LlmCall.Protocol.Anthropic.Messages.decode_response(payload, %Config{})
+  end
+
   test "Seedance rejects a succeeded task with non-map content" do
     assert {:error, %Error{kind: :invalid_response}} =
              LlmCall.Media.Protocol.Seedance.Video.decode_operation(

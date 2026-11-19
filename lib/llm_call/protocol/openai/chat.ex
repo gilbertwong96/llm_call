@@ -530,9 +530,18 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
 
   defp valid_tool_call_chunk?(%{} = call) do
     case call["function"] do
-      nil -> true
-      function when is_map(function) -> true
-      _other -> false
+      nil ->
+        true
+
+      function when is_map(function) ->
+        case function["arguments"] do
+          nil -> true
+          arguments when is_binary(arguments) -> true
+          _other -> false
+        end
+
+      _other ->
+        false
     end
   end
 
@@ -634,19 +643,20 @@ defmodule LlmCall.Protocol.OpenAI.Chat do
   defp decode_tool_call(entry, function, config) do
     raw = function["arguments"]
     name = function["name"]
+    id = entry["id"]
     {arguments, arguments_error} = decode_arguments(raw, config.json)
 
-    if is_binary(name) and name != "" do
+    if (is_nil(id) or (is_binary(id) and id != "")) and is_binary(name) and name != "" do
       {:ok,
        %ToolCall{
-         id: entry["id"],
+         id: id,
          name: name,
          arguments: arguments,
          raw_arguments: raw,
          arguments_error: arguments_error
        }}
     else
-      {:error, invalid_response("tool call requires a name")}
+      {:error, invalid_response("tool call requires a non-empty id when present and a name")}
     end
   end
 

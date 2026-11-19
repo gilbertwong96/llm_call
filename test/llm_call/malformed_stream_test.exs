@@ -24,9 +24,33 @@ defmodule LlmCall.MalformedStreamTest do
        %{"type" => "content_block_start", "index" => 0, "content_block" => "x"}},
       {LlmCall.Protocol.Anthropic.Messages,
        %{"type" => "content_block_delta", "index" => 0, "delta" => "x"}},
+      {LlmCall.Protocol.Anthropic.Messages,
+       %{
+         "type" => "content_block_delta",
+         "index" => 0,
+         "delta" => %{"type" => "text_delta", "text" => nil}
+       }},
+      {LlmCall.Protocol.Anthropic.Messages,
+       %{
+         "type" => "content_block_delta",
+         "index" => 0,
+         "delta" => %{"type" => "thinking_delta", "thinking" => nil}
+       }},
+      {LlmCall.Protocol.Anthropic.Messages,
+       %{
+         "type" => "content_block_delta",
+         "index" => 0,
+         "delta" => %{"type" => "signature_delta", "signature" => 1}
+       }},
       {LlmCall.Protocol.OpenAI.Chat, %{"choices" => [%{"delta" => %{"tool_calls" => [1]}}]}},
       {LlmCall.Protocol.OpenAI.Chat,
        %{"choices" => [%{"delta" => %{"tool_calls" => [%{"function" => "x"}]}}]}},
+      {LlmCall.Protocol.OpenAI.Chat,
+       %{
+         "choices" => [
+           %{"delta" => %{"tool_calls" => [%{"function" => %{"arguments" => %{}}}]}}
+         ]
+       }},
       {LlmCall.Protocol.Gemini.GenerateContent,
        %{"candidates" => [%{"content" => %{"parts" => "x"}}]}}
     ]
@@ -37,5 +61,13 @@ defmodule LlmCall.MalformedStreamTest do
       assert {:error, %Error{kind: :invalid_response}} =
                codec.decode_stream_event(payload, %Config{}, state)
     end
+  end
+
+  test "Gemini ignores a non-map usageMetadata instead of crashing" do
+    codec = LlmCall.Protocol.Gemini.GenerateContent
+    assert {:ok, state} = codec.init_stream(request(codec), %Config{})
+
+    assert {:ok, _events, %LlmCall.StreamState{data: %{usage: nil}}} =
+             codec.decode_stream_event(%{"usageMetadata" => "x"}, %Config{}, state)
   end
 end
