@@ -343,21 +343,12 @@ defmodule LlmCall do
     end
   end
 
-  defp validate_headers(nil), do: :ok
-
-  defp validate_headers(headers) when is_list(headers) do
-    if Enum.all?(headers, fn
-         {name, value} when is_binary(name) and is_binary(value) -> true
-         _other -> false
-       end) do
+  defp validate_headers(headers) do
+    if HTTP.valid_headers?(headers) do
       :ok
     else
       {:error, invalid("headers: must be a list of {name, value} string tuples", :validation)}
     end
-  end
-
-  defp validate_headers(_headers) do
-    {:error, invalid("headers: must be a list of {name, value} string tuples", :validation)}
   end
 
   defp validate_on_event(nil), do: :ok

@@ -155,18 +155,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     end
   end
 
-  defp validate_headers(headers) when is_list(headers) do
-    if Enum.all?(headers, fn
-         {name, value} when is_binary(name) and is_binary(value) -> true
-         _other -> false
-       end) do
-      :ok
-    else
-      {:error, :invalid_headers}
-    end
+  defp validate_headers(headers) do
+    if LlmCall.HTTP.valid_headers?(headers), do: :ok, else: {:error, :invalid_headers}
   end
-
-  defp validate_headers(_headers), do: {:error, :invalid_headers}
 
   defp validate_client(%Client{}), do: :ok
   defp validate_client(_client), do: {:error, :client_required}

@@ -161,6 +161,21 @@ defmodule LlmCall.HTTP do
     end
   end
 
+  @doc """
+  Whether `headers` is a list of string `{name, value}` pairs (`nil` is allowed).
+  """
+  @spec valid_headers?(term()) :: boolean()
+  def valid_headers?(nil), do: true
+
+  def valid_headers?(headers) when is_list(headers) do
+    Enum.all?(headers, fn
+      {name, value} when is_binary(name) and is_binary(value) -> true
+      _other -> false
+    end)
+  end
+
+  def valid_headers?(_headers), do: false
+
   @doc "Performs one request and returns the whole response."
   @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}
   def request(%Request{} = request, opts \\ []) do
