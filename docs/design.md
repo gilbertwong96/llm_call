@@ -1004,8 +1004,8 @@ LlmCall.Protocol.OpenAI.Responses    # POST /v1/responses
 ```
 
 Both are implemented. The canonical IR is shared, but the response, event and
-state mappings are independent. Responses is HTTP/SSE only in 0.1: OpenAI's
-WebSocket transport mode (`wss://…/v1/responses`) is not covered.
+state mappings are independent. Responses is available over HTTP/SSE and, for
+persistent multiplexed requests, over the WebSocket connection in §24.1.
 
 OpenAI Responses state is deliberately provider-specific. `previous_response_id`
 and `store` live in `Request.provider_options` (for example under an `:openai`

@@ -37,7 +37,7 @@ defmodule LlmCall.WSTest do
     Process.sleep(50)
     send(server, {:pongs, self()})
     assert_receive {:pongs, pongs}, 2_000
-    assert :pong in pongs
+    assert {:pong, "x"} in pongs
 
     Mint.close(conn)
   end

@@ -361,6 +361,28 @@ defmodule LlmCall.Protocol.OpenAIResponsesTest do
              Responses.decode_response(payload, %Config{})
   end
 
+  test "a malformed item or part is tolerated instead of raising" do
+    assert {:ok, state} = Responses.init_stream(text_request(), %Config{})
+
+    assert {:ok, [], state} =
+             Responses.decode_stream_event(
+               %{"type" => "response.output_item.added", "output_index" => 0, "item" => "bad"},
+               %Config{},
+               state
+             )
+
+    assert {:ok, [%StreamEvent{type: :content_start}], _state} =
+             Responses.decode_stream_event(
+               %{
+                 "type" => "response.content_part.added",
+                 "output_index" => 0,
+                 "part" => "bad"
+               },
+               %Config{},
+               state
+             )
+  end
+
   test "a non-object stream event is an invalid_response error" do
     assert {:ok, state} = Responses.init_stream(text_request(), %Config{})
 

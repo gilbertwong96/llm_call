@@ -239,7 +239,10 @@ defmodule LlmCall.TestWSServer do
     state
   end
 
-  defp handle_frame(_socket, :pong, state), do: %{state | pongs: [:pong | state.pongs]}
+  defp handle_frame(_socket, {:pong, payload}, state),
+    do: %{state | pongs: [{:pong, payload} | state.pongs]}
+
+  defp handle_frame(_socket, :pong, state), do: %{state | pongs: [{:pong, ""} | state.pongs]}
   defp handle_frame(_socket, {:close, _code, _reason}, state), do: state
   defp handle_frame(_socket, _frame, state), do: state
 
@@ -328,8 +331,8 @@ defmodule LlmCall.TestWSServer do
         1 -> {:ok, {:text, payload}, rest}
         2 -> {:ok, {:binary, payload}, rest}
         8 -> {:ok, {:close, close_code(payload), close_reason(payload)}, rest}
-        9 -> {:ok, :ping, rest}
-        10 -> {:ok, :pong, rest}
+        9 -> {:ok, {:ping, payload}, rest}
+        10 -> {:ok, {:pong, payload}, rest}
         _ -> {:ok, :unknown, rest}
       end
     end

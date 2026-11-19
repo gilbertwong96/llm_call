@@ -2,13 +2,14 @@ defmodule LlmCall.WS.Mint do
   @moduledoc """
   The default WebSocket transport, backed by `Mint.WebSocket`.
 
-  The connection is passive and owned by the process that calls `connect/3`:
-  Mint delivers socket messages to that process, and `recv/2` feeds them to
-  `Mint.WebSocket.stream/2`. A caller that moves the connection to another
-  process must do so after `connect/3` returns.
+  The connection is active and owned by the process that calls `connect/3`:
+  Mint delivers socket messages to that process, and `recv/2` (or `feed/2`)
+  passes them to `Mint.WebSocket.stream/2`. A caller that moves the connection
+  to another process must do so after `connect/3` returns.
 
-  Pings are answered inside `recv/2`; pongs are ignored. A peer close is
-  returned as `{:close, code, reason}` and the socket is closed.
+  Pings are answered with their payload inside `recv/2` and `feed/2`; pongs are
+  ignored. A peer close is returned as `{:close, code, reason}`; closing the
+  socket is the caller's decision.
   """
 
   @behaviour LlmCall.WS
@@ -147,14 +148,23 @@ defmodule LlmCall.WS.Mint do
   def feed(state, message) do
     case Mint.WebSocket.stream(state.conn, message) do
       {:ok, conn, responses} ->
-        collect_responses(responses, %{state | conn: conn})
+        with {:ok, new_frames, state} <- collect_responses(responses, %{state | conn: conn}),
+             {:ok, pending, state} <- drain_pending(state) do
+          {:ok, pending ++ new_frames, state}
+        end
 
       {:error, _conn, reason, _responses} ->
         {:error, reason}
 
       :unknown ->
-        {:ok, [], state}
+        drain_pending(state)
     end
+  end
+
+  defp drain_pending(%{pending: []} = state), do: {:ok, [], state}
+
+  defp drain_pending(state) do
+    collect(state.pending, %{state | pending: []}, [])
   end
 
   defp collect_responses(responses, state) do
@@ -196,8 +206,11 @@ defmodule LlmCall.WS.Mint do
       {:close, code, reason} ->
         collect(rest, state, [{:close, code, reason} | acc])
 
-      ping when ping in [:ping, {:ping, ""}] or elem(ping, 0) == :ping ->
-        with {:ok, state} <- write(state, :pong), do: collect(rest, state, acc)
+      :ping ->
+        reply_pong(rest, state, acc, "")
+
+      {:ping, payload} ->
+        reply_pong(rest, state, acc, payload)
 
       pong when pong in [:pong, {:pong, ""}] ->
         collect(rest, state, acc)
@@ -220,6 +233,12 @@ defmodule LlmCall.WS.Mint do
     end
   end
 
+  defp reply_pong(rest, state, acc, payload) do
+    with {:ok, state} <- write(state, {:pong, payload}) do
+      collect(rest, state, acc)
+    end
+  end
+
   defp write(state, frame) do
     case Mint.WebSocket.encode(state.websocket, frame) do
       {:ok, websocket, data} ->
@@ -234,8 +253,11 @@ defmodule LlmCall.WS.Mint do
   end
 
   defp receive_stream(state, deadline) do
+    socket = Mint.HTTP.get_socket(state.conn)
+
     receive do
-      message ->
+      message
+      when is_tuple(message) and tuple_size(message) >= 2 and elem(message, 1) == socket ->
         case Mint.WebSocket.stream(state.conn, message) do
           {:ok, conn, responses} -> {:ok, %{state | conn: conn}, responses}
           {:error, _conn, reason, _responses} -> {:error, reason}
@@ -254,6 +276,8 @@ defmodule LlmCall.WS.Mint do
       _other ->
         {:error, {:invalid_url, url}}
     end
+  rescue
+    URI.Error -> {:error, {:invalid_url, url}}
   end
 
   defp default_port("ws"), do: 80
@@ -289,7 +313,7 @@ defmodule LlmCall.WS.Mint do
       |> Keyword.put_new(:timeout, timeout)
 
     [transport_opts: transport_opts, protocols: [:http1]] ++
-      Keyword.take(opts, [:mode, :proxy, :proxy_headers, :log])
+      Keyword.take(opts, [:mode, :log])
   end
 
   defp timeout(opts), do: Keyword.get(opts, :timeout, @default_timeout)

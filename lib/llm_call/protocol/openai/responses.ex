@@ -531,7 +531,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %StreamState{} = state
       ) do
     data = StreamState.data(state)
-    item = term["item"] || %{}
+    item = map_or_empty(term["item"])
     index = term["output_index"]
 
     case item["type"] do
@@ -566,7 +566,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
       ) do
     data = StreamState.data(state)
     index = term["output_index"]
-    part = term["part"] || %{}
+    part = map_or_empty(term["part"])
     type = part["type"] || "unknown"
     data = %{data | blocks: Map.put(data.blocks, index, type)}
 
@@ -640,7 +640,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
         %StreamState{} = state
       ) do
     data = StreamState.data(state)
-    item = term["item"] || %{}
+    item = map_or_empty(term["item"])
     index = term["output_index"]
 
     if item["type"] == "function_call" and index in data.pending_tools do
@@ -747,7 +747,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
 
   defp finalize_stream(term, config, state, default_reason) do
     data = StreamState.data(state)
-    response = term["response"] || %{}
+    response = map_or_empty(term["response"])
     usage = merge_usage(data.usage, response["usage"])
 
     reason =
@@ -945,6 +945,9 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
       raw: raw
     }
   end
+
+  defp map_or_empty(%{} = value), do: value
+  defp map_or_empty(_value), do: %{}
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "openai_responses: " <> message}
