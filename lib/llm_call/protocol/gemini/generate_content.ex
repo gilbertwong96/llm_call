@@ -711,7 +711,7 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     %Error{kind: :invalid_response, message: "gemini_generate_content: " <> message}
   end
 
-  defp decode_part(%{"text" => text, "thought" => true} = part) do
+  defp decode_part(%{"text" => text, "thought" => true} = part) when is_binary(text) do
     %Content.Thinking{text: text, signature: part["thoughtSignature"]}
   end
 
@@ -738,9 +738,10 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
     %Content.Image{source: {:base64, bytes}, media_type: data["mimeType"]}
   end
 
-  defp decode_part(%{"fileData" => %{} = data}) do
+  defp decode_part(%{"fileData" => %{"fileUri" => file_uri} = data})
+       when is_binary(file_uri) and file_uri != "" do
     %Content.File{
-      source: {:url, data["fileUri"]},
+      source: {:url, file_uri},
       media_type: data["mimeType"],
       filename: nil
     }
@@ -820,6 +821,8 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
       reasoning_tokens: wire["thoughtsTokenCount"] || base.reasoning_tokens
     }
   end
+
+  defp accumulate_usage(current, _wire), do: current
 
   defp usage?(nil), do: false
 
