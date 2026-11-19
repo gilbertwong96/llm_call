@@ -210,6 +210,35 @@ defmodule LlmCall.MediaConformanceTest do
     end
   end
 
+  test "assert_operation/1 checks the id and progress types" do
+    poll = %LlmCall.EncodedRequest{method: :get, path: "/jobs/1"}
+
+    id = %Operation{status: :in_progress, id: 1, next: poll, next_kind: :poll}
+
+    assert_raise ExUnit.AssertionError, ~r/Operation.id/, fn ->
+      MediaConformance.assert_operation(id)
+    end
+
+    empty_id = %Operation{status: :in_progress, id: "", next: poll, next_kind: :poll}
+
+    assert_raise ExUnit.AssertionError, ~r/Operation.id/, fn ->
+      MediaConformance.assert_operation(empty_id)
+    end
+
+    for progress <- [140, -1, 1.5, "40"] do
+      operation = %Operation{
+        status: :in_progress,
+        progress: progress,
+        next: poll,
+        next_kind: :poll
+      }
+
+      assert_raise ExUnit.AssertionError, ~r/Operation.progress/, fn ->
+        MediaConformance.assert_operation(operation)
+      end
+    end
+  end
+
   test "assert_operation/1 rejects a next request that carries a credential" do
     operation = %Operation{
       status: :in_progress,

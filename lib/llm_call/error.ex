@@ -4,8 +4,8 @@ defmodule LlmCall.Error do
 
   `retryable?` is a hint derived from the provider's error code, not a retry
   policy. `kind` says who produced the error: a codec produces `:validation`,
-  `:invalid_response`, `:provider` or `:protocol`; the client adds `:transport`
-  for a failure that never reached a provider.
+  `:invalid_response` or `:provider`; the client adds `:transport` for a failure
+  that never reached a provider.
 
   `retry_after_ms` is the parsed `Retry-After` header, when the transport saw
   one; it is a hint, not a retry policy.
@@ -18,7 +18,7 @@ defmodule LlmCall.Error do
   """
 
   @type t :: %__MODULE__{
-          kind: :protocol | :validation | :invalid_response | :provider | :transport,
+          kind: :validation | :invalid_response | :provider | :transport,
           message: String.t(),
           code: String.t() | nil,
           status: non_neg_integer() | nil,

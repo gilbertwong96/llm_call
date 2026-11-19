@@ -132,6 +132,17 @@ defmodule LlmCall.Media.Protocol.MiniMaxVideoTest do
              )
   end
 
+  test "operation ids are strings even when the provider sends a number" do
+    for payload <- [
+          %{"status" => "Fail", "task_id" => 1},
+          %{"status" => "Processing", "task_id" => 1},
+          %{"status" => "Success", "task_id" => 1, "file_id" => 2}
+        ] do
+      assert {:ok, %Operation{} = operation} = Video.decode_operation(payload, %Config{})
+      assert operation.id == "1"
+    end
+  end
+
   test "queueing and processing stay in progress on the query endpoint" do
     for {payload, status} <- [
           {Fx.preparing_response(), :in_progress},

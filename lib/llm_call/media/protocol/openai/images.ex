@@ -122,9 +122,9 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
 
   defp decode_usage(%{} = usage) do
     %Usage{
-      input_tokens: usage["input_tokens"],
-      output_tokens: usage["output_tokens"],
-      total_tokens: usage["total_tokens"],
+      input_tokens: Helpers.token(usage["input_tokens"]),
+      output_tokens: Helpers.token(usage["output_tokens"]),
+      total_tokens: Helpers.token(usage["total_tokens"]),
       cache_read_tokens: nil,
       cache_write_tokens: nil,
       reasoning_tokens: nil

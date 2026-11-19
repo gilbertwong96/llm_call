@@ -182,6 +182,18 @@ defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
              )
   end
 
+  test "operation ids are strings even when the provider sends a number" do
+    for payload <- [
+          %{"status" => "queued", "id" => 1},
+          %{"status" => "running", "id" => 1},
+          %{"status" => "failed", "id" => 1, "error" => %{"message" => "m"}},
+          %{"status" => "succeeded", "id" => 1, "content" => %{"video_url" => "u"}}
+        ] do
+      assert {:ok, %Operation{} = operation} = Video.decode_operation(payload, %Config{})
+      assert operation.id == "1"
+    end
+  end
+
   test "operation raw follows the capture_raw policy" do
     assert :ok =
              LlmCall.MediaConformance.assert_operation_capture_raw(
