@@ -12,8 +12,8 @@ defmodule LlmCall.JSON do
   The facade functions `encode/2` and `decode/2` dispatch on what the module
   exports and normalize the result to a tagged tuple, so a codec never raises on
   a malformed payload. Configure the module at compile time with
-  `config :llm_call, json: Torque` (or the Phoenix-style
-  `config :llm_call, json_library: Torque`) or per client with `json:`.
+  `config :llm_call, json_library: Torque`, or per client with
+  `json_library:`.
 
   A few wire fields are themselves JSON strings: tool-call arguments on OpenAI
   Chat, and streamed function calls on Gemini. A codec therefore needs a JSON

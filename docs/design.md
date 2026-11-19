@@ -1795,13 +1795,12 @@ pass `headers:` to `Connection.start_link/1`; they are merged with the client
 headers and reused on reconnect.
 
 JSON resolution has a compile-time default and runtime overrides. The default
-is read with `Application.compile_env(:llm_call, :json, ...)` (with
-`:json_library` as the Phoenix-style alias) and defaults to Elixir `JSON`.
-Changing it recompiles the library. A provider declaration, a client `json:`
-option or an explicit `%LlmCall.Config{}` overrides it. `LlmCall.JSON.encode/2`
-and `decode/2` accept a module with tagged `encode/1`/`decode/1` (Torque, Jason,
-Poison) or bang `encode!/1`/`decode!/1` (Elixir `JSON`) and normalize to tagged
-tuples.
+is read with `Application.compile_env(:llm_call, :json_library, ...)` and is
+Elixir `JSON`. Changing it recompiles the library. A provider declaration, a
+client `json_library:` option or an explicit `%LlmCall.Config{}` overrides it.
+`LlmCall.JSON.encode/2` and `decode/2` accept a module with tagged
+`encode/1`/`decode/1` (Torque, Jason, Poison) or bang `encode!/1`/`decode!/1`
+(Elixir `JSON`) and normalize to tagged tuples.
 
 The encode/decode boundary stays public for callers that own a transport:
 

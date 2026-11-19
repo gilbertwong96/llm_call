@@ -48,21 +48,21 @@ stream
 
 ## JSON and transport
 
-HTTP is Finch. JSON is a behaviour with a default, resolved call option →
-provider → `config :llm_call, ...` → default:
+HTTP is Finch. JSON is the `LlmCall.JSON` facade over Elixir's built-in `JSON`,
+resolved at compile time from `config :llm_call, :json_library`, then per client:
 
 ```elixir
 # config/config.exs
 config :llm_call,
-  json: Jason,
+  json_library: Jason,
   http_opts: [name: MyApp.Finch],
   timeout: 30_000
 ```
 
 ```elixir
 # per provider, or per client
-use LlmCall.Provider, json: Jason, ...
-MyProvider.client(api_key: key, json: Jason)
+use LlmCall.Provider, json_library: Jason, ...
+MyProvider.client(api_key: key, json_library: Jason)
 ```
 
 The JSON module is written into the client's `%LlmCall.Config{}`, so the codecs
