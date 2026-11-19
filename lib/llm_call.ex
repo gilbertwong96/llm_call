@@ -45,7 +45,7 @@ defmodule LlmCall do
           | :error
           | :unknown
 
-  alias LlmCall.{Client, Config, EncodedRequest, Error, StreamState}
+  alias LlmCall.{Client, Config, EncodedRequest, Error, Operation, StreamState}
   alias LlmCall.HTTP
 
   @default_codec :chat
@@ -67,6 +67,8 @@ defmodule LlmCall do
          :ok <- reject_streaming(request),
          {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :encode_request, 2),
+         :ok <- require_callback(codec, :decode_response, 2),
+         :ok <- require_callback(codec, :decode_error, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config) do
       call_and_decode(
         client,
@@ -105,6 +107,7 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :init_stream, 2),
          :ok <- require_callback(codec, :decode_stream_event, 3),
          :ok <- require_callback(codec, :finish_stream, 2),
+         :ok <- require_callback(codec, :decode_error, 2),
          {:ok, encoded} <- codec.encode_request(request, client.config),
          {:ok, http_request} <- build_http_request(client, encoded, opts[:headers]),
          {:ok, state} <- codec.init_stream(request, client.config) do
@@ -133,6 +136,8 @@ defmodule LlmCall do
     with :ok <- validate_headers(opts[:headers]),
          {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :encode_submit, 2),
+         :ok <- require_callback(codec, :decode_submit, 2),
+         :ok <- require_callback(codec, :decode_error, 2),
          {:ok, encoded} <- codec.encode_submit(request, client.config) do
       call_and_decode(
         client,
@@ -177,7 +182,8 @@ defmodule LlmCall do
   def poll(%Client{} = client, %EncodedRequest{} = encoded, opts) do
     with :ok <- validate_headers(opts[:headers]),
          {:ok, codec} <- fetch_media_codec(client, opts),
-         :ok <- require_callback(codec, :decode_operation, 2) do
+         :ok <- require_callback(codec, :decode_operation, 2),
+         :ok <- require_callback(codec, :decode_error, 2) do
       call_and_decode(
         client,
         encoded,
@@ -219,6 +225,18 @@ defmodule LlmCall do
   @spec fetch(Client.t(), EncodedRequest.t() | LlmCall.Operation.t()) ::
           {:ok, %{status: non_neg_integer(), headers: list(), body: binary()}}
           | {:error, Error.t()}
+  def fetch(%Client{}, %Operation{next: nil}) do
+    {:error, invalid("the operation has no next request", :validation)}
+  end
+
+  def fetch(%Client{}, %Operation{next_kind: :poll}) do
+    {:error,
+     invalid(
+       "this operation's next request is a poll; use poll/3",
+       :validation
+     )}
+  end
+
   def fetch(%Client{} = client, %LlmCall.Operation{next: %EncodedRequest{} = encoded}) do
     fetch(client, encoded)
   end
@@ -440,7 +458,8 @@ defmodule LlmCall do
   @spec validate_request(module(), LlmCall.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
   def validate_request(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
-    with :ok <- require_callback(codec, :encode_request, 2) do
+    with :ok <- require_callback(codec, :encode_request, 2),
+         :ok <- require_callback(codec, :validate_request, 2) do
       codec.validate_request(request, config)
     end
   end
@@ -455,7 +474,8 @@ defmodule LlmCall do
   @spec capabilities(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, LlmCall.Capabilities.t()} | {:error, Error.t()}
   def capabilities(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
-    with :ok <- require_callback(codec, :encode_request, 2) do
+    with :ok <- require_callback(codec, :encode_request, 2),
+         :ok <- require_callback(codec, :capabilities, 2) do
       {:ok, codec.capabilities(request, config)}
     end
   end
@@ -536,7 +556,8 @@ defmodule LlmCall do
   @spec validate_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
   def validate_media(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
-    with :ok <- require_callback(codec, :encode_submit, 2) do
+    with :ok <- require_callback(codec, :encode_submit, 2),
+         :ok <- require_callback(codec, :validate_request, 2) do
       codec.validate_request(request, config)
     end
   end
@@ -550,7 +571,8 @@ defmodule LlmCall do
   @spec media_capabilities(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.Media.Capabilities.t()} | {:error, Error.t()}
   def media_capabilities(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
-    with :ok <- require_callback(codec, :encode_submit, 2) do
+    with :ok <- require_callback(codec, :encode_submit, 2),
+         :ok <- require_callback(codec, :capabilities, 2) do
       {:ok, codec.capabilities(request, config)}
     end
   end

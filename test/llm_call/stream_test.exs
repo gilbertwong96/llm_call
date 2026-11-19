@@ -62,6 +62,34 @@ defmodule LlmCall.StreamTest do
       codecs: [chat: LlmCall.StreamTest.StreamingCodec]
   end
 
+  defmodule NoDecodeErrorCodec do
+    @moduledoc false
+
+    alias LlmCall.{Capabilities, EncodedRequest, StreamState}
+
+    def validate_request(_request, _config), do: :ok
+
+    def encode_request(_request, _config),
+      do: {:ok, %EncodedRequest{method: :post, path: "/stream", body: %{"stream" => true}}}
+
+    def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+    def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+    def decode_stream_event(_term, _config, state), do: {:ok, [], state}
+
+    def finish_stream(state, _config), do: {:ok, [], state}
+  end
+
+  defmodule NoDecodeErrorProvider do
+    @moduledoc false
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1:1",
+      auth: :none,
+      codecs: [chat: NoDecodeErrorCodec]
+  end
+
   setup do
     TestHTTP.start()
     on_exit(&TestHTTP.stop/0)
@@ -233,6 +261,18 @@ defmodule LlmCall.StreamTest do
 
     assert_received {:observed, :text_delta}
     refute_received {:observed, _}
+  end
+
+  test "a codec without decode_error is a validation error before the request" do
+    TestHTTP.put_events([{:status, 500}, {:data, ~s({"error":{"message":"bad"}})}])
+
+    client = NoDecodeErrorProvider.client(base_url: TestHTTP.url())
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.stream(client, request())
+
+    assert message =~ "decode_error/2"
+    assert TestHTTP.requests() == []
   end
 
   test "a non-function on_event is a validation error" do

@@ -122,6 +122,11 @@ defmodule LlmCall.WSTest do
     Mint.close(conn)
   end
 
+  test "accepts an infinite connect timeout" do
+    assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: :infinity)
+    assert :ok = Mint.close(conn)
+  end
+
   test "rejects a non-WebSocket URL" do
     assert {:error, {:invalid_url, "https://example.test"}} =
              Mint.connect("https://example.test", [], [])

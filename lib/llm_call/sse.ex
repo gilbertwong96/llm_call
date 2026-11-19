@@ -52,7 +52,11 @@ defmodule LlmCall.SSE do
     end
   end
 
-  defp normalise(chunk), do: String.replace(chunk, "\r\n", "\n")
+  defp normalise(chunk) do
+    chunk
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\r", "\n")
+  end
 
   defp event_payload(block) do
     data =

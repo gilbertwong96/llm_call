@@ -45,6 +45,16 @@ defmodule LlmCall.Provider do
 
   @default_timeout 60_000
 
+  @client_option_keys [
+    :api_key,
+    :base_url,
+    :headers,
+    :http_opts,
+    :timeout,
+    :json_library,
+    :config
+  ]
+
   @doc """
   Builds a `%LlmCall.Client{}` from a provider module's declaration and options.
 
@@ -53,6 +63,7 @@ defmodule LlmCall.Provider do
   """
   @spec build(module(), keyword()) :: Client.t()
   def build(provider, opts \\ []) do
+    validate_build_options!(opts)
     declaration = provider.__provider__()
 
     config =
@@ -63,37 +74,95 @@ defmodule LlmCall.Provider do
     %Client{
       provider: provider,
       codecs: Map.new(declaration.codecs),
-      base_url: opts[:base_url] || declaration.base_url,
+      base_url: validate_base_url!(opts[:base_url] || declaration.base_url),
       headers: headers(declaration, opts),
-      http_opts: resolve(:http_opts, opts, declaration, []),
-      timeout: resolve(:timeout, opts, declaration, @default_timeout),
+      http_opts: resolve(:http_opts, opts, declaration, []) |> validate_http_opts!(),
+      timeout: resolve(:timeout, opts, declaration, @default_timeout) |> validate_timeout!(),
       config: config
     }
   end
 
   defp headers(declaration, opts) do
     caller = Keyword.get(opts, :headers, []) || []
+    auth = auth_headers(declaration.auth, opts[:api_key])
 
-    unless is_list(caller) do
-      raise ArgumentError, "client option :headers must be a list, got: #{inspect(caller)}"
+    validate_headers!(caller, "client option :headers")
+    validate_headers!(declaration.headers, "provider headers")
+    validate_headers!(auth, "auth headers")
+
+    HTTP.merge_headers([auth, declaration.headers, caller])
+  end
+
+  defp validate_build_options!(opts) do
+    unless Keyword.keyword?(opts) do
+      raise ArgumentError, "client options must be a keyword list"
     end
 
-    HTTP.merge_headers([
-      auth_headers(declaration.auth, opts[:api_key]),
-      declaration.headers,
-      caller
-    ])
+    case Keyword.keys(opts) -- @client_option_keys do
+      [] -> :ok
+      [unknown | _] -> raise ArgumentError, "unknown option #{inspect(unknown)}"
+    end
+  end
+
+  defp validate_headers!(headers, label) do
+    unless HTTP.valid_headers?(headers) do
+      raise ArgumentError, "#{label} must be a list of {name, value} string tuples"
+    end
+  end
+
+  defp validate_http_opts!(opts) do
+    if Keyword.keyword?(opts) do
+      opts
+    else
+      raise ArgumentError, "client option :http_opts must be a keyword list"
+    end
+  end
+
+  defp validate_timeout!(:infinity), do: :infinity
+
+  defp validate_timeout!(timeout) when is_integer(timeout) and timeout > 0, do: timeout
+
+  defp validate_timeout!(timeout) do
+    raise ArgumentError,
+          "client option :timeout must be a positive integer or :infinity, got: #{inspect(timeout)}"
+  end
+
+  defp validate_base_url!(url) when is_binary(url) and url != "", do: url
+
+  defp validate_base_url!(url) do
+    raise ArgumentError,
+          "client option :base_url must be a non-empty string, got: #{inspect(url)}"
+  end
+
+  defp validate_json_library!(nil), do: nil
+  defp validate_json_library!(module) when is_atom(module), do: module
+
+  defp validate_json_library!(module) do
+    raise ArgumentError, "client option :json_library must be a module, got: #{inspect(module)}"
   end
 
   defp resolve(key, opts, declaration, default) do
     opts[key] || declaration[key] || app_env(key) || default
   end
 
-  defp base_config(opts, _declaration), do: opts[:config] || Config.new()
+  defp base_config(opts, _declaration) do
+    case Keyword.get(opts, :config) do
+      nil ->
+        Config.new()
+
+      %Config{} = config ->
+        config
+
+      other ->
+        raise ArgumentError,
+              "client option :config must be a %LlmCall.Config{}, got: #{inspect(other)}"
+    end
+  end
 
   defp json_option(opts, declaration) do
     call = opts[:json_library]
-    if Keyword.has_key?(opts, :config), do: call, else: call || declaration[:json_library]
+    json = if Keyword.has_key?(opts, :config), do: call, else: call || declaration[:json_library]
+    validate_json_library!(json)
   end
 
   defp put_json(config, nil), do: config
@@ -149,11 +218,37 @@ defmodule LlmCall.Provider do
 
   defp expand(module, caller), do: Macro.expand(module, caller)
 
+  defp validate_auth!(:none), do: :ok
+  defp validate_auth!(:bearer), do: :ok
+  defp validate_auth!(:x_api_key), do: :ok
+
+  defp validate_auth!({:header, name}) when is_binary(name) and name != "", do: :ok
+
+  defp validate_auth!({module, function}) when is_atom(module) and is_atom(function), do: :ok
+
+  defp validate_auth!(auth) do
+    raise ArgumentError,
+          "provider option :auth must be :none, :bearer, :x_api_key, " <>
+            "{:header, name}, or {module, function}, got: #{inspect(auth)}"
+  end
+
+  defp validate_codec_names!(codecs) do
+    Enum.each(codecs, fn
+      {name, _module} when is_atom(name) ->
+        :ok
+
+      {name, _module} ->
+        raise ArgumentError, "provider codec names must be atoms, got: #{inspect(name)}"
+    end)
+  end
+
   defmacro __using__(opts) do
     codecs =
       opts
       |> Keyword.fetch!(:codecs)
       |> Enum.map(fn {name, module} -> {name, expand(module, __CALLER__)} end)
+
+    validate_codec_names!(codecs)
 
     if Enum.uniq_by(codecs, &elem(&1, 0)) != codecs do
       raise ArgumentError, "provider declares the same codec name twice: #{inspect(codecs)}"
@@ -163,29 +258,38 @@ defmodule LlmCall.Provider do
     headers = literal!(opts, :headers, __CALLER__, []) || []
     http_opts = literal!(opts, :http_opts, __CALLER__, []) || []
     timeout = literal!(opts, :timeout, __CALLER__, nil)
+    auth = literal!(opts, :auth, __CALLER__, :none)
+    json_library = literal!(opts, :json_library, __CALLER__, nil)
 
-    unless is_binary(base_url) do
-      raise ArgumentError, "provider option :base_url must be a string, got: #{inspect(base_url)}"
+    unless is_binary(base_url) and base_url != "" do
+      raise ArgumentError,
+            "provider option :base_url must be a string (non-empty), got: #{inspect(base_url)}"
     end
 
-    unless is_list(headers), do: raise(ArgumentError, "provider option :headers must be a list")
+    unless is_list(headers) and HTTP.valid_headers?(headers) do
+      raise ArgumentError, "provider option :headers must be a list of string pairs"
+    end
 
-    unless is_list(http_opts),
-      do: raise(ArgumentError, "provider option :http_opts must be a list")
+    unless Keyword.keyword?(http_opts) do
+      raise ArgumentError, "provider option :http_opts must be a keyword list"
+    end
 
-    unless is_nil(timeout) or is_integer(timeout) or timeout == :infinity do
+    unless is_nil(timeout) or (is_integer(timeout) and timeout > 0) or timeout == :infinity do
       raise ArgumentError,
             "provider option :timeout must be a positive integer or :infinity, got: #{inspect(timeout)}"
     end
 
+    validate_auth!(auth)
+    validate_json_library!(json_library)
+
     declaration = %{
       base_url: base_url,
       codecs: codecs,
-      auth: expand(Keyword.get(opts, :auth, :none), __CALLER__),
+      auth: auth,
       headers: headers,
       http_opts: http_opts,
       timeout: timeout,
-      json_library: expand(Keyword.get(opts, :json_library), __CALLER__)
+      json_library: json_library
     }
 
     quote do

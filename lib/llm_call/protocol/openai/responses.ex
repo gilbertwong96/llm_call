@@ -359,8 +359,8 @@ defmodule LlmCall.Protocol.OpenAI.Responses do
     do: Helpers.validate_tool_choice(choice, tools, @codec)
 
   defp validate_parts(messages, json) do
-    Helpers.first_error(messages, fn %Message{role: role, content: content} ->
-      Helpers.first_error(content, &validate_part(role, &1, json))
+    Helpers.validate_parts(messages, @codec, fn role, part ->
+      validate_part(role, part, json)
     end)
   end
 

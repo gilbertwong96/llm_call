@@ -161,18 +161,22 @@ defmodule LlmCall.Protocol.Helpers do
     }
   end
 
+  @model_id_pattern ~r/\A[A-Za-z0-9._-]+\z/
+
   @doc """
   Validates a Gemini-style bare model id.
 
-  The model is interpolated into a request path, so a `/` or `:` would build a
-  different endpoint than the caller asked for.
+  The model is interpolated into a request path, so only characters that are
+  safe in one path segment are accepted. A `/`, `:`, `?`, `#`, whitespace, or
+  percent-encoded separator would build a different endpoint than the caller
+  asked for.
   """
   @spec validate_model_id(LlmCall.model() | nil, codec()) :: :ok | {:error, Error.t()}
   def validate_model_id(model, codec) when is_binary(model) and model != "" do
-    if String.contains?(model, ["/", ":"]) do
-      error(codec, "model must be a bare model id without \"/\" or \":\"")
-    else
+    if Regex.match?(@model_id_pattern, model) do
       :ok
+    else
+      error(codec, "model must be a bare model id containing only letters, digits, ., _, or -")
     end
   end
 
@@ -268,8 +272,103 @@ defmodule LlmCall.Protocol.Helpers do
   end
 
   defp validate_part(role, part, codec, shape_fun) do
-    with :ok <- validate_role(role, part, codec), do: shape_fun.(role, part)
+    with :ok <- validate_role(role, part, codec),
+         :ok <- validate_part_values(part, codec) do
+      shape_fun.(role, part)
+    end
   end
+
+  defp validate_part_values(%Content.Text{text: text}, codec) do
+    validate_text(text, "text content", codec)
+  end
+
+  defp validate_part_values(%Content.Thinking{text: text, signature: signature}, codec) do
+    with :ok <- validate_text(text, "thinking", codec) do
+      validate_optional_string(signature, "thinking signature", codec)
+    end
+  end
+
+  defp validate_part_values(%Content.Image{source: source, media_type: media_type}, codec) do
+    with :ok <- validate_source(source, "image", codec) do
+      validate_optional_string(media_type, "image media_type", codec)
+    end
+  end
+
+  defp validate_part_values(
+         %Content.File{source: source, media_type: media_type, filename: filename},
+         codec
+       ) do
+    with :ok <- validate_source(source, "file", codec),
+         :ok <- validate_optional_string(media_type, "file media_type", codec) do
+      validate_optional_string(filename, "file filename", codec)
+    end
+  end
+
+  defp validate_part_values(%Content.Video{source: source, media_type: media_type}, codec) do
+    with :ok <- validate_source(source, "video", codec) do
+      validate_optional_string(media_type, "video media_type", codec)
+    end
+  end
+
+  defp validate_part_values(%Content.Raw{data: data}, codec) do
+    validate_raw_data(data, codec)
+  end
+
+  defp validate_part_values(%ToolCall{} = call, codec) do
+    with :ok <- validate_optional_string(call.id, "tool call id", codec),
+         :ok <- validate_optional_string(call.name, "tool call name", codec),
+         :ok <- validate_optional_string(call.raw_arguments, "tool call raw_arguments", codec) do
+      validate_arguments_map(call.arguments, codec)
+    end
+  end
+
+  defp validate_part_values(%ToolResult{} = result, codec) do
+    with :ok <- validate_optional_string(result.call_id, "tool result call_id", codec) do
+      validate_optional_string(result.name, "tool result name", codec)
+    end
+  end
+
+  defp validate_part_values(_part, _codec), do: :ok
+
+  # Struct types describe well-formed values; runtime validation still rejects
+  # values a caller built around the types.
+  @dialyzer {:nowarn_function, validate_text: 3}
+  @spec validate_text(term(), String.t(), codec()) :: :ok | {:error, Error.t()}
+  defp validate_text(text, label, codec) do
+    if is_binary(text), do: :ok, else: error(codec, "#{label} requires a string")
+  end
+
+  @dialyzer {:nowarn_function, validate_raw_data: 2}
+  @spec validate_raw_data(term(), codec()) :: :ok | {:error, Error.t()}
+  defp validate_raw_data(data, _codec) when is_map(data), do: :ok
+
+  defp validate_raw_data(_data, codec),
+    do: error(codec, "raw content requires a map payload")
+
+  defp validate_optional_string(nil, _label, _codec), do: :ok
+
+  defp validate_optional_string(value, _label, _codec) when is_binary(value) and value != "",
+    do: :ok
+
+  defp validate_optional_string(_value, label, codec),
+    do: error(codec, "#{label} must be a non-empty string")
+
+  @spec validate_arguments_map(term(), codec()) :: :ok | {:error, Error.t()}
+  defp validate_arguments_map(nil, _codec), do: :ok
+  defp validate_arguments_map(arguments, _codec) when is_map(arguments), do: :ok
+
+  defp validate_arguments_map(_arguments, codec),
+    do: error(codec, "tool call arguments must be a map")
+
+  @spec validate_source(term(), String.t(), codec()) :: :ok | {:error, Error.t()}
+  defp validate_source(source, _label, _codec) when is_binary(source) and source != "", do: :ok
+
+  defp validate_source({kind, value}, _label, _codec)
+       when kind in [:url, :base64, :file_id] and is_binary(value) and value != "",
+       do: :ok
+
+  defp validate_source(_source, label, codec),
+    do: error(codec, "#{label} source must be a non-empty string or tagged string")
 
   @doc """
   Validates the system field: `nil`, a string, or a list of text parts.
@@ -383,6 +482,14 @@ defmodule LlmCall.Protocol.Helpers do
   """
   @spec validate_tool_call_arguments(ToolCall.t(), codec(), module()) ::
           :ok | {:error, Error.t()}
+  def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec, json)
+      when is_binary(raw) do
+    case LlmCall.JSON.decode(json, raw) do
+      {:ok, %{}} -> :ok
+      _not_an_object -> error(codec, "tool call raw_arguments must decode to an object")
+    end
+  end
+
   def validate_tool_call_arguments(%ToolCall{arguments: arguments}, codec, json)
       when is_map(arguments) do
     case LlmCall.JSON.encode(json, arguments) do
@@ -393,11 +500,8 @@ defmodule LlmCall.Protocol.Helpers do
 
   def validate_tool_call_arguments(%ToolCall{raw_arguments: nil}, _codec, _json), do: :ok
 
-  def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec, json) do
-    case LlmCall.JSON.decode(json, raw) do
-      {:ok, %{}} -> :ok
-      _not_an_object -> error(codec, "tool call raw_arguments must decode to an object")
-    end
+  def validate_tool_call_arguments(%ToolCall{}, codec, _json) do
+    error(codec, "tool call raw_arguments must be a string")
   end
 
   @doc """
@@ -520,7 +624,8 @@ defmodule LlmCall.Protocol.Helpers do
 
   def validate_tool_result_content(content, codec) when is_list(content) do
     first_error(content, fn
-      %Content.Text{} -> :ok
+      %Content.Text{text: text} when is_binary(text) -> :ok
+      %Content.Text{} -> error(codec, "tool result text requires a string")
       _part -> error(codec, "tool result only supports text content")
     end)
   end

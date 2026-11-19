@@ -26,12 +26,39 @@ defmodule LlmCall.Config do
   (Elixir `JSON`) can be configured; `LlmCall.JSON` normalizes both to tagged
   tuples.
   """
+  @option_keys [:json_library, :capture_raw, :default_provider_options]
+
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
+    unless Keyword.keyword?(opts) do
+      raise ArgumentError, "config options must be a keyword list"
+    end
+
+    case Keyword.keys(opts) -- @option_keys do
+      [] -> :ok
+      [unknown | _] -> raise ArgumentError, "unknown option #{inspect(unknown)}"
+    end
+
+    json = Keyword.get(opts, :json_library, @default_json)
+    capture_raw = Keyword.get(opts, :capture_raw, :none)
+    default_provider_options = Keyword.get(opts, :default_provider_options, %{})
+
+    unless is_atom(json) do
+      raise ArgumentError, "config option :json_library must be a module"
+    end
+
+    unless capture_raw in [:none, :response, :all] do
+      raise ArgumentError, "config option :capture_raw must be :none, :response or :all"
+    end
+
+    unless is_map(default_provider_options) do
+      raise ArgumentError, "config option :default_provider_options must be a map"
+    end
+
     %__MODULE__{
-      json: Keyword.get(opts, :json_library, @default_json),
-      capture_raw: Keyword.get(opts, :capture_raw, :none),
-      default_provider_options: Keyword.get(opts, :default_provider_options, %{})
+      json: json,
+      capture_raw: capture_raw,
+      default_provider_options: default_provider_options
     }
   end
 

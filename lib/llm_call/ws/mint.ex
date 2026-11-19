@@ -31,8 +31,7 @@ defmodule LlmCall.WS.Mint do
 
   @impl true
   def recv(state, timeout \\ @default_timeout) do
-    deadline = now() + timeout
-    do_recv(state, deadline)
+    do_recv(state, deadline(timeout))
   end
 
   @impl true
@@ -54,7 +53,7 @@ defmodule LlmCall.WS.Mint do
       {:ok, conn, ref} ->
         await_upgrade(
           %{conn: conn, ref: ref, websocket: nil, pending: []},
-          now() + timeout(opts)
+          deadline(timeout(opts))
         )
 
       {:error, conn, reason} ->
@@ -320,5 +319,9 @@ defmodule LlmCall.WS.Mint do
 
   defp now, do: System.monotonic_time(:millisecond)
 
+  defp deadline(:infinity), do: :infinity
+  defp deadline(timeout), do: now() + timeout
+
+  defp remaining(:infinity), do: :infinity
   defp remaining(deadline), do: max(deadline - now(), 0)
 end

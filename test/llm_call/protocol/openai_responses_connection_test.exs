@@ -227,6 +227,32 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
+  test "a lane is released when its subscriber dies" do
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start()
+    parent = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        {:ok, _stream} = Connection.create(connection, request(), stream_id: "gone")
+        send(parent, :created)
+
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    assert_receive :created
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+
+    assert eventually(fn ->
+             match?({:ok, _stream}, Connection.create(connection, request(), stream_id: "gone"))
+           end)
+
+    Connection.close(connection)
+  end
+
   test "invalid and duplicate stream ids are typed errors" do
     TestWSServer.set_mode(:hold)
     {:ok, connection} = start()

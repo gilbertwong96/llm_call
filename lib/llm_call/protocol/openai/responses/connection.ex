@@ -193,10 +193,12 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
          {:ok, json} <- encode(state, create_event(encoded.body, stream_id)),
          {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
       ref = make_ref()
+      monitor = Process.monitor(pid)
 
       lane = %{
         ref: ref,
         subscriber: pid,
+        monitor: monitor,
         state: stream_state,
         response_id: nil
       }
@@ -269,7 +271,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
           {:ok, state} ->
             state = remember_response(state, stream_id, lane.response_id)
             send(lane.subscriber, {:responses_ws, lane.ref, :done})
-            {:reply, :ok, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+            {:reply, :ok, drop_lane(state, stream_id, lane)}
 
           {:error, %Error{} = error, state} ->
             {:reply, {:error, error}, state}
@@ -300,11 +302,18 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
         {:noreply, state}
 
       {stream_id, lane} ->
-        case send_cancel(state, stream_id, lane.response_id) do
-          {:ok, state} -> {:noreply, %{state | lanes: Map.delete(state.lanes, stream_id)}}
-          {:error, %Error{}, state} -> {:noreply, state}
-          {:error, reason, state} -> {:noreply, send_failure(state, reason)}
-        end
+        {:noreply, cancel_and_drop(state, stream_id, lane)}
+    end
+  end
+
+  @impl true
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+    case Enum.find(state.lanes, fn {_stream_id, lane} -> lane.monitor == monitor end) do
+      nil ->
+        {:noreply, state}
+
+      {stream_id, lane} ->
+        {:noreply, cancel_and_drop(state, stream_id, lane)}
     end
   end
 
@@ -450,7 +459,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
         if finished? do
           send(lane.subscriber, {:responses_ws, lane.ref, :done})
           state = remember_response(state, stream_id, response_id)
-          {:ok, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+          {:ok, drop_lane(state, stream_id, lane)}
         else
           {:ok, state}
         end
@@ -458,7 +467,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
       {:error, %Error{} = error} ->
         send(lane.subscriber, {:responses_ws, lane.ref, {:error, error}})
         state = remember_response(state, stream_id, response_id || lane.response_id)
-        {:ok, %{state | lanes: Map.delete(state.lanes, stream_id)}}
+        {:ok, drop_lane(state, stream_id, lane)}
     end
   end
 
@@ -473,7 +482,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
 
   defp do_reconnect(state, reason) do
     notify_lanes(state, interrupted(reason))
-    state = %{state | lanes: %{}} |> cancel_max_age() |> cancel_retry()
+    state = state |> clear_lanes() |> cancel_max_age() |> cancel_retry()
     safe_close(state.ws, state.conn)
 
     case connect(state.client, state.ws, state.ws_opts, state.headers) do
@@ -484,12 +493,12 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
 
   defp send_failure(state, reason) do
     notify_lanes(state, interrupted(reason))
-    disconnected(%{state | lanes: %{}})
+    disconnected(clear_lanes(state))
   end
 
   defp disconnect(state, reason) do
     notify_lanes(state, interrupted(reason))
-    state = %{state | lanes: %{}}
+    state = clear_lanes(state)
 
     if state.reconnect? do
       {:noreply, disconnected(state)}
@@ -503,6 +512,30 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
       send(lane.subscriber, {:responses_ws, lane.ref, {:error, error}})
     end)
   end
+
+  defp drop_lane(state, stream_id, lane) do
+    demonitor_lane(lane)
+    %{state | lanes: Map.delete(state.lanes, stream_id)}
+  end
+
+  defp cancel_and_drop(state, stream_id, lane) do
+    case send_cancel(state, stream_id, lane.response_id) do
+      {:ok, state} -> drop_lane(state, stream_id, lane)
+      {:error, %Error{}, state} -> drop_lane(state, stream_id, lane)
+      {:error, reason, state} -> send_failure(state, reason)
+    end
+  end
+
+  defp clear_lanes(state) do
+    Enum.each(state.lanes, fn {_stream_id, lane} -> demonitor_lane(lane) end)
+    %{state | lanes: %{}}
+  end
+
+  defp demonitor_lane(%{monitor: monitor}) when is_reference(monitor) do
+    Process.demonitor(monitor, [:flush])
+  end
+
+  defp demonitor_lane(_lane), do: :ok
 
   defp send_cancel(state, stream_id, response_id) do
     event =

@@ -99,12 +99,10 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   end
 
   defp decode_items(items) do
-    case Enum.find(items, &(not valid_item?(&1))) do
-      nil ->
-        {:ok, Enum.map(items, &decode_asset/1), Enum.map(items, & &1["revised_prompt"])}
-
-      _invalid ->
-        {:error, invalid_response("image item has neither b64_json nor url")}
+    if Enum.all?(items, &valid_item?/1) do
+      {:ok, Enum.map(items, &decode_asset/1), Enum.map(items, & &1["revised_prompt"])}
+    else
+      {:error, invalid_response("image item has neither b64_json nor url")}
     end
   end
 
@@ -112,7 +110,7 @@ defmodule LlmCall.Media.Protocol.OpenAI.Images do
   defp valid_item?(%{"url" => url}) when is_binary(url), do: true
   defp valid_item?(_item), do: false
 
-  defp decode_asset(%{"b64_json" => data} = item) do
+  defp decode_asset(%{"b64_json" => data} = item) when is_binary(data) do
     %Content.Image{source: {:base64, data}, media_type: item["mime_type"]}
   end
 

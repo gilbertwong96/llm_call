@@ -57,6 +57,13 @@ defmodule LlmCall.HTTPTest do
     assert {:status, 401} in events
   end
 
+  test "valid_headers?/1 rejects CRLF injection" do
+    refute HTTP.valid_headers?([{"x-test", "ok\r\nInjected: yes"}])
+    refute HTTP.valid_headers?([{"x\r\nInjected", "ok"}])
+    assert HTTP.valid_headers?([{"x-test", "ok"}])
+    assert HTTP.valid_headers?(nil)
+  end
+
   test "retry_after_ms/1 parses delta-seconds and rejects malformed values" do
     assert HTTP.retry_after_ms([{"Retry-After", "5"}]) == 5_000
     assert HTTP.retry_after_ms([{"retry-after", "soon"}]) == nil

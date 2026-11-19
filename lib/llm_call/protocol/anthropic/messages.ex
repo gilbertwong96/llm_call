@@ -446,12 +446,13 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   @impl true
   def decode_response(term, %Config{} = config) when is_map(term) do
-    with {:ok, blocks} <- fetch_blocks(term) do
+    with {:ok, blocks} <- fetch_blocks(term),
+         {:ok, content} <- decode_blocks(blocks) do
       {:ok,
        %Response{
          id: term["id"],
          model: term["model"],
-         content: Enum.map(blocks, &decode_block/1),
+         content: content,
          stop_reason: stop_reason(term["stop_reason"]),
          usage: decode_usage(term["usage"]),
          raw: Helpers.capture_response(config, term)
@@ -554,6 +555,25 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
 
   defp decode_block(block) when is_map(block) do
     %Content.Raw{type: block["type"], data: block}
+  end
+
+  defp decode_block(_block), do: :error
+
+  defp decode_blocks(blocks) do
+    blocks
+    |> Enum.reduce_while({:ok, []}, fn block, {:ok, acc} ->
+      case decode_block(block) do
+        :error ->
+          {:halt, {:error, invalid_response("content block is not an object")}}
+
+        part ->
+          {:cont, {:ok, [part | acc]}}
+      end
+    end)
+    |> case do
+      {:ok, parts} -> {:ok, Enum.reverse(parts)}
+      error -> error
+    end
   end
 
   defp stop_reason("end_turn"), do: :end_turn
