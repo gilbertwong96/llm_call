@@ -5,7 +5,6 @@ defmodule LlmCall.ConfigTest do
 
   test "new/1 prefers its options over the compile-time default" do
     assert Config.new().json == Elixir.JSON
-    assert Config.new(json: MarkerJSON).json == MarkerJSON
     assert Config.new(json_library: MarkerJSON).json == MarkerJSON
   end
 

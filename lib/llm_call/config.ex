@@ -13,35 +13,23 @@ defmodule LlmCall.Config do
           json: module()
         }
 
-  @default_json Application.compile_env(
-                  :llm_call,
-                  :json,
-                  Application.compile_env(:llm_call, :json_library, JSON)
-                )
+  @default_json Application.compile_env(:llm_call, :json_library, JSON)
 
   defstruct default_provider_options: %{}, capture_raw: :none, json: @default_json
 
   @doc """
-  Builds a config, resolving the JSON module at compile time.
+  Builds a config from the compile-time JSON default.
 
-  Resolution order: `:json`, `:json_library` (the Phoenix-style alias), then
-  the compile-time application default. `new/1` itself still accepts
-  both keys, so a caller can override the compiled default per config.
-
-  The default is Elixir's built-in `JSON`. Any module exposing either tagged
+  `json_library:` overrides the compiled default per config. The default is
+  Elixir's built-in `JSON`. Any module exposing either tagged
   `encode/1`/`decode/1` (Torque, Jason, Poison) or bang `encode!/1`/`decode!/1`
   (Elixir `JSON`) can be configured; `LlmCall.JSON` normalizes both to tagged
   tuples.
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
-    json =
-      Keyword.get(opts, :json) ||
-        Keyword.get(opts, :json_library) ||
-        @default_json
-
     %__MODULE__{
-      json: json,
+      json: Keyword.get(opts, :json_library, @default_json),
       capture_raw: Keyword.get(opts, :capture_raw, :none),
       default_provider_options: Keyword.get(opts, :default_provider_options, %{})
     }

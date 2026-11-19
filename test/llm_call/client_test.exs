@@ -139,10 +139,10 @@ defmodule LlmCall.ClientTest do
     assert TestHTTP.requests() == []
   end
 
-  test "json: on the client reaches the boundary and the codec" do
+  test "json_library: on the client reaches the boundary and the codec" do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
 
-    client = client(json: MarkerJSON)
+    client = client(json_library: MarkerJSON)
 
     assert %Client{config: %Config{json: MarkerJSON}} = client
     assert {:ok, %Response{}} = LlmCall.complete(client, request())
@@ -267,7 +267,7 @@ defmodule LlmCall.ClientTest do
     assert FunctionAuthProvider.client(api_key: "k").headers == [{"x-key", "k"}]
   end
 
-  test "client json: wins, then an explicit config:, then the declaration" do
+  test "client json_library: wins, then an explicit config:, then the declaration" do
     defmodule DeclarationJSON do
       @moduledoc false
       def encode(term), do: {:json, term}
@@ -276,7 +276,7 @@ defmodule LlmCall.ClientTest do
       use LlmCall.Provider,
         base_url: "https://x.test",
         auth: :none,
-        json: __MODULE__,
+        json_library: __MODULE__,
         codecs: [chat: LlmCall.TestCodec.Fake]
     end
 
@@ -289,12 +289,12 @@ defmodule LlmCall.ClientTest do
     assert %Client{config: %LlmCall.Config{json: DeclarationJSON}} = DeclarationJSON.client([])
 
     assert %Client{config: %LlmCall.Config{json: OtherJSON}} =
-             DeclarationJSON.client(config: LlmCall.Config.new(json: OtherJSON))
+             DeclarationJSON.client(config: LlmCall.Config.new(json_library: OtherJSON))
 
     assert %Client{config: %LlmCall.Config{json: OtherJSON}} =
              DeclarationJSON.client(
-               config: LlmCall.Config.new(json: DeclarationJSON),
-               json: OtherJSON
+               config: LlmCall.Config.new(json_library: DeclarationJSON),
+               json_library: OtherJSON
              )
   end
 

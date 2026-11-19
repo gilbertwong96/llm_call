@@ -32,12 +32,12 @@ defmodule LlmCall.Provider do
 
   ## Resolution
 
-  `http_opts`, `json` and `timeout` may be declared here, and each resolves call
-  option → provider → `config :llm_call, ...` → built-in default. The JSON module
-  is written into the client's `%LlmCall.Config{}`, so the codecs use
+  `http_opts`, `json_library` and `timeout` may be declared here, and each
+  resolves call option → provider → `config :llm_call, ...` → built-in default. The
+  JSON module is written into the client's `%LlmCall.Config{}`, so the codecs use
   the same implementation as the transport. A `config:` call option supplies the
-  base config; a `json:` call option still wins over it, and the declaration's
-  `json:` applies only when the caller passes neither.
+  base config; a `json_library:` call option still wins over it, and the
+  declaration's `json_library:` applies only when the caller passes neither.
   """
 
   alias LlmCall.{Client, Config}
@@ -49,7 +49,7 @@ defmodule LlmCall.Provider do
   Builds a `%LlmCall.Client{}` from a provider module's declaration and options.
 
   Options: `api_key:`, `base_url:`, `headers:`, `http_opts:`, `timeout:`,
-  `json:`, `config:`.
+  `json_library:`, `config:`.
   """
   @spec build(module(), keyword()) :: Client.t()
   def build(provider, opts \\ []) do
@@ -92,8 +92,8 @@ defmodule LlmCall.Provider do
   defp base_config(opts, _declaration), do: opts[:config] || Config.new()
 
   defp json_option(opts, declaration) do
-    call = opts[:json] || opts[:json_library]
-    if Keyword.has_key?(opts, :config), do: call, else: call || declaration[:json]
+    call = opts[:json_library]
+    if Keyword.has_key?(opts, :config), do: call, else: call || declaration[:json_library]
   end
 
   defp put_json(config, nil), do: config
@@ -185,7 +185,7 @@ defmodule LlmCall.Provider do
       headers: headers,
       http_opts: http_opts,
       timeout: timeout,
-      json: expand(Keyword.get(opts, :json), __CALLER__)
+      json_library: expand(Keyword.get(opts, :json_library), __CALLER__)
     }
 
     quote do

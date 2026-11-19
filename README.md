@@ -185,20 +185,20 @@ default, then Elixir's built-in `JSON`.
 ```elixir
 # config/config.exs of the host application
 config :llm_call,
-  json: Torque,
+  json_library: Torque,
   http_opts: [name: MyApp.Finch],
   timeout: 30_000
 ```
 
 `Torque`, `Jason` and `Poison` expose tagged `encode/1`/`decode/1`; Elixir
 `JSON` exposes `encode!/1`/`decode!/1`. The `LlmCall.JSON` facade accepts either
-shape and normalizes it, so no adapter module is needed. `json_library:` is
-accepted as the Phoenix-style alias for `json:`.
+shape and normalizes it, so no adapter module is needed. `json_library:` is the
+single configuration key, matching Phoenix.
 
 The application default is read with `Application.compile_env/3`; changing it
-requires recompiling the library. Per-client `json:` and provider declarations
-still override it without touching the compiled default. An explicit
-`%LlmCall.Config{}` uses the compiled default.
+requires recompiling the library. Per-client `json_library:` and provider
+declarations still override it without touching the compiled default. An
+explicit `%LlmCall.Config{}` uses the compiled default.
 
 `LlmCall.Application` starts a Finch pool named `LlmCall.Finch`; pass
 `http_opts: [name: MyPool]` to use your own.
