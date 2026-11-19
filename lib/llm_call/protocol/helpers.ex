@@ -175,6 +175,31 @@ defmodule LlmCall.Protocol.Helpers do
   def index(_value), do: nil
 
   @doc """
+  Normalizes a provider-supplied token count.
+
+  A non-negative integer is kept; anything else (a stringified count, a float, an
+  object) becomes `nil`, so a malformed usage field cannot violate
+  `LlmCall.Usage.tokens` or break arithmetic on it.
+  """
+  @spec token(term()) :: non_neg_integer() | nil
+  def token(value) when is_integer(value) and value >= 0, do: value
+  def token(_value), do: nil
+
+  @doc """
+  Reads a nested map field, or `nil` when any level is missing or not a map.
+
+  `get_in/2` raises when an intermediate value is not an `Access` container; a
+  provider can send `"prompt_tokens_details": "10"`, so usage decoding reads
+  through this instead.
+  """
+  @spec nested(term(), [String.t()]) :: term()
+  def nested(value, []), do: value
+
+  def nested(value, [key | rest]) when is_map(value), do: nested(value[key], rest)
+
+  def nested(_value, _path), do: nil
+
+  @doc """
   Validates a Gemini-style bare model id.
 
   The model is interpolated into a request path, so only characters that are

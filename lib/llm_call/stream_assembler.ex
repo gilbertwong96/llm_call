@@ -40,7 +40,7 @@ defmodule LlmCall.StreamAssembler do
   def feed(%__MODULE__{} = assembler, %StreamEvent{
         type: :tool_call_start,
         index: index,
-        delta: delta
+        delta: %StreamDelta.ToolCall{} = delta
       }) do
     {:ok, put_pending(assembler, index, delta), []}
   end
