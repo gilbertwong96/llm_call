@@ -16,6 +16,16 @@ defmodule LlmCall.ContentValidationTest do
     LlmCall.Protocol.OpenAI.Chat.validate_request(request(role, content), %Config{})
   end
 
+  defp validate_tools(tools) do
+    request = %Request{
+      model: "gpt-4o",
+      messages: [%Message{role: :user, content: [%Content.Text{text: "hi"}]}],
+      tools: tools
+    }
+
+    LlmCall.Protocol.OpenAI.Chat.validate_request(request, %Config{})
+  end
+
   test "text parts require a string" do
     assert {:error, %Error{kind: :validation}} = validate([%Content.Text{text: nil}])
   end
@@ -43,5 +53,21 @@ defmodule LlmCall.ContentValidationTest do
     call = %ToolCall{id: "id", name: "f", arguments: %{"ok" => true}, raw_arguments: "not json"}
 
     assert {:error, %Error{kind: :validation}} = validate(:assistant, [call])
+  end
+
+  test "tool specs validate kind, parameters, and strict" do
+    for spec <- [
+          %LlmCall.ToolSpec{name: "f", kind: :other},
+          %LlmCall.ToolSpec{name: "f", parameters: "not-a-map"},
+          %LlmCall.ToolSpec{name: "f", strict: "yes"}
+        ] do
+      assert {:error, %Error{kind: :validation}} = validate_tools([spec])
+    end
+  end
+
+  test "tool results require a boolean is_error" do
+    result = %ToolResult{call_id: "id", content: "ok", is_error: "yes"}
+
+    assert {:error, %Error{kind: :validation}} = validate([result])
   end
 end

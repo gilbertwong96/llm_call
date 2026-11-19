@@ -70,6 +70,9 @@ defmodule LlmCall.HTTP do
           | {:headers, [{String.t(), String.t()}]}
           | {:data, binary()}
 
+  @header_name_pattern ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/
+  @invalid_header_value_pattern ~r/[\x00-\x08\x0A-\x1F\x7F]/
+
   @doc """
   Merges header lists, keeping one value per name (case-insensitive).
 
@@ -78,9 +81,16 @@ defmodule LlmCall.HTTP do
   """
   @spec merge_headers([[{String.t(), String.t()}]]) :: [{String.t(), String.t()}]
   def merge_headers(header_lists) do
-    header_lists
-    |> List.flatten()
-    |> Enum.reject(&is_nil/1)
+    headers =
+      header_lists
+      |> List.flatten()
+      |> Enum.reject(&is_nil/1)
+
+    unless valid_headers?(headers) do
+      raise ArgumentError, "headers must be a list of valid {name, value} string tuples"
+    end
+
+    headers
     |> Enum.reduce([], fn {name, value}, acc ->
       name = name |> to_string() |> String.downcase()
       [{name, value} | Enum.reject(acc, fn {existing, _} -> existing == name end)]
@@ -170,7 +180,8 @@ defmodule LlmCall.HTTP do
   def valid_headers?(headers) when is_list(headers) do
     Enum.all?(headers, fn
       {name, value} when is_binary(name) and is_binary(value) ->
-        name != "" and valid_header_text?(name) and valid_header_text?(value)
+        Regex.match?(@header_name_pattern, name) and
+          not Regex.match?(@invalid_header_value_pattern, value)
 
       _other ->
         false
@@ -178,10 +189,6 @@ defmodule LlmCall.HTTP do
   end
 
   def valid_headers?(_headers), do: false
-
-  defp valid_header_text?(text) do
-    not String.contains?(text, ["\r", "\n"])
-  end
 
   @doc "Performs one request and returns the whole response."
   @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}

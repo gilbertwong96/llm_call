@@ -323,8 +323,9 @@ defmodule LlmCall.Protocol.Helpers do
   end
 
   defp validate_part_values(%ToolResult{} = result, codec) do
-    with :ok <- validate_optional_string(result.call_id, "tool result call_id", codec) do
-      validate_optional_string(result.name, "tool result name", codec)
+    with :ok <- validate_optional_string(result.call_id, "tool result call_id", codec),
+         :ok <- validate_optional_string(result.name, "tool result name", codec) do
+      validate_boolean(result.is_error, "tool result is_error", codec)
     end
   end
 
@@ -332,6 +333,13 @@ defmodule LlmCall.Protocol.Helpers do
 
   # Struct types describe well-formed values; runtime validation still rejects
   # values a caller built around the types.
+  @dialyzer {:nowarn_function, validate_boolean: 3}
+  @spec validate_boolean(term(), String.t(), codec()) :: :ok | {:error, Error.t()}
+  defp validate_boolean(value, _label, _codec) when is_boolean(value), do: :ok
+
+  defp validate_boolean(_value, label, codec),
+    do: error(codec, "#{label} must be a boolean")
+
   @dialyzer {:nowarn_function, validate_text: 3}
   @spec validate_text(term(), String.t(), codec()) :: :ok | {:error, Error.t()}
   defp validate_text(text, label, codec) do
@@ -680,6 +688,34 @@ defmodule LlmCall.Protocol.Helpers do
   end
 
   @doc """
+  Validates a media reference image source.
+  """
+  @spec validate_media_reference(term(), codec()) :: :ok | {:error, Error.t()}
+  def validate_media_reference(%Content.Image{source: {:url, url}}, _codec)
+      when is_binary(url) and url != "",
+      do: :ok
+
+  def validate_media_reference(%Content.Image{source: source}, _codec)
+      when is_binary(source) and source != "",
+      do: :ok
+
+  def validate_media_reference(%Content.Image{source: {:base64, _data}, media_type: nil}, codec),
+    do: error(codec, "base64 reference requires media_type")
+
+  def validate_media_reference(
+        %Content.Image{source: {:base64, data}, media_type: media_type},
+        _codec
+      )
+      when is_binary(data) and data != "" and is_binary(media_type) and media_type != "",
+      do: :ok
+
+  def validate_media_reference(%Content.Image{}, codec),
+    do: error(codec, "reference image source is not supported")
+
+  def validate_media_reference(_part, codec),
+    do: error(codec, "only an image reference is supported")
+
+  @doc """
   Validates that a media prompt is a non-empty string.
   """
   @spec validate_prompt(String.t() | nil, codec()) :: :ok | {:error, Error.t()}
@@ -801,7 +837,16 @@ defmodule LlmCall.Protocol.Helpers do
   rejected. `options: true` lets the protocol forward `provider_options`.
   """
   @spec validate_tool_spec(ToolSpec.t(), codec(), keyword()) :: :ok | {:error, Error.t()}
-  def validate_tool_spec(%ToolSpec{kind: :builtin} = spec, codec, opts) do
+  def validate_tool_spec(%ToolSpec{} = spec, codec, opts) do
+    with :ok <- validate_tool_spec_fields(spec, codec) do
+      do_validate_tool_spec(spec, codec, opts)
+    end
+  end
+
+  def validate_tool_spec(_spec, codec, _opts),
+    do: error(codec, "tools must be LlmCall.ToolSpec structs")
+
+  defp do_validate_tool_spec(%ToolSpec{kind: :builtin} = spec, codec, opts) do
     with :ok <- validate_builtin_name(spec, codec),
          :ok <- validate_builtin_shape(spec, codec),
          :ok <- validate_builtin_allowed(spec, codec, Keyword.get(opts, :builtin_tools, false)) do
@@ -811,8 +856,8 @@ defmodule LlmCall.Protocol.Helpers do
     end
   end
 
-  def validate_tool_spec(%ToolSpec{name: name} = spec, codec, opts)
-      when is_binary(name) and name != "" do
+  defp do_validate_tool_spec(%ToolSpec{name: name} = spec, codec, opts)
+       when is_binary(name) and name != "" do
     strict =
       if Keyword.get(opts, :strict, false),
         do: :ok,
@@ -828,11 +873,27 @@ defmodule LlmCall.Protocol.Helpers do
     end
   end
 
-  def validate_tool_spec(%ToolSpec{}, codec, _opts),
+  defp do_validate_tool_spec(%ToolSpec{}, codec, _opts),
     do: error(codec, "function tool requires a name")
 
-  def validate_tool_spec(_spec, codec, _opts),
-    do: error(codec, "tools must be LlmCall.ToolSpec structs")
+  # Struct types describe well-formed values; validation still protects callers
+  # that constructed the struct manually.
+  @dialyzer {:nowarn_function, validate_tool_spec_fields: 2}
+  defp validate_tool_spec_fields(%ToolSpec{} = spec, codec) do
+    cond do
+      spec.kind not in [:function, :builtin] ->
+        error(codec, "tool kind must be :function or :builtin")
+
+      not is_nil(spec.parameters) and not is_map(spec.parameters) ->
+        error(codec, "tool parameters must be a map")
+
+      not is_nil(spec.strict) and not is_boolean(spec.strict) ->
+        error(codec, "tool strict must be a boolean")
+
+      true ->
+        :ok
+    end
+  end
 
   defp validate_builtin_name(%ToolSpec{name: name}, _codec)
        when is_binary(name) and name != "",

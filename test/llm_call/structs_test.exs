@@ -146,4 +146,9 @@ defmodule LlmCall.StructsTest do
     assert {:ok, "MARKER:" <> _} = LlmCall.JSON.encode(LlmCall.MarkerJSON, %{a: 1})
     assert {:ok, %{"a" => 1}} = LlmCall.JSON.decode(LlmCall.MarkerJSON, ~s({"a":1}))
   end
+
+  test "JSON facade rejects a non-atom module instead of raising" do
+    assert {:error, {:missing_json_encoder, "JSON"}} = LlmCall.JSON.encode("JSON", %{})
+    assert {:error, {:missing_json_decoder, "JSON"}} = LlmCall.JSON.decode("JSON", "{}")
+  end
 end

@@ -180,6 +180,20 @@ defmodule LlmCall.Protocol.GeminiGenerateContentTest do
     refute Map.has_key?(encode(text_request(tools: tools)).body, "toolConfig")
   end
 
+  test "allowed tool names must be non-empty strings" do
+    tools = [%ToolSpec{name: "get_weather"}]
+
+    for names <- [["get_weather", 1], [""], [nil]] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(tools: tools, tool_choice: {:allowed, names}),
+                 %Config{}
+               )
+
+      assert message =~ "allowed"
+    end
+  end
+
   test "params and output map into generationConfig" do
     body =
       encode(

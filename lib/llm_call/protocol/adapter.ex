@@ -68,10 +68,11 @@ defmodule LlmCall.Protocol.Adapter do
       path = Module.get_attribute(env.module, :path)
       headers = Module.get_attribute(env.module, :headers)
 
-      unless is_binary(path) and is_list(headers) do
+      unless is_binary(path) and is_list(headers) and
+               LlmCall.HTTP.valid_headers?(headers) do
         raise ArgumentError,
-              "#{inspect(env.module)} must set @path (a string) and @headers (a list) " <>
-                "when using LlmCall.Protocol.Adapter"
+              "#{inspect(env.module)} must set @path (a string) and @headers (a valid list " <>
+                "of {name, value} string tuples) when using LlmCall.Protocol.Adapter"
       end
 
       quote do

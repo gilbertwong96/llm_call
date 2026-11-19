@@ -160,6 +160,13 @@ defmodule LlmCall.Media.Protocol.SeedanceVideoTest do
     assert :ok = LlmCall.MediaConformance.assert_operation(operation)
   end
 
+  test "poll paths encode the task id as one path segment" do
+    assert {:ok, %Operation{next: next}} =
+             Video.decode_operation(%{"id" => "foo/bar", "status" => "running"}, %Config{})
+
+    assert next.path == "/api/v3/contents/generations/tasks/foo%2Fbar"
+  end
+
   test "operation raw follows the capture_raw policy" do
     assert :ok =
              LlmCall.MediaConformance.assert_operation_capture_raw(

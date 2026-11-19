@@ -535,12 +535,13 @@ defmodule LlmCall.Protocol.Anthropic.Messages do
     %Error{kind: :invalid_response, message: "anthropic_messages: " <> message}
   end
 
-  defp decode_block(%{"type" => "text"} = block) do
-    %Content.Text{text: block["text"]}
+  defp decode_block(%{"type" => "text", "text" => text}) when is_binary(text) do
+    %Content.Text{text: text}
   end
 
-  defp decode_block(%{"type" => "thinking"} = block) do
-    %Content.Thinking{text: block["thinking"], signature: block["signature"]}
+  defp decode_block(%{"type" => "thinking", "thinking" => text} = block)
+       when is_binary(text) do
+    %Content.Thinking{text: text, signature: block["signature"]}
   end
 
   defp decode_block(%{"type" => "tool_use"} = block) do

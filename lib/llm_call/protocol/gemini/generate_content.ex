@@ -401,7 +401,15 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
   defp validate_tool_choice({:tool, _name}, _tools),
     do: Helpers.error(@codec, "tool_choice tool name is required")
 
-  defp validate_tool_choice({:allowed, names}, _tools) when is_list(names), do: :ok
+  defp validate_tool_choice({:allowed, names}, _tools) when is_list(names) do
+    Helpers.first_error(names, fn
+      name when is_binary(name) and name != "" ->
+        :ok
+
+      _name ->
+        Helpers.error(@codec, "tool_choice {:allowed, names} requires non-empty string names")
+    end)
+  end
 
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
@@ -688,14 +696,20 @@ defmodule LlmCall.Protocol.Gemini.GenerateContent do
 
   defp decode_part(%{"text" => text}) when is_binary(text), do: %Content.Text{text: text}
 
-  defp decode_part(%{"functionCall" => call}) when is_map(call) do
-    %ToolCall{
-      id: nil,
-      name: call["name"],
-      arguments: call["args"] || %{},
-      raw_arguments: nil,
-      arguments_error: nil
-    }
+  defp decode_part(%{"functionCall" => call} = part) when is_map(call) do
+    case call["args"] do
+      args when is_nil(args) or is_map(args) ->
+        %ToolCall{
+          id: nil,
+          name: call["name"],
+          arguments: args || %{},
+          raw_arguments: nil,
+          arguments_error: nil
+        }
+
+      _other ->
+        %Content.Raw{type: "functionCall", data: part}
+    end
   end
 
   defp decode_part(%{"inlineData" => %{} = data}) do

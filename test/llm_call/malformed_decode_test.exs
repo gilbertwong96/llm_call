@@ -39,4 +39,23 @@ defmodule LlmCall.MalformedDecodeTest do
                %Config{}
              )
   end
+
+  test "Anthropic keeps a malformed text block as raw" do
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "text"}]}} =
+             LlmCall.Protocol.Anthropic.Messages.decode_response(
+               %{"content" => [%{"type" => "text", "text" => nil}]},
+               %Config{}
+             )
+  end
+
+  test "Gemini keeps malformed functionCall args as raw" do
+    payload = %{
+      "candidates" => [
+        %{"content" => %{"parts" => [%{"functionCall" => %{"name" => "f", "args" => "x"}}]}}
+      ]
+    }
+
+    assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{data: %{"functionCall" => _}}]}} =
+             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+  end
 end

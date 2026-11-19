@@ -258,27 +258,13 @@ defmodule LlmCall.Media.Protocol.MiniMax.Video do
 
   defp validate_references(nil), do: :ok
   defp validate_references([]), do: :ok
-  defp validate_references([reference]), do: validate_reference(reference)
+  defp validate_references([reference]), do: Helpers.validate_media_reference(reference, @codec)
 
   defp validate_references(references) when is_list(references) do
     Helpers.error(@codec, "at most one first-frame reference image is supported")
   end
 
   defp validate_references(_references), do: Helpers.error(@codec, "references must be a list")
-
-  defp validate_reference(%Content.Image{source: {:url, url}}) when is_binary(url), do: :ok
-  defp validate_reference(%Content.Image{source: source}) when is_binary(source), do: :ok
-
-  defp validate_reference(%Content.Image{source: {:base64, _data}, media_type: nil}),
-    do: Helpers.error(@codec, "base64 reference requires media_type")
-
-  defp validate_reference(%Content.Image{source: {:base64, _data}}), do: :ok
-
-  defp validate_reference(%Content.Image{}),
-    do: Helpers.error(@codec, "reference image source is not supported")
-
-  defp validate_reference(_part),
-    do: Helpers.error(@codec, "only an image reference is supported")
 
   defp validate_provider_options(request, config) do
     case provider_options(request, config) do
