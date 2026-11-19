@@ -69,14 +69,15 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :encode_request, 2),
          :ok <- require_callback(codec, :decode_response, 2),
          :ok <- require_callback(codec, :decode_error, 2),
-         {:ok, encoded} <- codec.encode_request(request, client.config) do
-      call_and_decode(
-        client,
+         {:ok, encoded} <- call_encode(codec, :encode_request, request, client.config) do
+      client
+      |> call_and_decode(
         encoded,
         codec,
         &codec.decode_response(&1, client.config),
         opts[:headers]
       )
+      |> check_decoded(LlmCall.Response, "decode_response/2")
     end
   end
 
@@ -108,9 +109,9 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :decode_stream_event, 3),
          :ok <- require_callback(codec, :finish_stream, 2),
          :ok <- require_callback(codec, :decode_error, 2),
-         {:ok, encoded} <- codec.encode_request(request, client.config),
+         {:ok, encoded} <- call_encode(codec, :encode_request, request, client.config),
          {:ok, http_request} <- build_http_request(client, encoded, opts[:headers]),
-         {:ok, state} <- codec.init_stream(request, client.config) do
+         {:ok, state} <- start_stream_state(codec, request, client.config) do
       {:ok,
        %LlmCall.Stream{
          client: client,
@@ -138,14 +139,15 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :encode_submit, 2),
          :ok <- require_callback(codec, :decode_submit, 2),
          :ok <- require_callback(codec, :decode_error, 2),
-         {:ok, encoded} <- codec.encode_submit(request, client.config) do
-      call_and_decode(
-        client,
+         {:ok, encoded} <- call_encode(codec, :encode_submit, request, client.config) do
+      client
+      |> call_and_decode(
         encoded,
         codec,
         &codec.decode_submit(&1, client.config),
         opts[:headers]
       )
+      |> check_decoded(LlmCall.Media.Response, "decode_submit/2")
     end
   end
 
@@ -184,13 +186,14 @@ defmodule LlmCall do
          {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :decode_operation, 2),
          :ok <- require_callback(codec, :decode_error, 2) do
-      call_and_decode(
-        client,
+      client
+      |> call_and_decode(
         encoded,
         codec,
         &codec.decode_operation(&1, client.config),
         opts[:headers]
       )
+      |> check_decoded(LlmCall.Operation, "decode_operation/2")
     end
   end
 
@@ -445,6 +448,54 @@ defmodule LlmCall do
   end
 
   defp invalid(message, kind), do: %Error{kind: kind, message: message}
+
+  defp call_encode(codec, function, request, config) do
+    case apply(codec, function, [request, config]) do
+      {:ok, %EncodedRequest{}} = ok ->
+        ok
+
+      {:error, %Error{}} = error ->
+        error
+
+      other ->
+        {:error,
+         invalid(
+           "#{inspect(codec)}.#{function}/2 returned #{inspect(other)}, " <>
+             "expected {:ok, %LlmCall.EncodedRequest{}} or {:error, %LlmCall.Error{}}",
+           :validation
+         )}
+    end
+  end
+
+  defp start_stream_state(codec, request, config) do
+    case codec.init_stream(request, config) do
+      {:ok, %StreamState{}} = ok ->
+        ok
+
+      {:error, %Error{}} = error ->
+        error
+
+      other ->
+        {:error,
+         invalid(
+           "#{inspect(codec)}.init_stream/2 returned #{inspect(other)}, " <>
+             "expected {:ok, %LlmCall.StreamState{}} or {:error, %LlmCall.Error{}}",
+           :validation
+         )}
+    end
+  end
+
+  defp check_decoded({:ok, value}, module, _label) when is_struct(value, module), do: {:ok, value}
+  defp check_decoded({:error, %Error{}} = error, _module, _label), do: error
+
+  defp check_decoded(other, module, label) do
+    {:error,
+     invalid(
+       "#{label} returned #{inspect(other)}, expected {:ok, %#{inspect(module)}{}} or " <>
+         "{:error, %LlmCall.Error{}}",
+       :invalid_response
+     )}
+  end
 
   defp transport_error(message, status, retry_after_ms \\ nil) do
     %Error{

@@ -24,6 +24,10 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   running until the budget is exhausted. `reconnect/1` attempts immediately and
   resets the budget.
 
+  With `reconnect: false` the process instead stops at `:max_age_ms`, exiting
+  with `{:shutdown, :max_age}`. A supervisor treats that as a normal stop, but a
+  caller that links it without trapping exits is taken down with it.
+
   An in-flight lane cannot be resumed: its subscriber receives a `:transport`
   error. Continuing a conversation across a reconnect is the caller's decision,
   using `previous_response_id` and the input it wants to resend.
@@ -210,7 +214,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     with {:ok, _lane} <- Map.fetch(state.lanes, stream_id),
          {:ok, json} <-
            encode(state, %{"type" => "response.steer", "stream_id" => stream_id, "input" => input}),
-         {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
+         {:ok, conn} <- safe_send(state.ws, state.conn, {:text, json}) do
       {:reply, :ok, %{state | conn: conn}}
     else
       :error ->
@@ -301,7 +305,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
          {:ok, encoded} <- Responses.encode_request(request, state.client.config),
          {:ok, stream_state} <- Responses.init_stream(request, state.client.config),
          {:ok, json} <- encode(state, create_event(encoded.body, stream_id)),
-         {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
+         {:ok, conn} <- safe_send(state.ws, state.conn, {:text, json}) do
       ref = make_ref()
       monitor = Process.monitor(pid)
 
@@ -594,7 +598,7 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
       |> maybe_put("response_id", response_id)
 
     with {:ok, json} <- encode(state, event),
-         {:ok, conn} <- state.ws.send_frame(state.conn, {:text, json}) do
+         {:ok, conn} <- safe_send(state.ws, state.conn, {:text, json}) do
       {:ok, %{state | conn: conn}}
     else
       {:error, %Error{} = error} -> {:error, error, state}
@@ -718,5 +722,11 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
     ws.feed(conn, message)
   rescue
     error -> {:error, {:feed_failed, error}}
+  end
+
+  defp safe_send(ws, conn, frame) do
+    ws.send_frame(conn, frame)
+  rescue
+    error -> {:error, Exception.message(error)}
   end
 end

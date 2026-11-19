@@ -305,7 +305,10 @@ defmodule LlmCall.Protocol.OpenAIResponsesConnectionTest do
 
     assert :ok = Connection.reconnect(connection)
 
-    assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
+    exception = assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
+
+    assert %Error{kind: :transport, message: message} = LlmCall.WS.Error.error(exception)
+    assert message =~ "interrupted"
 
     TestWSServer.set_mode(:responses)
     assert {:ok, stream} = Connection.create(connection, request(), stream_id: "after")
