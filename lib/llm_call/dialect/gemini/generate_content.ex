@@ -17,6 +17,15 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   collapsed per source before merging, so a request value wins over a config
   default even when the two use different names, and nested native objects are
   deep-merged (a request can extend a defaulted `generationConfig`).
+
+  `finishReason` maps into the canonical union: `CONTINUATION` is a resumable
+  token-limit stop, so it reads as `:max_tokens`; the content-policy reasons (the
+  safety, recitation, blocklist, language, image-safety, and escalation family)
+  read as `:content_filter`; and the reasons that mean the generation failed
+  (`MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL`, `TOO_MANY_TOOL_CALLS`,
+  `MISSING_THOUGHT_SIGNATURE`, `MALFORMED_RESPONSE`, `NO_IMAGE`, `IMAGE_OTHER`,
+  `PUP_LIMITED_DISABLED`) read as `:error`. The candidate's `continuationToken`
+  has no canonical field and stays in `Response.raw`.
   """
 
   @api_version "v1beta"
@@ -795,9 +804,39 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
 
   defp response_stop_reason("MAX_TOKENS", _content), do: :max_tokens
 
+  # A token-limit stop that can be resumed with the candidate's `continuationToken`.
+  defp response_stop_reason("CONTINUATION", _content), do: :max_tokens
+
+  # Content-policy stops, text and image alike, plus the escalation rule.
   defp response_stop_reason(reason, _content)
-       when reason in ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"] do
+       when reason in [
+              "SAFETY",
+              "RECITATION",
+              "LANGUAGE",
+              "BLOCKLIST",
+              "PROHIBITED_CONTENT",
+              "SPII",
+              "IMAGE_SAFETY",
+              "IMAGE_PROHIBITED_CONTENT",
+              "IMAGE_RECITATION",
+              "ESCALATION"
+            ] do
     :content_filter
+  end
+
+  # The provider reported a generation that failed instead of stopping normally.
+  defp response_stop_reason(reason, _content)
+       when reason in [
+              "MALFORMED_FUNCTION_CALL",
+              "UNEXPECTED_TOOL_CALL",
+              "TOO_MANY_TOOL_CALLS",
+              "MISSING_THOUGHT_SIGNATURE",
+              "MALFORMED_RESPONSE",
+              "NO_IMAGE",
+              "IMAGE_OTHER",
+              "PUP_LIMITED_DISABLED"
+            ] do
+    :error
   end
 
   defp response_stop_reason(_reason, _content), do: :unknown

@@ -666,10 +666,28 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
       for {wire, canonical} <- [
             {"STOP", :end_turn},
             {"MAX_TOKENS", :max_tokens},
+            {"CONTINUATION", :max_tokens},
             {"SAFETY", :content_filter},
             {"RECITATION", :content_filter},
+            {"LANGUAGE", :content_filter},
+            {"BLOCKLIST", :content_filter},
+            {"PROHIBITED_CONTENT", :content_filter},
+            {"SPII", :content_filter},
+            {"IMAGE_SAFETY", :content_filter},
+            {"IMAGE_PROHIBITED_CONTENT", :content_filter},
+            {"IMAGE_RECITATION", :content_filter},
+            {"ESCALATION", :content_filter},
+            {"MALFORMED_FUNCTION_CALL", :error},
+            {"UNEXPECTED_TOOL_CALL", :error},
+            {"TOO_MANY_TOOL_CALLS", :error},
+            {"MISSING_THOUGHT_SIGNATURE", :error},
+            {"MALFORMED_RESPONSE", :error},
+            {"NO_IMAGE", :error},
+            {"IMAGE_OTHER", :error},
+            {"PUP_LIMITED_DISABLED", :error},
+            {"FINISH_REASON_UNSPECIFIED", :unknown},
             {"OTHER", :unknown},
-            {"MALFORMED_FUNCTION_CALL", :unknown}
+            {"A_REASON_FROM_THE_FUTURE", :unknown}
           ] do
         assert {:ok, %{stop_reason: ^canonical}} =
                  GenerateContent.decode_response(Fx.response_with_finish(wire), %Config{})

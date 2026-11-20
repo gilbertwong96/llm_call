@@ -139,3 +139,10 @@ back to `llm_call` because it now ships the client that name promised.
   allows `input_text`, `input_image`, and `input_file`, and an assistant turn is
   either an easy-input message with those parts or the original output item with its
   id. It now emits `input_text`.
+- The Gemini codec mapped most `finishReason` values to `:unknown`. The documented
+  set now maps as it reads: `CONTINUATION` (a resumable token-limit stop) to
+  `:max_tokens`, the content-policy family (safety, recitation, language, blocklist,
+  prohibited content, SPII, the image variants, escalation) to `:content_filter`, and
+  the failed-generation reasons (`MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL`,
+  `TOO_MANY_TOOL_CALLS`, `MISSING_THOUGHT_SIGNATURE`, `MALFORMED_RESPONSE`,
+  `NO_IMAGE`, `IMAGE_OTHER`, `PUP_LIMITED_DISABLED`) to `:error`.
