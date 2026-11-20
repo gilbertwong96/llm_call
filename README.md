@@ -231,6 +231,10 @@ override them without touching the compiled default. An explicit
 `:pool_strategy`; `timeout:` is the read timeout, and `receive_timeout` in
 `http_opts` is rejected instead of ignored.
 
+`timeout:` is Finch's `:receive_timeout`: each body chunk must arrive within it,
+not the whole call, so a large response on a slow link can outlive it. Add
+`http_opts: [request_timeout: ...]` when you want a wall-clock cap.
+
 ## Tools
 
 Tool data is wire data only: `LlmCall.ToolSpec`, `LlmCall.ToolCall` and

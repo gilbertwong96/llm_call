@@ -12,6 +12,15 @@ defmodule LlmCall.Client do
 
   Values are materialised at build time, so changing `config :llm_call` afterwards
   does not mutate an existing client; build a new one.
+
+  ## Timeout
+
+  `timeout` is the **read** timeout, handed to Finch as `:receive_timeout`: each
+  body chunk must arrive within it, but it is not a deadline for the whole call.
+  A large response on a slow link, or a provider that keeps sending, can outlast
+  it. For a wall-clock cap, pass Finch's total timeout through `http_opts:
+  [request_timeout: ...]`; on a streaming call it is checked between reads, so
+  the effective bound is `request_timeout` plus one `timeout`.
   """
 
   alias LlmCall.Config

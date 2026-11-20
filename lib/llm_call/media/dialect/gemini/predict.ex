@@ -160,8 +160,9 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
 
   defp validate_params(params) when is_map(params) do
     with :ok <- Helpers.validate_param_keys(params, @param_keys, @codec),
-         :ok <- validate_n(params[:n]) do
-      validate_aspect_ratio(params[:aspect_ratio])
+         :ok <- validate_n(params[:n]),
+         :ok <- validate_aspect_ratio(params[:aspect_ratio]) do
+      validate_negative_prompt(params[:negative_prompt])
     end
   end
 
@@ -174,6 +175,12 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
 
   defp validate_aspect_ratio(_ratio),
     do: Helpers.error(@codec, "params.aspect_ratio must be one of #{inspect(@aspect_ratios)}")
+
+  defp validate_negative_prompt(nil), do: :ok
+  defp validate_negative_prompt(prompt) when is_binary(prompt), do: :ok
+
+  defp validate_negative_prompt(_prompt),
+    do: Helpers.error(@codec, "params.negative_prompt must be a string")
 
   defp validate_references(nil), do: :ok
   defp validate_references([]), do: :ok

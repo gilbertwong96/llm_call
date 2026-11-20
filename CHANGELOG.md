@@ -103,3 +103,6 @@ back to `llm_call` because it now ships the client that name promised.
   while `Response.raw`, `StreamEvent.raw` and `Operation.raw` honoured it. It now
   follows the same policy, so `:none` keeps no provider payload at all. The
   conformance suites check it for completion and media codecs.
+- `LlmCall.Media.Dialect.Gemini.Predict` accepted a non-string
+  `params.negative_prompt` and put it on the wire; it is now a `:validation`
+  error like its sibling knobs.
