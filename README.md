@@ -68,6 +68,28 @@ OpenAI Images — is a second codec selected per call:
 Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
 `{module, function}`. The key is always passed in; nothing reads the environment.
 
+`query:` adds URL parameters to every request, for vendors that key on one —
+MiniMax's `GroupId`, Azure OpenAI's `api-version`. A codec's own parameter still
+wins on the same key:
+
+```elixir
+defmodule MyApp.MiniMax do
+  use LlmCall.Provider,
+    base_url: "https://api.minimax.io",
+    auth: :bearer,
+    codecs: [video: LlmCall.Media.Protocol.MiniMax.Video]
+end
+
+client =
+  MyApp.MiniMax.client(
+    api_key: System.fetch_env!("MINIMAX_API_KEY"),
+    query: %{"GroupId" => System.fetch_env!("MINIMAX_GROUP_ID")}
+  )
+```
+
+The declaration only takes literals, so a value read at runtime belongs on
+`client/1`.
+
 ## Streaming
 
 ```elixir

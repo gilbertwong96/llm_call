@@ -20,6 +20,7 @@ defmodule LlmCall.Client do
           codecs: %{atom() => module()},
           base_url: String.t(),
           headers: [{String.t(), String.t()}],
+          query: %{optional(String.t()) => String.t() | integer() | boolean()},
           http_opts: keyword(),
           timeout: timeout(),
           config: Config.t()
@@ -32,6 +33,7 @@ defmodule LlmCall.Client do
     :timeout,
     :config,
     headers: [],
+    query: %{},
     http_opts: []
   ]
 

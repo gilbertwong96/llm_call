@@ -1301,8 +1301,11 @@ Anthropic Messages, and Gemini GenerateContent.
 - Headers may include required protocol headers.
 - Headers must not include credentials; authentication is added by the client,
   from the provider's `auth` shape and the caller's `api_key`.
-- The client prepends the base URL, appends the encoded query, and performs JSON
-  encoding with the configured module.
+- The client prepends the base URL, merges the provider's `query:` under the
+  encoded query, and performs JSON encoding with the configured module. The
+  provider-level parameters carry vendor facts that are not protocol facts —
+  MiniMax's `GroupId`, Azure OpenAI's `api-version` — and a codec's own key wins
+  on a collision, because `alt=sse` belongs to the protocol.
 
 The client is the default consumer:
 

@@ -298,7 +298,7 @@ defmodule LlmCall do
 
   defp url(%Client{} = client, %EncodedRequest{} = encoded) do
     with :ok <- validate_path(encoded.path),
-         {:ok, query} <- encode_query(encoded.query) do
+         {:ok, query} <- encode_query(Map.merge(client.query, encoded.query)) do
       {:ok, String.trim_trailing(client.base_url, "/") <> encoded.path <> query}
     end
   end
@@ -464,10 +464,6 @@ defmodule LlmCall do
   rescue
     _error ->
       {:error, invalid("request query must be string-encodable", :validation)}
-  end
-
-  defp encode_query(query) do
-    {:error, invalid("request query must be a map, got: #{inspect(query)}", :validation)}
   end
 
   defp invalid(message, kind), do: %Error{kind: kind, message: message}
