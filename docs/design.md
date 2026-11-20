@@ -1086,7 +1086,7 @@ end
 `name` identifies the codec instance and `protocol` the wire family; they are
 equal for every codec today (one codec per family) and differ only when one
 module serves a family with variants. `version` is the wire version the codec
-targets — Anthropic's `2023-06-01`, Gemini's `v1beta`, Seedance's `v3` — and
+targets — Anthropic's `2026-10-21`, Gemini's `v1beta`, Seedance's `v3` — and
 `nil` when the protocol has no versioned surface (OpenAI Chat and Images).
 `ir_version` is the canonical IR contract the codec was written against.
 
@@ -1334,7 +1334,7 @@ Anthropic Messages, and Gemini GenerateContent.
   method: :post,
   path: "/v1/chat/completions",
   query: %{},
-  headers: [{"anthropic-version", "2023-06-01"}],
+  headers: [{"anthropic-version", "2026-10-21"}],
   body: %{}
 }
 ```

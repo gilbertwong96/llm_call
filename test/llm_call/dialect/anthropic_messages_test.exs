@@ -37,7 +37,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     assert %LlmCall.Codec.Info{
              name: :anthropic_messages,
              protocol: :anthropic_messages,
-             version: "2023-06-01",
+             version: "2026-10-21",
              ir_version: 1
            } = Messages.info()
   end
@@ -49,7 +49,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
 
     assert encoded.headers == [
              {"content-type", "application/json"},
-             {"anthropic-version", "2023-06-01"}
+             {"anthropic-version", "2026-10-21"}
            ]
 
     assert encoded.body == %{
