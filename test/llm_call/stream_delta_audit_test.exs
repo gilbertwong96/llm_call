@@ -26,7 +26,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
     [
       %{
         name: :openai_text,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         model: "gpt-4o",
         chunks: LlmCall.Fixtures.OpenAIChat.text_chunks(),
         ignored: [
@@ -41,7 +41,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :openai_tool_calls,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         model: "gpt-4o",
         chunks: LlmCall.Fixtures.OpenAIChat.tool_call_chunks(),
         ignored: [
@@ -60,14 +60,14 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :openai_usage,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         model: "gpt-4o",
         chunks: LlmCall.Fixtures.OpenAIChat.usage_split_chunks(),
         ignored: [{0, ["choices", "index"]}]
       },
       %{
         name: :anthropic_text,
-        codec: LlmCall.Protocol.Anthropic.Messages,
+        codec: LlmCall.Dialect.Anthropic.Messages,
         model: "claude",
         chunks: LlmCall.Fixtures.AnthropicMessages.text_stream(),
         ignored: [
@@ -83,7 +83,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :anthropic_tool_calls,
-        codec: LlmCall.Protocol.Anthropic.Messages,
+        codec: LlmCall.Dialect.Anthropic.Messages,
         model: "claude",
         chunks: LlmCall.Fixtures.AnthropicMessages.tool_stream(),
         ignored: [
@@ -94,7 +94,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :anthropic_thinking,
-        codec: LlmCall.Protocol.Anthropic.Messages,
+        codec: LlmCall.Dialect.Anthropic.Messages,
         model: "claude",
         chunks: LlmCall.Fixtures.AnthropicMessages.thinking_stream(),
         ignored: [
@@ -113,7 +113,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :gemini_text,
-        codec: LlmCall.Protocol.Gemini.GenerateContent,
+        codec: LlmCall.Dialect.Gemini.GenerateContent,
         model: "gemini-2.5-pro",
         chunks: LlmCall.Fixtures.GeminiGenerateContent.text_chunks(),
         ignored: [
@@ -128,14 +128,14 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :gemini_tool_calls,
-        codec: LlmCall.Protocol.Gemini.GenerateContent,
+        codec: LlmCall.Dialect.Gemini.GenerateContent,
         model: "gemini-2.5-pro",
         chunks: LlmCall.Fixtures.GeminiGenerateContent.tool_chunks(),
         ignored: [{0, ["candidates", "content", "role"]}, {0, ["candidates", "index"]}]
       },
       %{
         name: :openai_responses_text,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         model: "gpt-4.1",
         chunks: [
           %{"type" => "response.created"},
@@ -171,7 +171,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :openai_responses_tool_calls,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         model: "gpt-4.1",
         chunks: [
           %{"type" => "response.created"},
@@ -214,7 +214,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :openai_responses_reasoning,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         model: "gpt-4.1",
         chunks: [
           %{"type" => "response.created"},
@@ -239,7 +239,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       },
       %{
         name: :gemini_thought,
-        codec: LlmCall.Protocol.Gemini.GenerateContent,
+        codec: LlmCall.Dialect.Gemini.GenerateContent,
         model: "gemini-2.5-pro",
         chunks: [LlmCall.Fixtures.GeminiGenerateContent.thought_chunk()],
         ignored: [{0, ["candidates", "content", "role"]}, {0, ["candidates", "index"]}]
@@ -352,7 +352,7 @@ defmodule LlmCall.StreamDeltaAuditTest do
       ]
     }
 
-    assert {:ok, events} = run(LlmCall.Protocol.OpenAI.Chat, "gpt-4o", [chunk])
+    assert {:ok, events} = run(LlmCall.Dialect.OpenAI.Chat, "gpt-4o", [chunk])
 
     assert Enum.any?(events, fn
              {:message_delta, %LlmCall.StreamDelta.Raw{data: data}, nil} ->

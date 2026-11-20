@@ -26,7 +26,7 @@ defmodule LlmCall.DecodePathAuditTest do
     [
       %{
         name: :openai_text,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         kind: :response,
         payload: LlmCall.Fixtures.OpenAIChat.text_response(),
         ignored: [
@@ -40,7 +40,7 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :openai_tool_call,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         kind: :response,
         payload: LlmCall.Fixtures.OpenAIChat.tool_call_response(),
         ignored: [
@@ -54,14 +54,14 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :openai_reasoning,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         kind: :response,
         payload: LlmCall.Fixtures.OpenAIChat.reasoning_and_refusal_response(),
         ignored: [["choices", "index"], ["choices", "message", "role"]]
       },
       %{
         name: :openai_responses_text,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         kind: :response,
         payload: LlmCall.Fixtures.OpenAIResponses.text_response(),
         ignored: [
@@ -76,7 +76,7 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :openai_responses_tool_call,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         kind: :response,
         payload: LlmCall.Fixtures.OpenAIResponses.tool_call_response(),
         ignored: [
@@ -88,7 +88,7 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :openai_responses_reasoning,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         kind: :response,
         payload: LlmCall.Fixtures.OpenAIResponses.reasoning_response(),
         ignored: [
@@ -103,7 +103,7 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :anthropic_text,
-        codec: LlmCall.Protocol.Anthropic.Messages,
+        codec: LlmCall.Dialect.Anthropic.Messages,
         kind: :response,
         payload: LlmCall.Fixtures.AnthropicMessages.text_response(),
         ignored: [
@@ -116,14 +116,14 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :anthropic_mixed,
-        codec: LlmCall.Protocol.Anthropic.Messages,
+        codec: LlmCall.Dialect.Anthropic.Messages,
         kind: :response,
         payload: LlmCall.Fixtures.AnthropicMessages.mixed_response(),
         ignored: [["type"], ["role"]]
       },
       %{
         name: :gemini_text,
-        codec: LlmCall.Protocol.Gemini.GenerateContent,
+        codec: LlmCall.Dialect.Gemini.GenerateContent,
         kind: :response,
         payload: LlmCall.Fixtures.GeminiGenerateContent.text_response(),
         ignored: [
@@ -135,14 +135,14 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :openai_images,
-        codec: LlmCall.Media.Protocol.OpenAI.Images,
+        codec: LlmCall.Media.Dialect.OpenAI.Images,
         kind: :submit,
         payload: LlmCall.Media.Fixtures.OpenAIImages.base64_response(),
         ignored: [["created"]]
       },
       %{
         name: :gemini_predict,
-        codec: LlmCall.Media.Protocol.Gemini.Predict,
+        codec: LlmCall.Media.Dialect.Gemini.Predict,
         kind: :submit,
         payload: LlmCall.Media.Fixtures.GeminiPredict.base64_response(),
         ignored: [
@@ -153,21 +153,21 @@ defmodule LlmCall.DecodePathAuditTest do
       },
       %{
         name: :seedance_submit,
-        codec: LlmCall.Media.Protocol.Seedance.Video,
+        codec: LlmCall.Media.Dialect.Seedance.Video,
         kind: :submit,
         payload: LlmCall.Media.Fixtures.SeedanceVideo.submit_response(),
         ignored: []
       },
       %{
         name: :seedance_operation,
-        codec: LlmCall.Media.Protocol.Seedance.Video,
+        codec: LlmCall.Media.Dialect.Seedance.Video,
         kind: :operation,
         payload: LlmCall.Media.Fixtures.SeedanceVideo.succeeded_response(),
         ignored: []
       },
       %{
         name: :minimax_operation,
-        codec: LlmCall.Media.Protocol.MiniMax.Video,
+        codec: LlmCall.Media.Dialect.MiniMax.Video,
         kind: :operation,
         payload: LlmCall.Media.Fixtures.MiniMaxVideo.success_response(),
         ignored: [
@@ -258,7 +258,7 @@ defmodule LlmCall.DecodePathAuditTest do
   end
 
   test "a missing field is nil or :unknown, never a fabricated value" do
-    openai = LlmCall.Protocol.OpenAI.Chat
+    openai = LlmCall.Dialect.OpenAI.Chat
     payload = LlmCall.Fixtures.OpenAIChat.text_response()
     choice = hd(payload["choices"])
 
@@ -284,7 +284,7 @@ defmodule LlmCall.DecodePathAuditTest do
     assert response.usage.input_tokens == 0
     assert response.usage.output_tokens == 0
 
-    anthropic = LlmCall.Protocol.Anthropic.Messages
+    anthropic = LlmCall.Dialect.Anthropic.Messages
     apayload = LlmCall.Fixtures.AnthropicMessages.text_response()
 
     for {field, key, expected} <- [
@@ -296,7 +296,7 @@ defmodule LlmCall.DecodePathAuditTest do
       assert Map.fetch!(response, key) == expected
     end
 
-    gemini = LlmCall.Protocol.Gemini.GenerateContent
+    gemini = LlmCall.Dialect.Gemini.GenerateContent
     gpayload = LlmCall.Fixtures.GeminiGenerateContent.text_response()
 
     for {field, key, expected} <- [{"responseId", :id, nil}, {"usageMetadata", :usage, nil}] do
@@ -307,9 +307,9 @@ defmodule LlmCall.DecodePathAuditTest do
 
   test "a malformed error envelope is an invalid_response, not a fabricated provider error" do
     for codec <- [
-          LlmCall.Protocol.OpenAI.Chat,
-          LlmCall.Protocol.Anthropic.Messages,
-          LlmCall.Protocol.Gemini.GenerateContent
+          LlmCall.Dialect.OpenAI.Chat,
+          LlmCall.Dialect.Anthropic.Messages,
+          LlmCall.Dialect.Gemini.GenerateContent
         ] do
       assert %LlmCall.Error{kind: :invalid_response} =
                codec.decode_error(%{"error" => %{"code" => "x"}}, %Config{})

@@ -266,15 +266,15 @@ defmodule LlmCall.CodecConformanceTest do
 
   defp codecs do
     [
-      {LlmCall.Protocol.OpenAI.Chat, "gpt-4o", LlmCall.Fixtures.OpenAIChat.text_response(),
+      {LlmCall.Dialect.OpenAI.Chat, "gpt-4o", LlmCall.Fixtures.OpenAIChat.text_response(),
        "/v1/chat/completions", LlmCall.Fixtures.OpenAIChat.error_payload(),
        LlmCall.Fixtures.OpenAIChat.text_chunks(), LlmCall.Fixtures.OpenAIChat.tool_call_chunks()},
-      {LlmCall.Protocol.Anthropic.Messages, "claude-sonnet-4-5",
+      {LlmCall.Dialect.Anthropic.Messages, "claude-sonnet-4-5",
        LlmCall.Fixtures.AnthropicMessages.text_response(), "/v1/messages",
        LlmCall.Fixtures.AnthropicMessages.error_payload(),
        LlmCall.Fixtures.AnthropicMessages.text_stream(),
        LlmCall.Fixtures.AnthropicMessages.tool_stream()},
-      {LlmCall.Protocol.Gemini.GenerateContent, "gemini-2.5-pro",
+      {LlmCall.Dialect.Gemini.GenerateContent, "gemini-2.5-pro",
        LlmCall.Fixtures.GeminiGenerateContent.text_response(),
        "/v1beta/models/gemini-2.5-pro:generateContent",
        LlmCall.Fixtures.GeminiGenerateContent.error_payload(),
@@ -336,7 +336,7 @@ defmodule LlmCall.CodecConformanceTest do
   test "ownership is checked with the caller's request, so unknown codecs work" do
     assert :ok =
              Conformance.assert_stream_state_ownership(
-               LlmCall.Protocol.OpenAI.Chat,
+               LlmCall.Dialect.OpenAI.Chat,
                LlmCall.TestCodec.TextOnly,
                request("my-own-model", true)
              )
@@ -351,7 +351,7 @@ defmodule LlmCall.CodecConformanceTest do
       params: %{top_k: 5}
     }
 
-    assert :ok = Conformance.assert_rejects(LlmCall.Protocol.OpenAI.Chat, request, %Config{})
+    assert :ok = Conformance.assert_rejects(LlmCall.Dialect.OpenAI.Chat, request, %Config{})
 
     assert_raise ExUnit.AssertionError, ~r/text_delta must carry/, fn ->
       LlmCall.Conformance.assert_stream_event(
@@ -365,7 +365,7 @@ defmodule LlmCall.CodecConformanceTest do
 
     assert_raise ExUnit.AssertionError, fn ->
       Conformance.assert_rejects(
-        LlmCall.Protocol.OpenAI.Chat,
+        LlmCall.Dialect.OpenAI.Chat,
         %LlmCall.Request{
           model: "gpt-4o",
           messages: [
@@ -378,7 +378,7 @@ defmodule LlmCall.CodecConformanceTest do
   end
 
   test "an unmapped provider field is a Raw message delta, not a contract violation" do
-    {:ok, state} = LlmCall.Protocol.OpenAI.Chat.init_stream(request("gpt-4o", true), %Config{})
+    {:ok, state} = LlmCall.Dialect.OpenAI.Chat.init_stream(request("gpt-4o", true), %Config{})
 
     chunk = %{
       "choices" => [
@@ -387,7 +387,7 @@ defmodule LlmCall.CodecConformanceTest do
     }
 
     assert {:ok, [event], _state} =
-             LlmCall.Protocol.OpenAI.Chat.decode_stream_event(chunk, %Config{}, state)
+             LlmCall.Dialect.OpenAI.Chat.decode_stream_event(chunk, %Config{}, state)
 
     assert event.type == :message_delta
     assert %LlmCall.StreamDelta.Raw{} = event.delta
@@ -416,7 +416,7 @@ defmodule LlmCall.CodecConformanceTest do
   test "assert_stream_request/3 ignores a model id that contains \"stream\"" do
     assert :ok =
              Conformance.assert_stream_request(
-               LlmCall.Protocol.Gemini.GenerateContent,
+               LlmCall.Dialect.Gemini.GenerateContent,
                request("my-stream-model", false)
              )
   end
@@ -424,14 +424,14 @@ defmodule LlmCall.CodecConformanceTest do
   test "assert_stream_request/3 pins a signal a protocol cannot lose" do
     assert :ok =
              Conformance.assert_stream_request(
-               LlmCall.Protocol.Gemini.GenerateContent,
+               LlmCall.Dialect.Gemini.GenerateContent,
                request("gemini-2.5-pro", false),
                require: [query: %{"alt" => "sse"}]
              )
 
     assert_raise ExUnit.AssertionError, ~r/streaming query must carry/, fn ->
       Conformance.assert_stream_request(
-        LlmCall.Protocol.OpenAI.Chat,
+        LlmCall.Dialect.OpenAI.Chat,
         request("gpt-4o", false),
         require: [query: %{"alt" => "sse"}]
       )
@@ -451,11 +451,11 @@ defmodule LlmCall.CodecConformanceTest do
     payload = %{"error" => %{"message" => "slow down", "code" => "rate_limit_exceeded"}}
 
     assert_raise ExUnit.AssertionError, ~r/normalize code/, fn ->
-      Conformance.assert_decode_error(LlmCall.Protocol.OpenAI.Chat, payload, code: "nope")
+      Conformance.assert_decode_error(LlmCall.Dialect.OpenAI.Chat, payload, code: "nope")
     end
 
     assert :ok =
-             Conformance.assert_decode_error(LlmCall.Protocol.OpenAI.Chat, payload,
+             Conformance.assert_decode_error(LlmCall.Dialect.OpenAI.Chat, payload,
                code: "rate_limit_exceeded",
                retryable?: true
              )
@@ -466,7 +466,7 @@ defmodule LlmCall.CodecConformanceTest do
 
     assert :ok =
              Conformance.assert_reserved_options(
-               LlmCall.Protocol.OpenAI.Chat,
+               LlmCall.Dialect.OpenAI.Chat,
                request,
                %Config{},
                [%{openai: %{"model" => "evil"}}, %{openai: %{"messages" => []}}]
@@ -474,7 +474,7 @@ defmodule LlmCall.CodecConformanceTest do
 
     assert_raise ExUnit.AssertionError, fn ->
       Conformance.assert_reserved_options(
-        LlmCall.Protocol.OpenAI.Chat,
+        LlmCall.Dialect.OpenAI.Chat,
         request,
         %Config{},
         [%{openai: %{"logprobs" => true}}]
@@ -505,11 +505,11 @@ defmodule LlmCall.CodecConformanceTest do
   end
 
   test "the reference codecs signal streaming in their own way" do
-    openai = LlmCall.Protocol.OpenAI.Chat.encode_request(request("gpt-4o", true), %Config{})
+    openai = LlmCall.Dialect.OpenAI.Chat.encode_request(request("gpt-4o", true), %Config{})
     assert {:ok, %{body: %{"stream" => true}}} = openai
 
     anthropic =
-      LlmCall.Protocol.Anthropic.Messages.encode_request(
+      LlmCall.Dialect.Anthropic.Messages.encode_request(
         request("claude-sonnet-4-5", true),
         %Config{}
       )
@@ -517,7 +517,7 @@ defmodule LlmCall.CodecConformanceTest do
     assert {:ok, %{body: %{"stream" => true}}} = anthropic
 
     gemini =
-      LlmCall.Protocol.Gemini.GenerateContent.encode_request(
+      LlmCall.Dialect.Gemini.GenerateContent.encode_request(
         request("gemini-2.5-pro", true),
         %Config{}
       )
@@ -529,14 +529,14 @@ defmodule LlmCall.CodecConformanceTest do
   test "assert_stream_request/3 names a non-streamable base request" do
     assert_raise ExUnit.AssertionError, ~r/cannot encode this request with stream: true/, fn ->
       Conformance.assert_stream_request(
-        LlmCall.Protocol.Gemini.GenerateContent,
+        LlmCall.Dialect.Gemini.GenerateContent,
         %{request("gemini-2.5-pro", false) | modalities: [:text, :image]}
       )
     end
   end
 
   test "conformance assertions catch a violating codec" do
-    codec = LlmCall.Protocol.OpenAI.Chat
+    codec = LlmCall.Dialect.OpenAI.Chat
 
     assert_raise ExUnit.AssertionError, fn ->
       Conformance.assert_path(codec, request("gpt-4o", false), "/wrong")

@@ -9,6 +9,6 @@ defmodule LlmCall.Examples.Anthropic do
   use LlmCall.Provider,
     base_url: "https://api.anthropic.com",
     auth: :x_api_key,
-    codecs: [chat: LlmCall.Protocol.Anthropic.Messages],
+    codecs: [chat: LlmCall.Dialect.Anthropic.Messages],
     timeout: 120_000
 end

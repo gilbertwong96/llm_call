@@ -46,10 +46,10 @@ back to `llm_call` because it now ships the client that name promised.
   every unsupported field.
 - Reference adapters: OpenAI Chat Completions, OpenAI Responses, Anthropic
   Messages, Gemini GenerateContent.
-- Adapter authoring macros: `LlmCall.Protocol.Adapter` injects the behaviour,
-  aliases, and `encode_request/2`; `LlmCall.Media.Adapter` additionally
+- Adapter authoring macros: `LlmCall.Dialect.Adapter` injects the behaviour,
+  aliases, and `encode_request/2`; `LlmCall.Media.Dialect.Adapter` additionally
   injects the shared media validation pipeline. Shared rules live in
-  `LlmCall.Protocol.Helpers`.
+  `LlmCall.Dialect.Helpers`.
 - `provider_options` is validated, not just merged: a codec reserves the wire
   keys it derives from canonical fields, rejects a namespace it does not read,
   and refuses a `Config` default that would override an explicit request.

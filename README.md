@@ -1,6 +1,6 @@
 # LlmCall
 
-A call-oriented SDK for LLM APIs: a canonical IR, protocol codecs, and a one-call
+A call-oriented SDK for LLM APIs: a canonical IR, dialect codecs, and a one-call
 client on Finch whose JSON layer you can replace.
 
 ```elixir
@@ -8,7 +8,7 @@ defmodule MyApp.OpenAI do
   use LlmCall.Provider,
     base_url: "https://api.openai.com",
     auth: :bearer,
-    codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
 end
 
 client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
@@ -49,7 +49,7 @@ defmodule MyApp.Groq do
   use LlmCall.Provider,
     base_url: "https://api.groq.com/openai",
     auth: :bearer,
-    codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
 end
 
 client = MyApp.Groq.client(api_key: key)
@@ -77,7 +77,7 @@ defmodule MyApp.MiniMax do
   use LlmCall.Provider,
     base_url: "https://api.minimax.io",
     auth: :bearer,
-    codecs: [video: LlmCall.Media.Protocol.MiniMax.Video]
+    codecs: [video: LlmCall.Media.Dialect.MiniMax.Video]
 end
 
 client =
@@ -123,8 +123,8 @@ named `stream_id` lanes, decoded events, and reconnect before the 60-minute
 limit.
 
 ```elixir
-{:ok, connection} = LlmCall.Protocol.OpenAI.Responses.Connection.start_link(client: client)
-{:ok, stream} = LlmCall.Protocol.OpenAI.Responses.Connection.create(connection, request, stream_id: "main")
+{:ok, connection} = LlmCall.Dialect.OpenAI.Responses.Connection.start_link(client: client)
+{:ok, stream} = LlmCall.Dialect.OpenAI.Responses.Connection.create(connection, request, stream_id: "main")
 
 Enum.to_list(stream)
 ```
@@ -276,31 +276,31 @@ declares `builtin_tools: :passthrough`:
 %LlmCall.ToolSpec{kind: :builtin, name: "web_search_20250305", provider_options: %{"max_uses" => 5}}
 ```
 
-## Protocol adapters
+## Dialect adapters
 
 Four **reference adapters** — the dialect families the IR is written against:
 
-| Protocol | Module |
+| Dialect | Module |
 | --- | --- |
-| OpenAI Chat Completions | `LlmCall.Protocol.OpenAI.Chat` |
-| OpenAI Responses | `LlmCall.Protocol.OpenAI.Responses` |
-| Anthropic Messages | `LlmCall.Protocol.Anthropic.Messages` |
-| Gemini GenerateContent | `LlmCall.Protocol.Gemini.GenerateContent` |
+| OpenAI Chat Completions | `LlmCall.Dialect.OpenAI.Chat` |
+| OpenAI Responses | `LlmCall.Dialect.OpenAI.Responses` |
+| Anthropic Messages | `LlmCall.Dialect.Anthropic.Messages` |
+| Gemini GenerateContent | `LlmCall.Dialect.Gemini.GenerateContent` |
 
 And four **vendored media adapters**, which ship with the library but are not part
 of the stable API surface (see `LlmCall.Media`):
 
-| Protocol | Module |
+| Dialect | Module |
 | --- | --- |
-| OpenAI Images | `LlmCall.Media.Protocol.OpenAI.Images` |
-| Gemini Imagen `predict` | `LlmCall.Media.Protocol.Gemini.Predict` |
-| Seedance (BytePlus ModelArk) | `LlmCall.Media.Protocol.Seedance.Video` |
-| MiniMax Hailuo | `LlmCall.Media.Protocol.MiniMax.Video` |
+| OpenAI Images | `LlmCall.Media.Dialect.OpenAI.Images` |
+| Gemini Imagen `predict` | `LlmCall.Media.Dialect.Gemini.Predict` |
+| Seedance (BytePlus ModelArk) | `LlmCall.Media.Dialect.Seedance.Video` |
+| MiniMax Hailuo | `LlmCall.Media.Dialect.MiniMax.Video` |
 
 The library does not promise provider coverage. An adapter outside this repository
-is a module that `use`s `LlmCall.Protocol.Adapter` (or `LlmCall.Media.Adapter`) and
+is a module that `use`s `LlmCall.Dialect.Adapter` (or `LlmCall.Media.Dialect.Adapter`) and
 supplies `@path`, `@headers`, a private `body/2`, and the protocol's own
-`validate_request/2`; share validation through `LlmCall.Protocol.Helpers` instead
+`validate_request/2`; share validation through `LlmCall.Dialect.Helpers` instead
 of reimplementing it. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 OpenAI-compatible endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI
@@ -313,9 +313,9 @@ The one-call client is the default. The encode/decode functions stay available f
 callers that already own a transport:
 
 ```elixir
-{:ok, encoded} = LlmCall.encode(LlmCall.Protocol.Anthropic.Messages, request)
+{:ok, encoded} = LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request)
 # transport: encoded.method to base_url <> encoded.path, JSON-encode encoded.body
-{:ok, response} = LlmCall.decode_response(LlmCall.Protocol.Anthropic.Messages, payload)
+{:ok, response} = LlmCall.decode_response(LlmCall.Dialect.Anthropic.Messages, payload)
 ```
 
 ## Design

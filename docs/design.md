@@ -121,7 +121,7 @@ per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
 |------------------|--------------------------------------------------------------------------|
 | LangChain Elixir | Chains, conversation flow, tool execution, callbacks                     |
 | ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools |
-| `LlmCall`     | Protocol codecs, canonical wire IR, one-call client                     |
+| `LlmCall`     | Dialect codecs, canonical wire IR, one-call client                      |
 
 `LlmCall` can be used underneath those systems. Its client is deliberately narrow
 — one call, no model metadata, no tool execution, no retry policy.
@@ -135,7 +135,7 @@ per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
 - Keep auth keys caller-supplied, and keep model registries, tool execution,
   approval/audit policies and retries out of the core.
 - Let applications plug in any tool-call framework.
-- Make protocol adapters testable with fixtures, without network access.
+- Make dialect adapters testable with fixtures, without network access.
 - Make capability differences explicit instead of silently dropping fields.
 - Keep OpenAI Chat Completions and OpenAI Responses as distinct protocols.
 
@@ -159,7 +159,7 @@ needed by the layers above, but not implement them.
 
 ## 5. Design principles
 
-1. **Protocol, not provider.** A protocol codec describes a wire format.
+1. **A wire protocol, not a provider.** A dialect codec describes a wire format.
    A provider is an endpoint plus authentication plus model availability.
 2. **Canonical does not mean lossless.** Canonicalize common concepts; keep
    unknown/provider-specific data in `raw` or `provider_options`.
@@ -231,7 +231,7 @@ foundation.
                     +----------+-----------+
                                |
                     +----------v-----------+
-                    | LlmCall.Protocol.*|
+                    | LlmCall.Dialect.*  |
                     |  encode/decode       |
                     +----------+-----------+
                                |
@@ -253,7 +253,7 @@ foundation.
 
 1. **Canonical IR** — request, messages, content, tool data, response,
    streaming events, usage, errors.
-2. **Protocol codec** — encoding request terms and decoding response/event
+2. **Dialect codec** — encoding request terms and decoding response/event
    terms.
 3. **Capabilities** — explicit protocol/model capability description.
 4. **Client** — provider declaration, endpoint, auth shape, and the HTTP scope.
@@ -533,7 +533,7 @@ Examples:
 - The library never interprets a hosted tool's name; it answers only "will this
   codec forward it?" through `Capabilities.builtin_tools`.
 - No callback, function, approval policy, or execution metadata belongs here.
-- `strict` is optional; protocol adapters reject it when unsupported or map it
+- `strict` is optional; dialect adapters reject it when unsupported or map it
   to their equivalent.
 
 ### 8.5 ToolCall
@@ -997,7 +997,7 @@ end
 
 ## 9. OpenAI Chat Completions vs Responses
 
-These are separate protocol adapters, not one endpoint toggle.
+These are separate dialect adapters, not one endpoint toggle.
 
 | Aspect         | Chat Completions                        | Responses                                      |
 |----------------|-----------------------------------------|------------------------------------------------|
@@ -1016,8 +1016,8 @@ These are separate protocol adapters, not one endpoint toggle.
 Implement as:
 
 ```text
-LlmCall.Protocol.OpenAI.Chat         # POST /v1/chat/completions
-LlmCall.Protocol.OpenAI.Responses    # POST /v1/responses
+LlmCall.Dialect.OpenAI.Chat         # POST /v1/chat/completions
+LlmCall.Dialect.OpenAI.Responses    # POST /v1/responses
 ```
 
 Both are implemented. The canonical IR is shared, but the response, event and
@@ -1112,9 +1112,11 @@ defmodule LlmCall.Codec do
 end
 ```
 
-`LlmCall.Codec` is a behaviour. `LlmCall.Protocol.*` modules are concrete
-wire-protocol adapters that implement it. `Protocol` here is the domain
-namespace for wire protocols, not Elixir's `defprotocol`.
+`LlmCall.Codec` is a behaviour. `LlmCall.Dialect.*` modules are concrete
+dialects of one wire protocol; each implements that behaviour. The namespace is
+`Dialect` rather than `Protocol` so it cannot be read as Elixir's `defprotocol`,
+and the same word is used for the `use` macro (`LlmCall.Dialect.Adapter`,
+`LlmCall.Media.Dialect.Adapter`).
 
 `info/0` lets a codec declare its protocol name, wire version, and the canonical
 IR version it implements. `init_stream/2`, `decode_stream_event/3`, and
@@ -1157,24 +1159,24 @@ request value wins per key. `Request.model` is the only model selection.
 Codec selection is explicit:
 
 ```elixir
-LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
+LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, config)
 ```
 
 There is no provider or codec registry in the core. A higher-level client may
 map provider/model names to codec modules, but `LlmCall` does not. This keeps a
-new protocol adapter independent of model catalogs and authentication.
+new dialect adapter independent of model catalogs and authentication.
 
 Adding a new codec should require only:
 
-1. A module that `use`s `LlmCall.Protocol.Adapter` (or
-   `LlmCall.Media.Adapter`), declaring its `provider_options` namespaces
+1. A module that `use`s `LlmCall.Dialect.Adapter` (or
+   `LlmCall.Media.Dialect.Adapter`), declaring its `provider_options` namespaces
    (`@namespaces`, or `namespaces:` on the media macro) and supplying `@path`,
    `@headers`, `info/0`, `capabilities/0`, the protocol's own
    `validate_request/2`, and a private `body/2` that returns the wire body.
-2. Protocol-specific request/response/stream fixtures.
+2. Dialect-specific request/response/stream fixtures.
 3. Capability declarations for the models/endpoints the codec supports.
 
-`use LlmCall.Protocol.Adapter, codec: :openai_chat` injects the behaviour, the
+`use LlmCall.Dialect.Adapter, codec: :openai_chat` injects the behaviour, the
 canonical aliases, `@codec`, and `encode_request/2`; `encode: false` leaves
 `encode_request/2` to the codec when the path or method varies per request. The
 macro reads `@path` and `@headers` once the module finishes and raises at compile
@@ -1182,7 +1184,7 @@ time if either is missing. The media macro additionally injects the shared
 `validate_request/2` pipeline; its `namespaces:` option is required, so a new
 media codec has to state which `provider_options` keys it reads.
 
-Adapters should not hand-roll the shared rules: `LlmCall.Protocol.Helpers` is
+Adapters should not hand-roll the shared rules: `LlmCall.Dialect.Helpers` is
 the adapter-authoring surface, and reimplementing it produces adapters the
 conformance suite cannot check consistently.
 
@@ -1317,7 +1319,7 @@ client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
 The boundary stays public for callers that own a transport:
 
 ```elixir
-{:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request, config)
+{:ok, encoded} = LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, config)
 
 body = JSON.encode!(encoded.body)
 
@@ -1490,7 +1492,7 @@ the same error field is populated and `raw_arguments` is preserved.
 
 Provider timing differs:
 
-| Protocol | Tool-call completion signal | Early execution before message end |
+| Dialect | Tool-call completion signal | Early execution before message end |
 | --- | --- | --- |
 | OpenAI Chat Completions | `finish_reason: "tool_calls"` / final chunk | normally at message end |
 | OpenAI Responses | `response.output_item.done` for the function call | often before response end |
@@ -1587,29 +1589,28 @@ Any framework can map its own tool definition to `LlmCall.ToolSpec` and consume
 MCP is a tool/resource transport, not an LLM completion protocol. An MCP tool
 catalog can be converted into `LlmCall.ToolSpec` values outside the core.
 
-## 14. Protocol adapters
-
+## 14. Dialect adapters
 ### Phase 1
 
-- `LlmCall.Protocol.OpenAI.Chat`
-- `LlmCall.Protocol.OpenAI.Responses`
-- `LlmCall.Protocol.Anthropic.Messages`
-- `LlmCall.Protocol.Gemini.GenerateContent`
+- `LlmCall.Dialect.OpenAI.Chat`
+- `LlmCall.Dialect.OpenAI.Responses`
+- `LlmCall.Dialect.Anthropic.Messages`
+- `LlmCall.Dialect.Gemini.GenerateContent`
 
 These cover the most common request/response shapes and validate the canonical
 IR.
 
 ### Vendored media adapters
 
-These ship in this repository under `LlmCall.Media.Protocol.*`. They are not
+These ship in this repository under `LlmCall.Media.Dialect.*`. They are not
 part of the stable API surface: a provider API change can force an adapter change
 in a minor release, which is why they are named separately from the reference
 adapters. See `LlmCall.Media` for the contract.
 
-- `LlmCall.Media.Protocol.OpenAI.Images`
-- `LlmCall.Media.Protocol.Gemini.Predict` (Imagen)
-- `LlmCall.Media.Protocol.Seedance.Video`
-- `LlmCall.Media.Protocol.MiniMax.Video`
+- `LlmCall.Media.Dialect.OpenAI.Images`
+- `LlmCall.Media.Dialect.Gemini.Predict` (Imagen)
+- `LlmCall.Media.Dialect.Seedance.Video`
+- `LlmCall.Media.Dialect.MiniMax.Video`
 
 ### Beyond this repository
 
@@ -1644,7 +1645,7 @@ A provider is not a protocol:
 - Bedrock can expose Converse, Anthropic Messages, and OpenAI-compatible
   surfaces depending on the model/endpoint.
 
-The protocol adapter is selected independently from the provider endpoint.
+The dialect adapter is selected independently from the provider endpoint.
 
 ## 15. Module layout
 
@@ -1685,28 +1686,28 @@ lib/llm_call/stream.ex
 lib/llm_call/media/codec.ex
 lib/llm_call/media/request.ex
 lib/llm_call/media/response.ex
-lib/llm_call/media/adapter.ex
+lib/llm_call/media/dialect/adapter.ex
 lib/llm_call/media/capabilities.ex
 lib/llm_call/operation.ex
 lib/llm_call/codec_conformance.ex
 lib/llm_call/media_conformance.ex
-lib/llm_call/protocol/adapter.ex
-lib/llm_call/protocol/helpers.ex
-lib/llm_call/protocol/openai/chat.ex
-lib/llm_call/protocol/openai/responses.ex
-lib/llm_call/protocol/openai/responses/connection.ex
-lib/llm_call/protocol/openai/responses/connection/stream.ex
-lib/llm_call/protocol/anthropic/messages.ex
-lib/llm_call/protocol/gemini/generate_content.ex
+lib/llm_call/dialect/adapter.ex
+lib/llm_call/dialect/helpers.ex
+lib/llm_call/dialect/openai/chat.ex
+lib/llm_call/dialect/openai/responses.ex
+lib/llm_call/dialect/openai/responses/connection.ex
+lib/llm_call/dialect/openai/responses/connection/stream.ex
+lib/llm_call/dialect/anthropic/messages.ex
+lib/llm_call/dialect/gemini/generate_content.ex
 lib/llm_call/media.ex
-lib/llm_call/media/protocol/openai/images.ex
-lib/llm_call/media/protocol/gemini/predict.ex
-lib/llm_call/media/protocol/seedance/video.ex
-lib/llm_call/media/protocol/minimax/video.ex
+lib/llm_call/media/dialect/openai/images.ex
+lib/llm_call/media/dialect/gemini/predict.ex
+lib/llm_call/media/dialect/seedance/video.ex
+lib/llm_call/media/dialect/minimax/video.ex
 ```
 
-The three `protocol/*` modules are **reference adapters**: the dialect families
-the IR is written against. The `media/protocol/*` modules are **vendored**
+The `dialect/*` modules are **reference adapters**: the dialect families
+the IR is written against. The `media/dialect/*` modules are **vendored**
 adapters: they ship with the library but are not part of the stable surface.
 
 Optional packages:
@@ -1756,13 +1757,13 @@ request = %LlmCall.Request{
 config = %LlmCall.Config{capture_raw: :none}
 
 {:ok, encoded} =
-  LlmCall.encode(LlmCall.Protocol.Anthropic.Messages, request, config)
+  LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request, config)
 
 # client performs HTTP + JSON (or your own transport does)
 
 {:ok, response} =
   LlmCall.decode_response(
-    LlmCall.Protocol.Anthropic.Messages,
+    LlmCall.Dialect.Anthropic.Messages,
     response_term,
     config
   )
@@ -1771,7 +1772,7 @@ config = %LlmCall.Config{capture_raw: :none}
 Streaming:
 
 ```elixir
-protocol = LlmCall.Protocol.Anthropic.Messages
+protocol = LlmCall.Dialect.Anthropic.Messages
 
 {:ok, state} = LlmCall.init_stream(protocol, request, config)
 
@@ -2011,7 +2012,7 @@ Settled:
     document the adapter-authoring contract.
 14. Add provider-hosted tools: the builtin envelope, `builtin_tools`
     capability, and the codec branches.
-15. Add the media adapters under `LlmCall.Media.Protocol.*`: OpenAI Images,
+15. Add the media adapters under `LlmCall.Media.Dialect.*`: OpenAI Images,
     Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
 16. Add the OpenAI Responses codec (`POST /v1/responses`) on the HTTP/SSE
     transport.
@@ -2034,17 +2035,17 @@ This design is working if:
   provider, or per client; HTTP is Finch.
 - A tool framework can be used directly; the library models tool wire data only
   and depends on no tool library.
-- Adding a protocol adapter does not require changing canonical messages.
+- Adding a dialect adapter does not require changing canonical messages.
 - Provider-specific features remain accessible through explicit escape hatches.
 - The core has no auth lookup, model catalog, provider registry, or agent loop.
-- Protocol fixtures are readable and testable without network access.
+- Dialect fixtures are readable and testable without network access.
 - A caller can generate images and run video generation jobs without writing
   provider-specific HTTP, and without the core polling or downloading anything.
 
 ## 23. Media generation (image and video)
 
 The media **IR** is first-class and stable; media **adapters** are vendored
-under `LlmCall.Media.Protocol.*` and are not part of the stable surface. It uses
+under `LlmCall.Media.Dialect.*` and are not part of the stable surface. It uses
 two entry points over one content vocabulary:
 
 - a completion that may return generated media (`Request.modalities`, decoded
@@ -2186,7 +2187,7 @@ error, not a fabricated local guess.
 keys whose value is `nil` (a `nil` knob is "provider default", not a request).
 A codec rejects a non-nil knob it cannot express. `provider_options` is namespaced
 and merged like the completion side; the namespace is declared when the adapter
-`use`s `LlmCall.Media.Adapter` (`namespaces: [:openai]`), so an unknown key is a
+`use`s `LlmCall.Media.Dialect.Adapter` (`namespaces: [:openai]`), so an unknown key is a
 validation error. A key that would replace `model`, `prompt`, `instances`, or
 `modality` — or a canonical param such as `size`, `n`, or `duration` — is a
 validation error too, which is what keeps a `Config` default from beating an
@@ -2285,24 +2286,24 @@ Media codecs reuse `LlmCall.Codec.Info`. `ir_version` stays `1`: adding optional
 canonical fields with defaults does not change the contract an existing codec was
 written against.
 
-### 23.6 Protocol adapters
+### 23.6 Dialect adapters
 
 The media adapters are **vendored** with the library under
-`LlmCall.Media.Protocol.*`: they ship in the `llm_call` application, follow the
+`LlmCall.Media.Dialect.*`: they ship in the `llm_call` application, follow the
 same conformance suite as the reference chat adapters, and are not part of the
 stable API surface (see `LlmCall.Media`). The media IR they map into is stable;
 they are not.
 
 Phase M1, synchronous image:
 
-- `LlmCall.Media.Protocol.OpenAI.Images` — `POST /v1/images/generations`, body
+- `LlmCall.Media.Dialect.OpenAI.Images` — `POST /v1/images/generations`, body
   `{model, prompt, n?, size?}`. `response_format: "b64_json"` is sent only for
   `dall-e-*` models: `gpt-image-1` rejects the key and returns base64 anyway, and
   `provider_options.openai` may override the value. `references`,
   `aspect_ratio`, `duration_s`, `negative_prompt`, and `seed` are validation
   errors. Response `data[]`: `b64_json` -> `{:base64, data}`, `url` -> `{:url, url}`.
   `revised_prompt` is the first non-nil value; the rest stay in `raw`.
-- `LlmCall.Media.Protocol.Gemini.Predict` (Imagen) — `POST /v1beta/models/{model}:predict`,
+- `LlmCall.Media.Dialect.Gemini.Predict` (Imagen) — `POST /v1beta/models/{model}:predict`,
   body `{instances: [{prompt}], parameters: {sampleCount?, aspectRatio?, negativePrompt?}}`.
   `size`, `duration_s`, `seed`, and `references` are validation errors. Native
   `parameters` knobs (`personGeneration`, `safetySetting`, `outputOptions`, ...)
@@ -2314,7 +2315,7 @@ Phase M1, synchronous image:
 Phase M2, asynchronous video. The M2 codecs target the two video APIs this
 project actually uses; Sora and Veo are not implemented.
 
-- `LlmCall.Media.Protocol.Seedance.Video` (BytePlus ModelArk) — submit
+- `LlmCall.Media.Dialect.Seedance.Video` (BytePlus ModelArk) — submit
   `POST /api/v3/contents/generations/tasks` with
   `{model, content: [{type: "text", text: prompt}, {type: "image_url",
   image_url: {url}, role}?], ratio?, duration?, seed?}`; `next` is
@@ -2329,7 +2330,7 @@ project actually uses; Sora and Veo are not implemented.
   `role: "first_frame"` and the second `role: "last_frame"`, because ModelArk
   requires the roles to tell the pair apart. `durations_s` declares the union
   across Seedance models (2-30 s); a model-specific limit is a provider error.
-- `LlmCall.Media.Protocol.MiniMax.Video` (Hailuo, `v1`) — submit
+- `LlmCall.Media.Dialect.MiniMax.Video` (Hailuo, `v1`) — submit
   `POST /v1/video_generation` with
   `{model, prompt, duration?, first_frame_image?}` -> `{task_id}`; `next` is
   `GET /v1/query/video_generation?task_id={id}`. On `Success` the query returns
@@ -2382,7 +2383,7 @@ not supported by Mint.
 
 ### 24.1 Responses connection
 
-`LlmCall.Protocol.OpenAI.Responses.Connection` is a `GenServer` that owns one
+`LlmCall.Dialect.OpenAI.Responses.Connection` is a `GenServer` that owns one
 WebSocket connection and multiplexes `response.create` calls. It is a transport
 connection, not conversation state: `previous_response_id` and `store` stay with
 the caller.
@@ -2427,7 +2428,7 @@ the wire boundary; this section records the split so the core does not drift.
 
 - Canonical wire IR: request, messages, content, tool data, response, stream
   events, usage tokens, errors.
-- Protocol codecs and their capability declarations (protocol-level, not
+- Dialect codecs and their capability declarations (protocol-level, not
   model-level).
 - One-call HTTP/SSE and Responses WebSocket transports, with reconnect for the
   WebSocket connection.

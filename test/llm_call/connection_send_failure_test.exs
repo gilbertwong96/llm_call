@@ -2,7 +2,7 @@ defmodule LlmCall.ConnectionSendFailureTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.{Config, Content, Error, Message, Request}
-  alias LlmCall.Protocol.OpenAI.Responses.Connection
+  alias LlmCall.Dialect.OpenAI.Responses.Connection
 
   defmodule RaisingSendWS do
     @moduledoc false
@@ -54,7 +54,7 @@ defmodule LlmCall.ConnectionSendFailureTest do
   defp client do
     %LlmCall.Client{
       provider: LlmCall.TestProvider,
-      codecs: %{chat: LlmCall.Protocol.OpenAI.Responses},
+      codecs: %{chat: LlmCall.Dialect.OpenAI.Responses},
       base_url: "http://127.0.0.1:1",
       headers: [],
       http_opts: [],

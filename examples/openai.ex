@@ -10,9 +10,9 @@ defmodule LlmCall.Examples.OpenAI do
     base_url: "https://api.openai.com",
     auth: :bearer,
     codecs: [
-      chat: LlmCall.Protocol.OpenAI.Chat,
-      responses: LlmCall.Protocol.OpenAI.Responses,
-      images: LlmCall.Media.Protocol.OpenAI.Images
+      chat: LlmCall.Dialect.OpenAI.Chat,
+      responses: LlmCall.Dialect.OpenAI.Responses,
+      images: LlmCall.Media.Dialect.OpenAI.Images
     ],
     timeout: 120_000
 end

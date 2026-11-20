@@ -18,12 +18,12 @@ defmodule LlmCall.MediaReferenceValidationTest do
 
   test "Seedance rejects a base64 reference without bytes" do
     assert {:error, %Error{kind: :validation}} =
-             LlmCall.Media.Protocol.Seedance.Video.validate_request(request(), %Config{})
+             LlmCall.Media.Dialect.Seedance.Video.validate_request(request(), %Config{})
   end
 
   test "MiniMax rejects a base64 reference without bytes" do
     assert {:error, %Error{kind: :validation}} =
-             LlmCall.Media.Protocol.MiniMax.Video.validate_request(
+             LlmCall.Media.Dialect.MiniMax.Video.validate_request(
                request(model: "MiniMax-Hailuo-2.3"),
                %Config{}
              )

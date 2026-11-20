@@ -36,7 +36,7 @@ defmodule LlmCall.WritePathAuditTest do
     [
       %{
         name: :openai_chat,
-        codec: LlmCall.Protocol.OpenAI.Chat,
+        codec: LlmCall.Dialect.OpenAI.Chat,
         namespace: :openai,
         request: %Request{
           model: "gpt-4o",
@@ -58,7 +58,7 @@ defmodule LlmCall.WritePathAuditTest do
       },
       %{
         name: :openai_responses,
-        codec: LlmCall.Protocol.OpenAI.Responses,
+        codec: LlmCall.Dialect.OpenAI.Responses,
         namespace: :openai,
         request: %Request{
           model: "gpt-4.1",
@@ -81,7 +81,7 @@ defmodule LlmCall.WritePathAuditTest do
       },
       %{
         name: :anthropic_messages,
-        codec: LlmCall.Protocol.Anthropic.Messages,
+        codec: LlmCall.Dialect.Anthropic.Messages,
         namespace: :anthropic,
         request: %Request{
           model: "claude",
@@ -104,7 +104,7 @@ defmodule LlmCall.WritePathAuditTest do
       %{
         name: :openai_images,
         kind: :media,
-        codec: LlmCall.Media.Protocol.OpenAI.Images,
+        codec: LlmCall.Media.Dialect.OpenAI.Images,
         namespace: :openai,
         request: %LlmCall.Media.Request{
           modality: :image,
@@ -118,7 +118,7 @@ defmodule LlmCall.WritePathAuditTest do
       %{
         name: :gemini_predict,
         kind: :media,
-        codec: LlmCall.Media.Protocol.Gemini.Predict,
+        codec: LlmCall.Media.Dialect.Gemini.Predict,
         namespace: :gemini,
         request: %LlmCall.Media.Request{
           modality: :image,
@@ -132,7 +132,7 @@ defmodule LlmCall.WritePathAuditTest do
       %{
         name: :seedance_video,
         kind: :media,
-        codec: LlmCall.Media.Protocol.Seedance.Video,
+        codec: LlmCall.Media.Dialect.Seedance.Video,
         namespace: :seedance,
         request: %LlmCall.Media.Request{
           modality: :video,
@@ -145,7 +145,7 @@ defmodule LlmCall.WritePathAuditTest do
       %{
         name: :minimax_video,
         kind: :media,
-        codec: LlmCall.Media.Protocol.MiniMax.Video,
+        codec: LlmCall.Media.Dialect.MiniMax.Video,
         namespace: :minimax,
         request: %LlmCall.Media.Request{
           modality: :video,
@@ -157,7 +157,7 @@ defmodule LlmCall.WritePathAuditTest do
       },
       %{
         name: :gemini_generate_content,
-        codec: LlmCall.Protocol.Gemini.GenerateContent,
+        codec: LlmCall.Dialect.Gemini.GenerateContent,
         namespace: :gemini,
         request: %Request{
           model: "gemini-2.5-pro",
@@ -342,7 +342,7 @@ defmodule LlmCall.WritePathAuditTest do
   end
 
   test "stream_options protects include_usage from every source" do
-    codec = LlmCall.Protocol.OpenAI.Chat
+    codec = LlmCall.Dialect.OpenAI.Chat
     request = %{Enum.find(codecs(), &(&1.name == :openai_chat)).request | stream: true}
 
     request_message =

@@ -10,7 +10,7 @@ defmodule MyApp.Groq do
   use LlmCall.Provider,
     base_url: "https://api.groq.com/openai",
     auth: :bearer,
-    codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
 end
 ```
 

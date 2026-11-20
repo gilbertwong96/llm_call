@@ -14,5 +14,5 @@ defmodule LlmCall.Examples.DeepSeek do
   use LlmCall.Provider,
     base_url: "https://api.deepseek.com",
     auth: :bearer,
-    codecs: [chat: LlmCall.Protocol.OpenAI.Chat]
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
 end

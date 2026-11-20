@@ -8,8 +8,8 @@ defmodule LlmCall.Provider do
           base_url: "https://api.openai.com",
           auth: :bearer,
           codecs: [
-            chat: LlmCall.Protocol.OpenAI.Chat,
-            images: LlmCall.Media.Protocol.OpenAI.Images
+            chat: LlmCall.Dialect.OpenAI.Chat,
+            images: LlmCall.Media.Dialect.OpenAI.Images
           ]
       end
 
@@ -32,7 +32,7 @@ defmodule LlmCall.Provider do
         base_url: "https://api.minimax.io",
         auth: :bearer,
         query: %{"GroupId" => "1234567890"},
-        codecs: [video: LlmCall.Media.Protocol.MiniMax.Video]
+        codecs: [video: LlmCall.Media.Dialect.MiniMax.Video]
 
   Like every declaration value it must be a literal; pass a runtime value to
   `client/1` instead (`MyProvider.client(api_key: key, query: %{"GroupId" => id})`).

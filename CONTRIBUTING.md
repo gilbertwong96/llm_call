@@ -3,9 +3,9 @@
 ## Which behaviour to implement
 
 - A completion endpoint (messages, system prompt, tools) →
-  `use LlmCall.Protocol.Adapter` (`LlmCall.Codec`).
+  `use LlmCall.Dialect.Adapter` (`LlmCall.Codec`).
 - A dedicated media endpoint (image/video generation, possibly long-running) →
-  `use LlmCall.Media.Adapter` (`LlmCall.Media.Codec`).
+  `use LlmCall.Media.Dialect.Adapter` (`LlmCall.Media.Codec`).
 
 Both macros inject the behaviour, the canonical aliases, `@codec`, and the shared
 validation entry point; see [`docs/design.md`](docs/design.md) (§10, §23.5).
@@ -28,7 +28,7 @@ Three questions, in order:
    Adding one requires the same justification as adding an IR field: it teaches
    the IR something the current set cannot express.
 3. **Otherwise it is vendored here or lives outside.** Vendored adapters go under
-   `LlmCall.Media.Protocol.*` (media) and are listed in `LlmCall.Media`; anything
+   `LlmCall.Media.Dialect.*` (media) and are listed in `LlmCall.Media`; anything
    else is your own module or a third-party package.
 
 Reference adapters are OpenAI Chat, OpenAI Responses, Anthropic Messages, and
@@ -38,11 +38,11 @@ Veo — is written outside this repository.
 
 ## Namespace rules
 
-- **Vendored adapters** live under `LlmCall.Media.Protocol.*` and are documented
+- **Vendored adapters** live under `LlmCall.Media.Dialect.*` and are documented
   as vendored: they ship with the library but are not part of the stable API
   surface, because a provider API can change independently of the IR.
 - **Out-of-tree adapters** use their own top-level namespace; never define
-  `LlmCall.Protocol.*` or `LlmCall.Media.Protocol.*`, which core owns.
+  `LlmCall.Dialect.*` or `LlmCall.Media.Dialect.*`, which core owns.
 - **No canonical struct changes** from an adapter. If the IR is wrong, that is a
   core discussion.
 
@@ -50,8 +50,8 @@ Veo — is written outside this repository.
 
 Every adapter must:
 
-1. Start from the adapter macro (`use LlmCall.Protocol.Adapter, codec: ...`
-   with `@path`/`@headers`, or `use LlmCall.Media.Adapter, ...` with a
+1. Start from the adapter macro (`use LlmCall.Dialect.Adapter, codec: ...`
+   with `@path`/`@headers`, or `use LlmCall.Media.Dialect.Adapter, ...` with a
    modality), then implement every callback it does not inject. Implement
    `init_stream/2`, `decode_stream_event/3`, `finish_stream/2` only when the
    protocol streams.
@@ -64,10 +64,10 @@ Every adapter must:
    modality you declare must be accepted, `max_n: :unsupported` must reject every
    `n`, and `max_references` must accept exactly that many references. Both
    conformance suites check these in both directions.
-5. **Use `LlmCall.Protocol.Helpers`** for error formatting, `maybe_put`,
+5. **Use `LlmCall.Dialect.Helpers`** for error formatting, `maybe_put`,
    reserved-key checks, and the `capture_raw` policy, so the suite can assert
    behaviour consistently. Declare the namespaces you read (`@namespaces`, or
-   `namespaces:` on `use LlmCall.Media.Adapter`) and validate them with
+   `namespaces:` on `use LlmCall.Media.Dialect.Adapter`) and validate them with
    `Helpers.validate_option_map/4`: an unknown namespace is a validation error,
    because a silently ignored `provider_options` key is a silent drop.
 6. **Keep fixtures honest.** Elixir maps, no JSON strings, no network. Copy the
@@ -129,7 +129,7 @@ ephemeral port. `LlmCall.MarkerJSON` proves the JSON seam is honoured.
 
 `mix ci` runs ExDNA with a zero clone budget (see `mix.exs`): the protocol
 adapters are deliberately parallel, but any logic clone fails the build, so a
-shared rule belongs in `LlmCall.Protocol.Helpers`.
+shared rule belongs in `LlmCall.Dialect.Helpers`.
 
 ## Publishing
 
@@ -142,7 +142,7 @@ Before the first `mix hex.publish`:
 3. `mix hex.build` shows the expected package name, license, and file list.
 
 The zero clone budget in `mix.exs` applies to published versions too: a new clone
-fails the gate, so shared logic belongs in `LlmCall.Protocol.Helpers`.
+fails the gate, so shared logic belongs in `LlmCall.Dialect.Helpers`.
 
 ## Documentation
 
