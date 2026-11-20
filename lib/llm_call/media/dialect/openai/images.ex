@@ -7,8 +7,10 @@ defmodule LlmCall.Media.Dialect.OpenAI.Images do
   implements `LlmCall.Media.Codec` rather than the completion behaviour.
 
   `references` are rejected: image edits and variations require a multipart
-  upload, which the transport owns. `response_format` is forced to `b64_json` so
-  assets do not expire; `provider_options.openai` may override it.
+  upload, which the transport owns. `response_format` is a legacy parameter for the
+  retired DALL·E models and is unsupported by the GPT image models, which always
+  return base64; a caller that still needs it can set it through
+  `provider_options.openai`.
 
   `sizes` declares the union across OpenAI image models. The core has no model
   catalog, so a size a specific model rejects surfaces as a provider error.
@@ -65,7 +67,6 @@ defmodule LlmCall.Media.Dialect.OpenAI.Images do
     with :ok <- validate_request(request, config) do
       body =
         %{"model" => request.model, "prompt" => request.prompt}
-        |> put_response_format(request.model)
         |> Helpers.maybe_put("n", request.params[:n])
         |> Helpers.maybe_put("size", request.params[:size])
         |> Config.deep_merge(provider_options(request, config))
@@ -173,13 +174,6 @@ defmodule LlmCall.Media.Dialect.OpenAI.Images do
   defp provider_options(request, config) do
     Config.provider_options(request, config) |> Map.get(:openai, %{})
   end
-
-  # dall-e models accept response_format; gpt-image-1 does not and returns base64 anyway.
-  defp put_response_format(body, "dall-e-" <> _model) do
-    Map.put(body, "response_format", "b64_json")
-  end
-
-  defp put_response_format(body, _model), do: body
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "openai_images: " <> message}

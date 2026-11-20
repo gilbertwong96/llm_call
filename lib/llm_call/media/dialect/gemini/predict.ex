@@ -9,6 +9,12 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
   upload.
 
   `model` must be a bare model id: it is interpolated into the request path.
+
+  A filtered prediction carries `raiFilteredReason` instead of image bytes; it is
+  skipped while another prediction has bytes and becomes a `:provider` error when
+  none do. Without `includeRaiReason` in `provider_options.gemini["parameters"]`
+  the provider omits filtered images altogether, so an empty `predictions` array
+  means everything was blocked rather than that the payload was malformed.
   """
 
   use LlmCall.Media.Dialect.Adapter,

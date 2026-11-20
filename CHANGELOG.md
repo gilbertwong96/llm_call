@@ -146,3 +146,7 @@ back to `llm_call` because it now ships the client that name promised.
   the failed-generation reasons (`MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL`,
   `TOO_MANY_TOOL_CALLS`, `MISSING_THOUGHT_SIGNATURE`, `MALFORMED_RESPONSE`,
   `NO_IMAGE`, `IMAGE_OTHER`, `PUP_LIMITED_DISABLED`) to `:error`.
+- The OpenAI Images codec sent `response_format: "b64_json"` to `dall-e-*` models.
+  That parameter is legacy for the retired DALL·E models and is unsupported by the
+  GPT image models, which always return base64; it is now only sent when a caller
+  sets it through `provider_options.openai`.
