@@ -205,6 +205,36 @@ defmodule LlmCall.StreamTest do
     assert %Error{status: 429, retry_after_ms: 1_000} = HTTP.Error.error(exception)
   end
 
+  test "a stream transport failure carries the structured reason" do
+    client =
+      StreamingProvider.client(
+        base_url: "http://127.0.0.1:1",
+        http_opts: [name: LlmCall.NoSuchPool]
+      )
+
+    assert {:ok, stream} = LlmCall.stream(client, request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+
+    assert %Error{kind: :transport, reason: {:unknown_pool, LlmCall.NoSuchPool}, message: message} =
+             HTTP.Error.error(exception)
+
+    assert message == "unknown pool: LlmCall.NoSuchPool"
+  end
+
+  test "a non-2xx stream with a non-JSON body reads cleanly" do
+    TestHTTP.put_events([{:status, 500}, {:data, "<html>"}])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+
+    assert %Error{kind: :transport, status: 500, reason: nil, message: message} =
+             HTTP.Error.error(exception)
+
+    assert message == "transport error: HTTP 500: body is not a JSON object"
+  end
+
   test "a 401 raises with the decoded provider error and status" do
     TestHTTP.put_events([
       {:status, 401},

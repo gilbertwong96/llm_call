@@ -50,4 +50,33 @@ defmodule LlmCall.Error do
             retryable?: false,
             retry_after_ms: nil,
             raw: nil
+
+  @doc false
+  @spec from_transport(term()) :: t()
+  def from_transport(reason) do
+    %__MODULE__{
+      kind: :transport,
+      message: transport_message(reason),
+      reason: transport_reason(reason)
+    }
+  end
+
+  # Finch only returns `Finch.error/0` values or the tagged values this module
+  # produces, but a transport that grows a new error shape must not crash a call.
+  @dialyzer {:nowarn_function, transport_message: 1}
+  defp transport_message({:unknown_pool, name}), do: "unknown pool: #{inspect(name)}"
+  defp transport_message({:exception, message}), do: "transport error: #{message}"
+  defp transport_message(reason) when is_binary(reason), do: "transport error: #{reason}"
+  defp transport_message(%_{} = error), do: "transport error: #{Exception.message(error)}"
+  defp transport_message(reason), do: "transport error: #{inspect(reason)}"
+
+  @dialyzer {:nowarn_function, transport_reason: 1}
+  defp transport_reason({:unknown_pool, _name} = reason), do: reason
+  defp transport_reason({:exception, _message}), do: :exception
+  defp transport_reason(%Finch.TransportError{reason: reason}), do: reason
+  defp transport_reason(%Finch.HTTPError{reason: reason}), do: reason
+  defp transport_reason(%Finch.Error{reason: reason}), do: reason
+  defp transport_reason(%Mint.TransportError{reason: reason}), do: reason
+  defp transport_reason(reason) when is_binary(reason), do: nil
+  defp transport_reason(reason), do: reason
 end
