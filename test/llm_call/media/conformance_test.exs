@@ -117,13 +117,13 @@ defmodule LlmCall.TestCodec.RawLeakingOperation do
   def decode_error(_term, _config), do: %Error{kind: :provider, message: "raw_leaking_operation"}
 end
 
-defmodule LlmCall.MediaConformanceTest do
+defmodule LlmCall.Media.ConformanceTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.{Config, Operation}
+  alias LlmCall.Media.Conformance
   alias LlmCall.Media.Request, as: MediaRequest
   alias LlmCall.Media.Response, as: MediaResponse
-  alias LlmCall.MediaConformance
 
   defp request(model) do
     %MediaRequest{modality: :image, model: model, prompt: "a cat"}
@@ -133,17 +133,17 @@ defmodule LlmCall.MediaConformanceTest do
     codec = LlmCall.TestCodec.FakeMedia
 
     assert_raise ExUnit.AssertionError, fn ->
-      MediaConformance.assert_submit_path(codec, request("fake-1"), "/wrong")
+      Conformance.assert_submit_path(codec, request("fake-1"), "/wrong")
     end
 
     assert_raise ExUnit.AssertionError, fn ->
-      MediaConformance.assert_capture_raw(codec, %{"nope" => 1})
+      Conformance.assert_capture_raw(codec, %{"nope" => 1})
     end
 
-    assert :ok = MediaConformance.assert_sync_rejects_operation(codec)
+    assert :ok = Conformance.assert_sync_rejects_operation(codec)
 
     assert_raise ExUnit.AssertionError, ~r/Operation.raw/, fn ->
-      MediaConformance.assert_operation_capture_raw(
+      Conformance.assert_operation_capture_raw(
         LlmCall.TestCodec.RawLeakingOperation,
         %{"status" => "queued"},
         %Config{}
@@ -153,7 +153,7 @@ defmodule LlmCall.MediaConformanceTest do
 
   test "an async declaration without decode_operation/2 is caught" do
     assert_raise ExUnit.AssertionError, ~r/decode_operation/, fn ->
-      MediaConformance.assert_capabilities(
+      Conformance.assert_capabilities(
         LlmCall.TestCodec.BrokenAsyncMedia,
         request("fake-1"),
         %Config{}
@@ -180,7 +180,7 @@ defmodule LlmCall.MediaConformanceTest do
           },
           %Operation{status: :failed, error: %LlmCall.Error{kind: :provider, message: "boom"}}
         ] do
-      assert :ok = MediaConformance.assert_operation(operation)
+      assert :ok = Conformance.assert_operation(operation)
     end
   end
 
@@ -206,7 +206,7 @@ defmodule LlmCall.MediaConformanceTest do
             result: %MediaResponse{}
           }
         ] do
-      assert_raise ExUnit.AssertionError, fn -> MediaConformance.assert_operation(operation) end
+      assert_raise ExUnit.AssertionError, fn -> Conformance.assert_operation(operation) end
     end
   end
 
@@ -216,13 +216,13 @@ defmodule LlmCall.MediaConformanceTest do
     id = %Operation{status: :in_progress, id: 1, next: poll, next_kind: :poll}
 
     assert_raise ExUnit.AssertionError, ~r/Operation.id/, fn ->
-      MediaConformance.assert_operation(id)
+      Conformance.assert_operation(id)
     end
 
     empty_id = %Operation{status: :in_progress, id: "", next: poll, next_kind: :poll}
 
     assert_raise ExUnit.AssertionError, ~r/Operation.id/, fn ->
-      MediaConformance.assert_operation(empty_id)
+      Conformance.assert_operation(empty_id)
     end
 
     for progress <- [140, -1, 1.5, "40"] do
@@ -234,7 +234,7 @@ defmodule LlmCall.MediaConformanceTest do
       }
 
       assert_raise ExUnit.AssertionError, ~r/Operation.progress/, fn ->
-        MediaConformance.assert_operation(operation)
+        Conformance.assert_operation(operation)
       end
     end
   end
@@ -251,7 +251,7 @@ defmodule LlmCall.MediaConformanceTest do
     }
 
     assert_raise ExUnit.AssertionError, ~r/credential header/, fn ->
-      MediaConformance.assert_operation(operation)
+      Conformance.assert_operation(operation)
     end
   end
 
@@ -259,7 +259,7 @@ defmodule LlmCall.MediaConformanceTest do
     request = %MediaRequest{modality: :video, model: "sloppy", prompt: "a cat"}
 
     assert_raise ExUnit.AssertionError, ~r/max_n/, fn ->
-      MediaConformance.assert_capability_consistency(
+      Conformance.assert_capability_consistency(
         LlmCall.TestCodec.SloppyMaxN,
         request,
         %Config{}
@@ -267,7 +267,7 @@ defmodule LlmCall.MediaConformanceTest do
     end
 
     assert_raise ExUnit.AssertionError, ~r/max_references/, fn ->
-      MediaConformance.assert_capability_consistency(
+      Conformance.assert_capability_consistency(
         LlmCall.TestCodec.SloppyRefs,
         request,
         %Config{}
@@ -277,7 +277,7 @@ defmodule LlmCall.MediaConformanceTest do
 
   test "assert_capability_consistency/3 requires a declared flag to be accepted" do
     assert_raise ExUnit.AssertionError, ~r/seed/, fn ->
-      MediaConformance.assert_capability_consistency(
+      Conformance.assert_capability_consistency(
         LlmCall.TestCodec.FlagMedia,
         %MediaRequest{modality: :image, model: "flag-1", prompt: "a cat"},
         %Config{}
@@ -289,7 +289,7 @@ defmodule LlmCall.MediaConformanceTest do
     request = %MediaRequest{modality: :video, model: "async-1", prompt: "a cat"}
 
     assert :ok =
-             MediaConformance.assert_capability_consistency(
+             Conformance.assert_capability_consistency(
                LlmCall.TestCodec.AsyncMedia,
                request,
                %Config{}
@@ -298,7 +298,7 @@ defmodule LlmCall.MediaConformanceTest do
 
   test "assert_capability_consistency/3 catches a declaration validation does not honour" do
     assert_raise ExUnit.AssertionError, fn ->
-      MediaConformance.assert_capability_consistency(
+      Conformance.assert_capability_consistency(
         LlmCall.TestCodec.FakeMedia,
         %MediaRequest{modality: :image, model: "fake-1", prompt: "a cat"},
         %Config{}

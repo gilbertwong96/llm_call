@@ -95,7 +95,7 @@ Every adapter must:
    LlmCall.Codec.Conformance.assert_rejects(MyCodec, invalid_request, %LlmCall.Config{})
    ```
 
-   or, for media, `LlmCall.MediaConformance` (`assert_info/1`,
+   or, for media, `LlmCall.Media.Conformance` (`assert_info/1`,
    `assert_capabilities/3`, `assert_capability_consistency/3`,
    `assert_submit_path/3`, `assert_capture_raw/2`, `assert_operation/1`,
    `assert_operation_capture_raw/3`, `assert_sync_rejects_operation/1` — see the

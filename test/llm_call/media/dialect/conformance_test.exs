@@ -9,10 +9,10 @@ defmodule LlmCall.Media.Dialect.ConformanceTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.Config
+  alias LlmCall.Media.Conformance
   alias LlmCall.Media.Fixtures.{GeminiPredict, MiniMaxVideo, OpenAIImages, SeedanceVideo}
   alias LlmCall.Media.Request, as: MediaRequest
   alias LlmCall.Media.Response, as: MediaResponse
-  alias LlmCall.MediaConformance
 
   defp request(modality, model) do
     %MediaRequest{modality: modality, model: model, prompt: "a cat"}
@@ -27,12 +27,12 @@ defmodule LlmCall.Media.Dialect.ConformanceTest do
         ] do
       request = request(:image, model)
 
-      assert :ok = MediaConformance.assert_info(codec)
-      assert :ok = MediaConformance.assert_capabilities(codec, request, %Config{})
-      assert :ok = MediaConformance.assert_submit_path(codec, request, path)
-      assert :ok = MediaConformance.assert_capture_raw(codec, response)
-      assert :ok = MediaConformance.assert_capability_consistency(codec, request, %Config{})
-      assert :ok = MediaConformance.assert_sync_rejects_operation(codec)
+      assert :ok = Conformance.assert_info(codec)
+      assert :ok = Conformance.assert_capabilities(codec, request, %Config{})
+      assert :ok = Conformance.assert_submit_path(codec, request, path)
+      assert :ok = Conformance.assert_capture_raw(codec, response)
+      assert :ok = Conformance.assert_capability_consistency(codec, request, %Config{})
+      assert :ok = Conformance.assert_sync_rejects_operation(codec)
     end
   end
 
@@ -72,7 +72,7 @@ defmodule LlmCall.Media.Dialect.ConformanceTest do
     }
 
     assert_raise ExUnit.AssertionError, ~r/modality/, fn ->
-      LlmCall.MediaConformance.assert_capabilities(
+      LlmCall.Media.Conformance.assert_capabilities(
         LlmCall.Media.Dialect.Seedance.Video,
         request,
         %Config{}
@@ -91,21 +91,21 @@ defmodule LlmCall.Media.Dialect.ConformanceTest do
         ] do
       request = request(:video, model)
 
-      assert :ok = MediaConformance.assert_info(codec)
-      assert :ok = MediaConformance.assert_capabilities(codec, request, %Config{})
-      assert :ok = MediaConformance.assert_submit_path(codec, request, path)
-      assert :ok = MediaConformance.assert_capability_consistency(codec, request, %Config{})
+      assert :ok = Conformance.assert_info(codec)
+      assert :ok = Conformance.assert_capabilities(codec, request, %Config{})
+      assert :ok = Conformance.assert_submit_path(codec, request, path)
+      assert :ok = Conformance.assert_capability_consistency(codec, request, %Config{})
 
       assert {:ok, %MediaResponse{assets: [], operation: operation}} =
                codec.decode_submit(submit, %Config{})
 
-      assert :ok = MediaConformance.assert_operation(operation)
+      assert :ok = Conformance.assert_operation(operation)
 
       assert {:ok, poll_operation} = codec.decode_operation(poll, %Config{})
-      assert :ok = MediaConformance.assert_operation(poll_operation)
+      assert :ok = Conformance.assert_operation(poll_operation)
       assert poll_operation.next_kind == :poll
 
-      assert :ok = MediaConformance.assert_operation_capture_raw(codec, poll)
+      assert :ok = Conformance.assert_operation_capture_raw(codec, poll)
     end
   end
 end

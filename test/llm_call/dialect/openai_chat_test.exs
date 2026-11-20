@@ -737,7 +737,7 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
                streaming: true
              } = caps
 
-      assert %LlmCall.ReasoningCapabilities{
+      assert %LlmCall.Reasoning.Capabilities{
                supported: true,
                budget_tokens: false,
                adaptive: false,

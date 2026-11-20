@@ -26,7 +26,6 @@ defmodule LlmCall.Codec.Conformance do
     Error,
     Message,
     Reasoning,
-    ReasoningCapabilities,
     StreamAssembler,
     StreamState,
     ToolCall,
@@ -34,6 +33,7 @@ defmodule LlmCall.Codec.Conformance do
   }
 
   alias LlmCall.Conformance, as: Shared
+  alias LlmCall.Reasoning.Capabilities, as: ReasoningCapabilities
 
   @reasoning_levels [:none, :minimal, :low, :medium, :high, :xhigh, :max]
   @reasoning_summaries [:none, :auto, :concise, :detailed]
@@ -712,7 +712,7 @@ defmodule LlmCall.Codec.Conformance do
 
   defp check_reasoning(_codec, _request, _config, other) do
     flunk(
-      "Capabilities.reasoning must be nil or a %LlmCall.ReasoningCapabilities{}, " <>
+      "Capabilities.reasoning must be nil or a %LlmCall.Reasoning.Capabilities{}, " <>
         "got: #{inspect(other)}"
     )
   end

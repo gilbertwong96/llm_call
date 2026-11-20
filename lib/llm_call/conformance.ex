@@ -1,7 +1,7 @@
 defmodule LlmCall.Conformance do
   @moduledoc """
   Assertions shared by `LlmCall.Codec.Conformance` and
-  `LlmCall.MediaConformance`.
+  `LlmCall.Media.Conformance`.
 
   Test support, not a runtime dependency: it imports `ExUnit.Assertions` and is
   meant to be called from a test.

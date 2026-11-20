@@ -1,4 +1,4 @@
-defmodule LlmCall.MediaConformance do
+defmodule LlmCall.Media.Conformance do
   @moduledoc """
   Fixture-based assertions for media codec authors.
 
@@ -6,8 +6,8 @@ defmodule LlmCall.MediaConformance do
   an `ExUnit.AssertionError` naming the failed expectation.
 
       test "my media codec conforms" do
-        MediaConformance.assert_info(MyCodec)
-        MediaConformance.assert_submit_path(MyCodec, request, "/v1/my-images")
+        Conformance.assert_info(MyCodec)
+        Conformance.assert_submit_path(MyCodec, request, "/v1/my-images")
       end
   """
 

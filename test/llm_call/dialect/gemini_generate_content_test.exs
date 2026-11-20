@@ -733,7 +733,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
                streaming: true
              } = caps
 
-      assert %LlmCall.ReasoningCapabilities{
+      assert %LlmCall.Reasoning.Capabilities{
                efforts: [:none, :low, :high],
                budget_tokens: true,
                adaptive: false,

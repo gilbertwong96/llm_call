@@ -61,7 +61,7 @@ back to `llm_call` because it now ships the client that name promised.
 - Vendored media adapters: OpenAI Images, Gemini Imagen `predict`, Seedance
   (BytePlus ModelArk), MiniMax Hailuo.
 - Conformance suites published from `lib/`: `LlmCall.Codec.Conformance` and
-  `LlmCall.MediaConformance`, covering response/error decoding, stream order,
+  `LlmCall.Media.Conformance`, covering response/error decoding, stream order,
   the streaming signal on an encoded request, tool-call assembly, `capture_raw`,
   and capability↔validation consistency.
 - Documentation: `docs/design.md` (canonical spec) and `CONTRIBUTING.md` (adapter

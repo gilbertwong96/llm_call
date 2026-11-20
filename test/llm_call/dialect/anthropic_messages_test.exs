@@ -635,7 +635,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
                streaming: true
              } = caps
 
-      assert %LlmCall.ReasoningCapabilities{
+      assert %LlmCall.Reasoning.Capabilities{
                supported: true,
                budget_tokens: true,
                adaptive: true,

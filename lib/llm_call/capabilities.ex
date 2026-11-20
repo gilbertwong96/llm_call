@@ -24,7 +24,7 @@ defmodule LlmCall.Capabilities do
           modalities: [LlmCall.modality()],
           image_input: boolean(),
           file_input: boolean(),
-          reasoning: LlmCall.ReasoningCapabilities.t() | nil,
+          reasoning: LlmCall.Reasoning.Capabilities.t() | nil,
           streaming_tool_calls: boolean(),
           prompt_cache: boolean(),
           stateful: boolean(),

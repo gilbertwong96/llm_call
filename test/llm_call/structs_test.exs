@@ -9,7 +9,6 @@ defmodule LlmCall.StructsTest do
     Error,
     Message,
     Reasoning,
-    ReasoningCapabilities,
     Request,
     Response,
     ToolCall,
@@ -17,6 +16,8 @@ defmodule LlmCall.StructsTest do
     ToolSpec,
     Usage
   }
+
+  alias LlmCall.Reasoning.Capabilities, as: ReasoningCapabilities
 
   test "defaults match the canonical IR contract" do
     assert %Request{
