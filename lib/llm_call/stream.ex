@@ -208,7 +208,7 @@ defmodule LlmCall.Stream do
           stream_error(state.codec.decode_error(payload, state.client.config))
 
         _other ->
-          Error.from_transport("HTTP #{status}: body is not a JSON object")
+          %Error{kind: :transport, message: "HTTP #{status}: body is not a JSON object"}
       end
 
     retry_after = HTTP.retry_after_ms(state.headers)

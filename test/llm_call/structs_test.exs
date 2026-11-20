@@ -129,6 +129,14 @@ defmodule LlmCall.StructsTest do
     assert Config.deep_merge(%{}, %{"a" => 1}) == %{"a" => 1}
   end
 
+  test "Config.deep_merge/2 rejects a non-map argument with a clear message" do
+    for {canonical, native} <- [{%{}, "x"}, {%{}, [1]}, {"x", %{}}] do
+      assert_raise ArgumentError, ~r/deep_merge\/2 expects two maps/, fn ->
+        Config.deep_merge(canonical, native)
+      end
+    end
+  end
+
   test "JSON.encode/1 and decode/1 return tagged results" do
     assert LlmCall.JSON.encode(%{"city" => "Oslo"}) == {:ok, ~s({"city":"Oslo"})}
     assert LlmCall.JSON.encode(%{}) == {:ok, "{}"}

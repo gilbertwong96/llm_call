@@ -232,7 +232,7 @@ defmodule LlmCall.StreamTest do
     assert %Error{kind: :transport, status: 500, reason: nil, message: message} =
              HTTP.Error.error(exception)
 
-    assert message == "transport error: HTTP 500: body is not a JSON object"
+    assert message == "HTTP 500: body is not a JSON object"
   end
 
   test "a 401 raises with the decoded provider error and status" do
