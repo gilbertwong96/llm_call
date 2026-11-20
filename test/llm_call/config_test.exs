@@ -27,6 +27,10 @@ defmodule LlmCall.ConfigTest do
     assert_raise ArgumentError, ~r/:json_library/, fn ->
       Config.new(json_library: "JSON")
     end
+
+    assert_raise ArgumentError, ~r/:json_library/, fn ->
+      Config.new(json_library: nil)
+    end
   end
 
   test "an explicit %Config{} uses the compiled default" do

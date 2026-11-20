@@ -1724,11 +1724,15 @@ itself.
 Test support (core's own suite):
 
 ```text
-test/support/codecs/      completing and non-conforming codec fakes
-test/support/fixtures/    reference-adapter payloads
-test/support/test_http_server.ex minimal HTTP server for transport tests
-test/support/test_ws_server.ex  minimal WebSocket server for transport tests
-test/support/marker_json.ex    JSON double that proves the seam is honoured
+test/support/codecs/            completing and non-conforming codec fakes
+test/support/fixtures/          reference-adapter payloads
+test/support/test_http_server.ex     minimal HTTP server for transport tests
+test/support/test_ws_server.ex       minimal WebSocket server for transport tests
+test/support/test_proxy.ex           minimal HTTP CONNECT/forward proxy
+test/support/test_provider.ex        completion provider for client tests
+test/support/test_media_provider.ex  media provider for client tests
+test/support/marker_json.ex          JSON double that proves the seam is honoured
+test/support/test_json.ex            tagged JSON decoder used by assembler tests
 ```
 
 Examples (compiled in dev/test, excluded from the package):
