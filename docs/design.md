@@ -648,7 +648,7 @@ provider-specific extension.
   message: "...",
   code: "invalid_request_error" | nil,
   status: 400 | nil,
-  reason: :econnrefused | :timeout | :unknown_pool | {:tls_alert, ...} | nil,
+  reason: atom() | tuple() | nil,
   retryable?: false,
   retry_after_ms: 2_000 | nil,
   raw: map() | nil
@@ -662,11 +662,14 @@ client sets it**: a codec never sees the response status, so it always leaves it
 `nil`.
 
 `reason` is the structured counterpart of a `:transport` message, and only the
-client sets it. `:unknown_pool` means the configured Finch pool is not running,
-`:exception` means the transport raised, and otherwise it is the transport's own
-reason (`:econnrefused`, `:timeout`, `:closed`, `:nxdomain`, `{:tls_alert, ...}`).
-A codec leaves it `nil`, and so does a failure that carries a `status`. Match on
-`reason` instead of parsing `message`; a non-transport error never sets it.
+client sets it: `{:unknown_pool, name}` when the configured Finch pool is not
+running, `:exception` when the HTTP transport raised, `:disconnected` when the
+Responses WebSocket is not connected, `{:interrupted, why}` when an in-flight
+lane was dropped, `{:connection_exited, why}` when the WebSocket connection
+process ended, and otherwise the transport's own reason (`:econnrefused`,
+`:timeout`, `:closed`, `:nxdomain`, `{:tls_alert, ...}`). A codec leaves it
+`nil`, and so does a failure that carries a `status`. Match on `reason` instead
+of parsing `message`; a non-transport error never sets it.
 
 `retry_after_ms` is transport metadata: the client parses the `Retry-After`
 response header (delta-seconds or IMF-fixdate) and sets it on the error; a codec
