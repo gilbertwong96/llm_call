@@ -29,6 +29,9 @@ back to `llm_call` because it now ships the client that name promised.
   on the `URI` struct, keeping the base path. The client and the Responses
   WebSocket handshake both use it, so a caller that owns a transport joins its
   URLs the way the library does.
+- `LlmCall.Codec.Conformance.assert_replays/3` pins which decoded content parts a
+  codec accepts back in an assistant message, the contract an agent loop depends
+  on; `docs/design.md` §8.2 carries the table.
 - `config :llm_call, capture_raw: ...` sets the compile-time capture default,
   symmetric with `json_library:`; `LlmCall.Config.new(capture_raw: ...)` still
   overrides it per client.

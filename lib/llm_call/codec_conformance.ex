@@ -172,6 +172,122 @@ defmodule LlmCall.Codec.Conformance do
     :ok
   end
 
+  @doc """
+  Asserts which decoded content parts a codec accepts back in an assistant message.
+
+  A response the caller can decode but not replay makes a tool loop impossible, so
+  the accept/reject boundary is part of the contract rather than an implementation
+  detail. Pass the rule per part and the assertion builds the assistant turn itself:
+
+      Conformance.assert_replays(codec, request,
+        text: :ok,
+        tool_call: :ok,
+        thinking: :rejected,
+        thinking_without_signature: :rejected,
+        raw: :rejected
+      )
+
+  `:ok` means `encode_request/2` succeeds with that part in an assistant message;
+  `:rejected` means it is a `:validation` error that names the part — never a silent
+  drop. A part the caller omits is not checked: a protocol that cannot express it at
+  all has no rule to pin.
+
+  The parts are `:text`, `:thinking`, `:thinking_without_signature`, `:tool_call`, and
+  `:raw`. What each codec answers is the table in `docs/design.md` §8.2.
+  """
+  @spec assert_replays(module(), LlmCall.Request.t(), keyword()) :: :ok
+  def assert_replays(codec, request, expectations) do
+    label = inspect(codec)
+
+    unless Keyword.keyword?(expectations) do
+      flunk("#{label} replay expectations must be a keyword list, got: #{inspect(expectations)}")
+    end
+
+    for {part, expected} <- expectations do
+      assert_replay(codec, request, part, expected, label)
+    end
+
+    :ok
+  end
+
+  defp assert_replay(codec, request, part, expected, label) do
+    request = %{
+      request
+      | messages: [replay_user_message(), replay_assistant_message(part, label)]
+    }
+
+    result = codec.encode_request(request, %Config{})
+    assert_replay_result(expected, result, part, label)
+  end
+
+  defp assert_replay_result(:ok, {:ok, %EncodedRequest{}}, _part, _label), do: :ok
+
+  defp assert_replay_result(:ok, other, part, label) do
+    flunk(
+      "#{label} must accept #{inspect(part)} back in an assistant message, got: #{inspect(other)}"
+    )
+  end
+
+  defp assert_replay_result(
+         :rejected,
+         {:error, %Error{kind: :validation, message: message}},
+         _part,
+         _label
+       )
+       when is_binary(message),
+       do: :ok
+
+  defp assert_replay_result(:rejected, other, part, label) do
+    flunk(
+      "#{label} must reject #{inspect(part)} in an assistant message with a " <>
+        ":validation error, got: #{inspect(other)}"
+    )
+  end
+
+  defp assert_replay_result(other, _result, part, label) do
+    flunk(
+      "#{label} replay expectation for #{inspect(part)} must be :ok or :rejected, " <>
+        "got: #{inspect(other)}"
+    )
+  end
+
+  defp replay_user_message do
+    %Message{role: :user, content: [%Content.Text{text: "hi"}]}
+  end
+
+  defp replay_assistant_message(:text, _label) do
+    %Message{role: :assistant, content: [%Content.Text{text: "answer"}]}
+  end
+
+  defp replay_assistant_message(:thinking, _label) do
+    %Message{role: :assistant, content: [%Content.Thinking{text: "step", signature: "sig"}]}
+  end
+
+  defp replay_assistant_message(:thinking_without_signature, _label) do
+    %Message{role: :assistant, content: [%Content.Thinking{text: "step"}]}
+  end
+
+  defp replay_assistant_message(:tool_call, _label) do
+    %Message{
+      role: :assistant,
+      content: [%ToolCall{id: "call_1", name: "get_weather", arguments: %{"city" => "Oslo"}}]
+    }
+  end
+
+  defp replay_assistant_message(:raw, _label) do
+    %Message{
+      role: :assistant,
+      content: [%Content.Raw{type: "reasoning", data: %{"type" => "reasoning"}}]
+    }
+  end
+
+  defp replay_assistant_message(other, label) do
+    flunk(
+      "#{label} has no replay fixture for #{inspect(other)}; " <>
+        "expected one of :text, :thinking, :thinking_without_signature, :tool_call, :raw"
+    )
+  end
+
   @spec assert_capture_raw(module(), LlmCall.wire_value()) :: :ok
   def assert_capture_raw(codec, provider_payload) do
     for {capture, expected} <- [none: nil, response: provider_payload, all: provider_payload] do

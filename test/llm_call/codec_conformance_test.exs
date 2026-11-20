@@ -262,6 +262,7 @@ defmodule LlmCall.CodecConformanceTest do
 
   alias LlmCall.Codec.Conformance
   alias LlmCall.{Config, Content, Message, Request}
+  alias LlmCall.Fixtures.OpenAIResponses, as: Responses
   alias LlmCall.TestCodec.TextOnly
 
   defp codecs do
@@ -269,6 +270,8 @@ defmodule LlmCall.CodecConformanceTest do
       {LlmCall.Dialect.OpenAI.Chat, "gpt-4o", LlmCall.Fixtures.OpenAIChat.text_response(),
        "/v1/chat/completions", LlmCall.Fixtures.OpenAIChat.error_payload(),
        LlmCall.Fixtures.OpenAIChat.text_chunks(), LlmCall.Fixtures.OpenAIChat.tool_call_chunks()},
+      {LlmCall.Dialect.OpenAI.Responses, "gpt-4.1", Responses.text_response(), "/v1/responses",
+       Responses.error_payload(), responses_text_chunks(), responses_tool_chunks()},
       {LlmCall.Dialect.Anthropic.Messages, "claude-sonnet-4-5",
        LlmCall.Fixtures.AnthropicMessages.text_response(), "/v1/messages",
        LlmCall.Fixtures.AnthropicMessages.error_payload(),
@@ -280,6 +283,39 @@ defmodule LlmCall.CodecConformanceTest do
        LlmCall.Fixtures.GeminiGenerateContent.error_payload(),
        LlmCall.Fixtures.GeminiGenerateContent.text_chunks(),
        LlmCall.Fixtures.GeminiGenerateContent.tool_chunks()}
+    ]
+  end
+
+  defp responses_text_chunks do
+    [
+      Responses.created(),
+      Responses.output_item_added(%{"type" => "message", "role" => "assistant"}, 0),
+      Responses.content_part_added(%{"type" => "output_text", "text" => ""}, 0),
+      Responses.text_delta("hello", 0),
+      Responses.text_done("hello", 0),
+      Responses.content_part_done(%{"type" => "output_text", "text" => "hello"}, 0),
+      Responses.output_item_done(
+        Responses.message_item("msg_1", [%{"type" => "output_text", "text" => "hello"}]),
+        0
+      ),
+      Responses.completed()
+    ]
+  end
+
+  defp responses_tool_chunks do
+    [
+      Responses.created(),
+      Responses.output_item_added(
+        %{
+          "type" => "function_call",
+          "id" => "fc_1",
+          "call_id" => "call_1",
+          "name" => "get_weather"
+        },
+        0
+      ),
+      Responses.arguments_delta(~s({"city":), 0),
+      Responses.arguments_done(~s({"city":"Oslo"}), 0)
     ]
   end
 
@@ -321,6 +357,49 @@ defmodule LlmCall.CodecConformanceTest do
       assert :ok =
                Conformance.assert_stream_state_ownership(codec, TextOnly, request(model, true))
     end
+  end
+
+  test "every codec pins which decoded parts it accepts back in a request" do
+    for {codec, request} <- replay_cases() do
+      assert :ok = Conformance.assert_replays(codec, request, replay_expectations(codec))
+    end
+  end
+
+  defp replay_cases do
+    [
+      {LlmCall.Dialect.OpenAI.Chat, request("gpt-4o", false)},
+      {LlmCall.Dialect.OpenAI.Responses, request("gpt-4.1", false)},
+      {LlmCall.Dialect.Anthropic.Messages, request("claude-sonnet-4-5", false)},
+      {LlmCall.Dialect.Gemini.GenerateContent, request("gemini-2.5-pro", false)}
+    ]
+  end
+
+  defp replay_expectations(LlmCall.Dialect.OpenAI.Chat) do
+    [
+      text: :ok,
+      tool_call: :ok,
+      thinking: :rejected,
+      thinking_without_signature: :rejected,
+      raw: :rejected
+    ]
+  end
+
+  defp replay_expectations(LlmCall.Dialect.OpenAI.Responses) do
+    [
+      text: :ok,
+      tool_call: :ok,
+      thinking: :rejected,
+      thinking_without_signature: :rejected,
+      raw: :rejected
+    ]
+  end
+
+  defp replay_expectations(LlmCall.Dialect.Anthropic.Messages) do
+    [text: :ok, tool_call: :ok, thinking: :ok, thinking_without_signature: :rejected, raw: :ok]
+  end
+
+  defp replay_expectations(LlmCall.Dialect.Gemini.GenerateContent) do
+    [text: :ok, tool_call: :ok, thinking: :ok, thinking_without_signature: :ok, raw: :ok]
   end
 
   test "a codec that is not loaded fails with a clear assertion" do
