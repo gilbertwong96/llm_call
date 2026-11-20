@@ -1475,6 +1475,18 @@ non-object sentinel, the transport/codec should normalize it to
 `{:done, state}` or wrap it in a map; it should not leak an arbitrary term into
 the public type.
 
+A reasoning block is not one event: the text arrives incrementally, and a provider
+that signs its thinking blocks — Anthropic on every block, Gemini on the thought
+parts before a function call — sends the signature in a separate event whose `text`
+is `""`. A caller that folds only `text` builds a block the next request cannot
+carry, so the fold must take whichever field the event has:
+
+```elixir
+def merge(%LlmCall.Content.Thinking{} = block, %LlmCall.StreamDelta.Thinking{} = delta) do
+  %{block | text: block.text <> delta.text, signature: delta.signature || block.signature}
+end
+```
+
 ### 12.1 Streaming tool-call assembly
 
 The wire layer can emit tool-call fragments before the model has finished its
