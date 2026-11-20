@@ -36,7 +36,7 @@ defmodule LlmCall.Codec.Conformance do
   alias LlmCall.Reasoning.Capabilities, as: ReasoningCapabilities
 
   @reasoning_levels [:none, :minimal, :low, :medium, :high, :xhigh, :max]
-  @reasoning_summaries [:none, :auto, :concise, :detailed]
+  @reasoning_summaries [:auto, :concise, :detailed]
 
   @doc "Asserts well-formed `info/0` metadata (see `LlmCall.Conformance`)."
   @spec assert_info(module()) :: :ok

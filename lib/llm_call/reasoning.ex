@@ -12,7 +12,7 @@ defmodule LlmCall.Reasoning do
 
   @type effort :: level() | nil
 
-  @type summary :: :none | :auto | :concise | :detailed | nil
+  @type summary :: :auto | :concise | :detailed | nil
 
   @type t :: %__MODULE__{
           effort: effort(),
