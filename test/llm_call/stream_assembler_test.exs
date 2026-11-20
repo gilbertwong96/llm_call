@@ -123,7 +123,28 @@ defmodule LlmCall.StreamAssemblerTest do
 
     assert call.arguments == nil
     assert call.raw_arguments == ~s({"a":1})
-    assert call.arguments_error == {:invalid_json, ~s({"a":1})}
+    assert call.arguments_error == :no_json_decoder
+  end
+
+  test "a decoder that returns a non-map is reported, not turned into arguments" do
+    assembler = StreamAssembler.new(json_decoder: fn _raw -> {:ok, [1]} end)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, "call_1", "f"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, "[1]"))
+    {:ok, _assembler, [call]} = StreamAssembler.feed(assembler, stop(0))
+
+    assert call.arguments == nil
+    assert call.arguments_error == {:invalid_json, "arguments are not a JSON object"}
+  end
+
+  test "a decoder that returns a non-binary reason still yields a reason string" do
+    assembler = StreamAssembler.new(json_decoder: fn _raw -> {:error, :bad} end)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, "call_1", "f"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, "{"))
+    {:ok, _assembler, [call]} = StreamAssembler.feed(assembler, stop(0))
+
+    assert call.arguments_error == {:invalid_json, "arguments are not valid JSON"}
   end
 
   test "a call with no streamed arguments decodes to an empty map" do

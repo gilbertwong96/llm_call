@@ -73,3 +73,16 @@ back to `llm_call` because it now ships the client that name promised.
   and capability↔validation consistency.
 - Documentation: `docs/design.md` (canonical spec) and `CONTRIBUTING.md` (adapter
   bar).
+
+### Fixed
+
+- `http_opts: [receive_timeout: ...]` was validated and then dropped: the client
+  always forwards the request's own timeout. It is now an `ArgumentError` that
+  points at `timeout:`, and any key the client would drop is rejected the same
+  way.
+- A CRLF split across two body chunks ended an SSE event early, which broke the
+  documented newline join for multi-line `data:` fields.
+- `ToolCall.arguments_error` carried the raw arguments in one path and a decoder
+  message in another. `raw_arguments` is now the only place the payload lives:
+  `{:invalid_json, reason}` always carries a message, and a missing decoder is
+  `:no_json_decoder`.

@@ -10,7 +10,15 @@ defmodule LlmCall.ToolCall do
 
   @type arguments :: map() | nil
 
-  @type arguments_error :: nil | {:invalid_json, String.t()}
+  @typedoc """
+  Why `arguments` is `nil`.
+
+  `raw_arguments` always carries the payload itself, so this field only says
+  what went wrong: `{:invalid_json, reason}` when the payload is not decodable
+  JSON (or not an object), and `:no_json_decoder` when
+  `LlmCall.StreamAssembler` was built without a `json_decoder:`.
+  """
+  @type arguments_error :: nil | {:invalid_json, String.t()} | :no_json_decoder
 
   @type t :: %__MODULE__{
           id: String.t() | nil,

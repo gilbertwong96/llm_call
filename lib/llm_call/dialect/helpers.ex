@@ -590,8 +590,8 @@ defmodule LlmCall.Dialect.Helpers do
   @doc """
   Decodes a tool call's wire arguments into a map.
 
-  Returns `{arguments, nil}` or `{nil, {:invalid_json, raw}}`; the caller keeps
-  both so a malformed call is not lost.
+  Returns `{arguments, nil}` or `{nil, {:invalid_json, reason}}`; `reason` is a
+  message, not the payload, and the caller keeps the payload it passed in.
   """
   @spec decode_arguments(term(), module()) ::
           {map() | nil, nil | {:invalid_json, String.t()}}
@@ -599,12 +599,19 @@ defmodule LlmCall.Dialect.Helpers do
 
   def decode_arguments(raw, json) when is_binary(raw) do
     case LlmCall.JSON.decode(json, raw) do
-      {:ok, decoded} when is_map(decoded) -> {decoded, nil}
-      _not_a_map -> {nil, {:invalid_json, raw}}
+      {:ok, decoded} when is_map(decoded) ->
+        {decoded, nil}
+
+      {:ok, _not_an_object} ->
+        {nil, {:invalid_json, "tool arguments are not a JSON object"}}
+
+      {:error, _reason} ->
+        {nil, {:invalid_json, "tool arguments are not valid JSON"}}
     end
   end
 
-  def decode_arguments(raw, _json), do: {nil, {:invalid_json, inspect(raw)}}
+  def decode_arguments(_raw, _json),
+    do: {nil, {:invalid_json, "tool arguments must be a JSON string"}}
 
   @doc """
   Validates the tool choices whose native shapes match across OpenAI-style

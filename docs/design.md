@@ -545,7 +545,7 @@ Examples:
   name: "get_weather",
   arguments: %{"city" => "Oslo"} | nil,
   raw_arguments: ~s({"city":"Oslo"}) | nil,
-  arguments_error: nil | {:invalid_json, String.t()},
+  arguments_error: nil | {:invalid_json, String.t()} | :no_json_decoder,
   index: 0 | nil
 }
 ```
@@ -561,8 +561,12 @@ JSON string because:
 `id: nil` is valid because Gemini `functionCall` does not have a call id.
 
 When `raw_arguments` is present, `arguments` is its decoded value. If decoding
-fails, `arguments` is `nil` and `arguments_error` explains the failure; the
-codec must not silently turn malformed arguments into `%{}`.
+fails, `arguments` is `nil` and `arguments_error` says why — `{:invalid_json,
+reason}` for a payload that is not decodable JSON or not an object, and
+`:no_json_decoder` when `LlmCall.StreamAssembler` was built without a decoder.
+`reason` is a message, never the payload: `raw_arguments` is the only place the
+payload travels. The codec must not silently turn malformed arguments into
+`%{}`.
 
 ### 8.6 ToolResult
 
@@ -903,7 +907,7 @@ end
 
 defmodule LlmCall.ToolCall do
   @type arguments :: map() | nil
-  @type arguments_error :: nil | {:invalid_json, String.t()}
+  @type arguments_error :: nil | {:invalid_json, String.t()} | :no_json_decoder
   @type t :: %__MODULE__{
           id: String.t() | nil,
           name: String.t(),
@@ -1487,9 +1491,10 @@ StreamAssembler.new(json_decoder: &JSON.decode/1)
 
 `json_decoder` receives the accumulated argument string and returns
 `{:ok, map()} | {:error, String.t()}`. If no decoder is provided, the assembler
-returns the complete `ToolCall` with `arguments: nil` and an
-`arguments_error` explaining that decoding was unavailable. If decoding fails,
-the same error field is populated and `raw_arguments` is preserved.
+returns the complete `ToolCall` with `arguments: nil` and
+`arguments_error: :no_json_decoder`. If decoding fails, the field carries
+`{:invalid_json, reason}` — the decoder's own message when it returns a string,
+and a fixed phrase otherwise — while `raw_arguments` preserves the payload.
 
 Provider timing differs:
 

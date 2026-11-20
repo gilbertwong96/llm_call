@@ -662,14 +662,15 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
       assert [call] = LlmCall.Response.tool_calls(response)
       assert call.arguments == nil
       assert call.raw_arguments == ~s({"city":)
-      assert call.arguments_error == {:invalid_json, ~s({"city":)}
+      assert call.arguments_error == {:invalid_json, "tool arguments are not valid JSON"}
     end
 
     test "non-object tool arguments are an arguments_error" do
       {:ok, response} = Chat.decode_response(Fx.array_tool_call_response(), %Config{})
       assert [call] = LlmCall.Response.tool_calls(response)
       assert call.arguments == nil
-      assert call.arguments_error == {:invalid_json, "[1,2]"}
+      assert call.raw_arguments == "[1,2]"
+      assert call.arguments_error == {:invalid_json, "tool arguments are not a JSON object"}
     end
 
     test "reasoning_content becomes a thinking block and refusal becomes Raw" do

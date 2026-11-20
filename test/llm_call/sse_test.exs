@@ -52,6 +52,20 @@ defmodule LlmCall.SSETest do
     assert {["[DONE]"], _state} = SSE.parse(state, "\n\r\n")
   end
 
+  test "a CRLF split across chunks does not split a multi-line data event" do
+    {first, state} = SSE.parse(SSE.new(), "data: one\r")
+    assert first == []
+    assert %SSE{buffer: "data: one\n", cr_pending?: true} = state
+
+    assert {["one\ntwo"], %SSE{buffer: "", cr_pending?: false}} =
+             SSE.parse(state, "\ndata: two\r\n\r\n")
+  end
+
+  test "a CR-only terminator does not leave a pending CR behind" do
+    {[], state} = SSE.parse(SSE.new(), "data: a\r")
+    assert {["a"], %SSE{buffer: "", cr_pending?: false}} = SSE.parse(state, "\r")
+  end
+
   test "an empty data line is not a payload" do
     assert {[], _state} = SSE.parse(SSE.new(), "data:\n\n")
   end
