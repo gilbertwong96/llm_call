@@ -11,7 +11,7 @@ defmodule LlmCall.Dialect.Helpers do
   The composite entry points — `encode_completion/6`, `validate_media_request/8`,
   and `validate_parts/3` — are what most adapters call. The individual checks
   (`validate_model/2`, `validate_modalities/3`, `validate_option_map/4`,
-  `validate_tool_call_arguments/2`, ...) are public so a codec with an unusual
+  `validate_tool_call_arguments/3`, ...) are public so a codec with an unusual
   pipeline can compose them instead of copying them; only some of them are used
   by every adapter. Four exist for a codec that reimplements a pipeline step:
   `capture_event/2`, `reserved_key?/2`, `validate_modality/3`, and

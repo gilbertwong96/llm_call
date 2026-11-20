@@ -22,7 +22,9 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   A failed reconnect does not stop the connection: it becomes `:disconnected`,
   `create/3` and `steer/3` return a `:transport` error, and the retry loop keeps
   running until the budget is exhausted. `reconnect/1` attempts immediately and
-  resets the budget.
+  resets the budget. Any close triggers the same path — the close code is not
+  part of the decision, so a server that closes because a credential expired is
+  retried until the budget runs out.
 
   With `reconnect: false` the process instead stops at `:max_age_ms`, exiting
   with `{:shutdown, :max_age}`. A supervisor treats that as a normal stop, but a
