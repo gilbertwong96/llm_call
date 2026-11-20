@@ -134,3 +134,8 @@ back to `llm_call` because it now ships the client that name promised.
   `:max`, which `ReasoningEffort` accepts, and their `Usage.cache_write_tokens` was
   always `nil` although both usage breakdowns report it
   (`prompt_tokens_details.cache_write_tokens`, `input_tokens_details.cache_write_tokens`).
+- The OpenAI Responses codec replayed an assistant turn with `output_text` content
+  parts, which are not valid in an input content list: the documented `input` shape
+  allows `input_text`, `input_image`, and `input_file`, and an assistant turn is
+  either an easy-input message with those parts or the original output item with its
+  id. It now emits `input_text`.

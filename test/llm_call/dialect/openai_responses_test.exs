@@ -94,7 +94,7 @@ defmodule LlmCall.Dialect.OpenAIResponsesTest do
              %{
                "type" => "message",
                "role" => "assistant",
-               "content" => [%{"type" => "output_text", "text" => "let me check"}]
+               "content" => [%{"type" => "input_text", "text" => "let me check"}]
              },
              %{
                "type" => "function_call",

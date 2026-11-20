@@ -19,6 +19,15 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   kept in `signature`. Replaying a reasoning item is not supported: a canonical
   `Content.Thinking` carries no item id, so sending it as input is a validation
   error rather than a silently dropped item.
+
+  An assistant turn goes back as an easy-input message — `{"type": "message",
+  "role": "assistant", "content": [{"type": "input_text", …}]}` — because the
+  alternative shape, the original output item, requires the item `id` and `status`
+  that a canonical `Message` does not carry.
+
+  `text` is a reserved envelope key, since `format` is derived from `output`; the
+  documented `text.verbosity` knob is therefore not reachable from
+  `provider_options`. A tool's `parameters` and `strict` are only sent when set.
   """
 
   @path "/v1/responses"
@@ -133,7 +142,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
     texts = Enum.filter(content, &is_struct(&1, Content.Text))
 
     with {:ok, encoded_calls} <- Helpers.map_ok(calls, &encode_function_call(&1, json)),
-         {:ok, parts} <- Helpers.map_ok(texts, &encode_output_part/1) do
+         {:ok, parts} <- Helpers.map_ok(texts, &encode_assistant_part/1) do
       {:ok, message_item("assistant", parts) ++ encoded_calls}
     end
   end
@@ -156,8 +165,8 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
     {:ok, encode_file_part(file)}
   end
 
-  defp encode_output_part(%Content.Text{text: text}),
-    do: {:ok, %{"type" => "output_text", "text" => text}}
+  defp encode_assistant_part(%Content.Text{text: text}),
+    do: {:ok, %{"type" => "input_text", "text" => text}}
 
   defp encode_image_part({:base64, data}, media_type) do
     %{"type" => "input_image", "image_url" => "data:#{media_type};base64,#{data}"}
