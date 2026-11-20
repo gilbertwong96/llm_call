@@ -70,10 +70,15 @@ defmodule LlmCall.Config do
   canonical value.
   """
   @spec deep_merge(map(), map()) :: map()
-  def deep_merge(canonical, native) do
+  def deep_merge(canonical, native) when is_map(canonical) and is_map(native) do
     Map.merge(canonical, native, fn _key, left, right ->
       if is_map(left) and is_map(right), do: deep_merge(left, right), else: right
     end)
+  end
+
+  def deep_merge(canonical, native) do
+    raise ArgumentError,
+          "deep_merge/2 expects two maps, got: #{inspect(canonical)} and #{inspect(native)}"
   end
 
   @doc """
