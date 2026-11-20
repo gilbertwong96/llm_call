@@ -9,6 +9,15 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   System instructions become a leading `system` message. Tool results become
   `role: "tool"` messages, emitted before the message's remaining content
   because OpenAI requires them directly after the assistant tool call.
+
+  `usage.prompt_tokens_details` carries both cache counters (read and write), and
+  `reasoning_effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
+  and `max`; the model decides which it honours.
+
+  The deprecated `message.function_call` and `delta.function_call` are not decoded
+  into `ToolCall`s: OpenAI replaced them with `tool_calls`, and only the old shape
+  is kept as `Content.Raw`, so a legacy provider's call is visible but not
+  dispatchable through `LlmCall.Response.tool_calls/1`.
   """
 
   @path "/v1/chat/completions"
@@ -20,7 +29,7 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   @tool_reserved_keys ~w(name description parameters strict)
   @builtin_tools false
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
-  @efforts [:none, :minimal, :low, :medium, :high]
+  @efforts [:none, :minimal, :low, :medium, :high, :xhigh, :max]
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
   @known_message_keys ["role", "content", "tool_calls", "reasoning_content", "refusal"]
   @known_delta_keys ["content", "reasoning_content", "tool_calls"]
@@ -685,7 +694,8 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
       total_tokens: Helpers.token(usage["total_tokens"]),
       cache_read_tokens:
         Helpers.token(Helpers.nested(usage, ["prompt_tokens_details", "cached_tokens"])),
-      cache_write_tokens: nil,
+      cache_write_tokens:
+        Helpers.token(Helpers.nested(usage, ["prompt_tokens_details", "cache_write_tokens"])),
       reasoning_tokens:
         Helpers.token(Helpers.nested(usage, ["completion_tokens_details", "reasoning_tokens"]))
     }
@@ -872,7 +882,9 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
       cache_read_tokens:
         Helpers.token(Helpers.nested(wire, ["prompt_tokens_details", "cached_tokens"])) ||
           current.cache_read_tokens,
-      cache_write_tokens: current.cache_write_tokens,
+      cache_write_tokens:
+        Helpers.token(Helpers.nested(wire, ["prompt_tokens_details", "cache_write_tokens"])) ||
+          current.cache_write_tokens,
       reasoning_tokens:
         Helpers.token(Helpers.nested(wire, ["completion_tokens_details", "reasoning_tokens"])) ||
           current.reasoning_tokens
