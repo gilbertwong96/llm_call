@@ -70,7 +70,7 @@ Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
 
 `query:` adds URL parameters to every request, for vendors that key on one —
 MiniMax's `GroupId`, Azure OpenAI's `api-version`. A codec's own parameter still
-wins on the same key:
+wins on the same key, and the Responses WebSocket handshake gets them too:
 
 ```elixir
 defmodule MyApp.MiniMax do

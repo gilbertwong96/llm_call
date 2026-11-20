@@ -17,6 +17,10 @@ back to `llm_call` because it now ships the client that name promised.
   Elixir's built-in `JSON`, selected at compile time with `json_library:`;
   Torque, Jason and Poison work directly. Calls accept `headers:` merged after the client
   headers and before the codec's protocol headers.
+- A provider-level `query:` (or a `query:` client option) adds URL parameters to
+  every request, for vendors that key on one — MiniMax's `GroupId`, Azure
+  OpenAI's `api-version`. A codec's own parameter wins on the same key, and the
+  Responses WebSocket handshake inherits the same parameters.
 - `LlmCall.Error.retry_after_ms` carries the parsed `Retry-After` hint; retry
   policy stays outside the core. `LlmCall.Error.reason` carries the structured
   transport reason (`:econnrefused`, `:timeout`, `:unknown_pool`, ...), so callers
