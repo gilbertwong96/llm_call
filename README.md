@@ -350,6 +350,8 @@ callers that already own a transport:
 
 See [`docs/design.md`](docs/design.md) for the canonical IR, the codec contract,
 the streaming model, the client, and the failure and compatibility policy.
+[`docs/roadmap.md`](docs/roadmap.md) records what 0.1 shipped and the order in which
+further operation families (embeddings, rerank, speech, transcription) would arrive.
 
 Adapters check themselves with `LlmCall.Codec.Conformance` or
 `LlmCall.Media.Conformance` (test support published from `lib/`, not a runtime
