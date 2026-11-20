@@ -16,7 +16,7 @@ defmodule LlmCall.MalformedUsageTest do
   test "Chat ignores non-map token detail objects" do
     for details <- ["10", [], 1, 1.5, true] do
       assert {:ok, %{usage: %Usage{} = usage}} =
-               LlmCall.Protocol.OpenAI.Chat.decode_response(
+               LlmCall.Dialect.OpenAI.Chat.decode_response(
                  chat_payload(%{"prompt_tokens" => 1, "prompt_tokens_details" => details}),
                  %Config{}
                )
@@ -29,7 +29,7 @@ defmodule LlmCall.MalformedUsageTest do
   test "Responses ignores non-map token detail objects" do
     for details <- ["10", [], 1, 1.5, true] do
       assert {:ok, %{usage: %Usage{} = usage}} =
-               LlmCall.Protocol.OpenAI.Responses.decode_response(
+               LlmCall.Dialect.OpenAI.Responses.decode_response(
                  responses_payload(%{"input_tokens" => 1, "input_tokens_details" => details}),
                  %Config{}
                )
@@ -47,7 +47,7 @@ defmodule LlmCall.MalformedUsageTest do
           %{"input_tokens" => -1, "output_tokens" => 2}
         ] do
       assert {:ok, %{usage: %Usage{} = usage}} =
-               LlmCall.Protocol.Anthropic.Messages.decode_response(
+               LlmCall.Dialect.Anthropic.Messages.decode_response(
                  anthropic_payload(usage),
                  %Config{}
                )
@@ -62,7 +62,7 @@ defmodule LlmCall.MalformedUsageTest do
   end
 
   test "a streamed usage chunk with a non-map detail object does not raise" do
-    codec = LlmCall.Protocol.OpenAI.Chat
+    codec = LlmCall.Dialect.OpenAI.Chat
 
     request = %Request{
       model: "gpt-4o",
@@ -81,6 +81,6 @@ defmodule LlmCall.MalformedUsageTest do
 
   test "a malformed error payload still decodes to a canonical error" do
     assert %Error{kind: :invalid_response} =
-             LlmCall.Protocol.OpenAI.Chat.decode_error(%{"error" => "x"}, %Config{})
+             LlmCall.Dialect.OpenAI.Chat.decode_error(%{"error" => "x"}, %Config{})
   end
 end

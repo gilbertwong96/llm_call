@@ -11,8 +11,8 @@ defmodule LlmCall.Examples.Gemini do
     base_url: "https://generativelanguage.googleapis.com",
     auth: {:header, "x-goog-api-key"},
     codecs: [
-      chat: LlmCall.Protocol.Gemini.GenerateContent,
-      images: LlmCall.Media.Protocol.Gemini.Predict
+      chat: LlmCall.Dialect.Gemini.GenerateContent,
+      images: LlmCall.Media.Dialect.Gemini.Predict
     ],
     timeout: 120_000
 end

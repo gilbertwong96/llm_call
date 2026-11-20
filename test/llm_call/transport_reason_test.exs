@@ -76,7 +76,7 @@ defmodule LlmCall.TransportReasonTest do
   end
 
   describe "over the Responses WebSocket" do
-    alias LlmCall.Protocol.OpenAI.Responses.Connection
+    alias LlmCall.Dialect.OpenAI.Responses.Connection
 
     setup do
       LlmCall.TestWSServer.start(mode: :hold)
@@ -84,7 +84,7 @@ defmodule LlmCall.TransportReasonTest do
 
       client = %LlmCall.Client{
         provider: LlmCall.TestProvider,
-        codecs: %{chat: LlmCall.Protocol.OpenAI.Responses},
+        codecs: %{chat: LlmCall.Dialect.OpenAI.Responses},
         base_url: String.replace(LlmCall.TestWSServer.url(), "ws://", "http://"),
         headers: [],
         http_opts: [],

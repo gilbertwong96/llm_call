@@ -13,7 +13,7 @@ defmodule LlmCall.ContentValidationTest do
   defp validate(content), do: validate(:user, content)
 
   defp validate(role, content) do
-    LlmCall.Protocol.OpenAI.Chat.validate_request(request(role, content), %Config{})
+    LlmCall.Dialect.OpenAI.Chat.validate_request(request(role, content), %Config{})
   end
 
   defp validate_tools(tools) do
@@ -23,7 +23,7 @@ defmodule LlmCall.ContentValidationTest do
       tools: tools
     }
 
-    LlmCall.Protocol.OpenAI.Chat.validate_request(request, %Config{})
+    LlmCall.Dialect.OpenAI.Chat.validate_request(request, %Config{})
   end
 
   test "text parts require a string" do

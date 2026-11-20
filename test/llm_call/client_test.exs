@@ -244,7 +244,7 @@ defmodule LlmCall.ClientTest do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
 
     client = LlmCall.Examples.OpenAI.client(api_key: "k", base_url: TestHTTP.url())
-    {:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request())
+    {:ok, encoded} = LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request())
 
     assert {:ok, _response} = LlmCall.execute(client, encoded)
     assert [sent] = TestHTTP.requests()
@@ -554,7 +554,7 @@ defmodule LlmCall.ClientTest do
         headers: [{"Content-Type", "text/plain"}]
       )
 
-    {:ok, encoded} = LlmCall.encode(LlmCall.Protocol.OpenAI.Chat, request())
+    {:ok, encoded} = LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request())
     assert {:ok, _} = LlmCall.execute(client, encoded)
 
     assert [sent] = TestHTTP.requests()

@@ -10,49 +10,49 @@ defmodule LlmCall.MalformedStreamTest do
     }
 
     case codec do
-      LlmCall.Protocol.Anthropic.Messages -> %{base | model: "claude", params: %{max_tokens: 10}}
-      LlmCall.Protocol.Gemini.GenerateContent -> %{base | model: "gemini-2.5-pro"}
-      LlmCall.Protocol.OpenAI.Chat -> %{base | model: "gpt-4o"}
-      LlmCall.Protocol.OpenAI.Responses -> %{base | model: "gpt-4.1"}
+      LlmCall.Dialect.Anthropic.Messages -> %{base | model: "claude", params: %{max_tokens: 10}}
+      LlmCall.Dialect.Gemini.GenerateContent -> %{base | model: "gemini-2.5-pro"}
+      LlmCall.Dialect.OpenAI.Chat -> %{base | model: "gpt-4o"}
+      LlmCall.Dialect.OpenAI.Responses -> %{base | model: "gpt-4.1"}
     end
   end
 
   test "built-in stream decoders reject malformed nested fields" do
     cases = [
-      {LlmCall.Protocol.Anthropic.Messages, %{"type" => "message_start", "message" => "x"}},
-      {LlmCall.Protocol.Anthropic.Messages, %{"type" => "message_delta", "delta" => "x"}},
-      {LlmCall.Protocol.Anthropic.Messages,
+      {LlmCall.Dialect.Anthropic.Messages, %{"type" => "message_start", "message" => "x"}},
+      {LlmCall.Dialect.Anthropic.Messages, %{"type" => "message_delta", "delta" => "x"}},
+      {LlmCall.Dialect.Anthropic.Messages,
        %{"type" => "content_block_start", "index" => 0, "content_block" => "x"}},
-      {LlmCall.Protocol.Anthropic.Messages,
+      {LlmCall.Dialect.Anthropic.Messages,
        %{"type" => "content_block_delta", "index" => 0, "delta" => "x"}},
-      {LlmCall.Protocol.Anthropic.Messages,
+      {LlmCall.Dialect.Anthropic.Messages,
        %{
          "type" => "content_block_delta",
          "index" => 0,
          "delta" => %{"type" => "text_delta", "text" => nil}
        }},
-      {LlmCall.Protocol.Anthropic.Messages,
+      {LlmCall.Dialect.Anthropic.Messages,
        %{
          "type" => "content_block_delta",
          "index" => 0,
          "delta" => %{"type" => "thinking_delta", "thinking" => nil}
        }},
-      {LlmCall.Protocol.Anthropic.Messages,
+      {LlmCall.Dialect.Anthropic.Messages,
        %{
          "type" => "content_block_delta",
          "index" => 0,
          "delta" => %{"type" => "signature_delta", "signature" => 1}
        }},
-      {LlmCall.Protocol.OpenAI.Chat, %{"choices" => [%{"delta" => %{"tool_calls" => [1]}}]}},
-      {LlmCall.Protocol.OpenAI.Chat,
+      {LlmCall.Dialect.OpenAI.Chat, %{"choices" => [%{"delta" => %{"tool_calls" => [1]}}]}},
+      {LlmCall.Dialect.OpenAI.Chat,
        %{"choices" => [%{"delta" => %{"tool_calls" => [%{"function" => "x"}]}}]}},
-      {LlmCall.Protocol.OpenAI.Chat,
+      {LlmCall.Dialect.OpenAI.Chat,
        %{
          "choices" => [
            %{"delta" => %{"tool_calls" => [%{"function" => %{"arguments" => %{}}}]}}
          ]
        }},
-      {LlmCall.Protocol.Gemini.GenerateContent,
+      {LlmCall.Dialect.Gemini.GenerateContent,
        %{"candidates" => [%{"content" => %{"parts" => "x"}}]}}
     ]
 
@@ -65,7 +65,7 @@ defmodule LlmCall.MalformedStreamTest do
   end
 
   test "a malformed stream index becomes nil instead of leaking a string" do
-    anthropic = LlmCall.Protocol.Anthropic.Messages
+    anthropic = LlmCall.Dialect.Anthropic.Messages
     assert {:ok, state} = anthropic.init_stream(request(anthropic), %Config{})
 
     assert {:ok, [event], _state} =
@@ -81,7 +81,7 @@ defmodule LlmCall.MalformedStreamTest do
 
     assert event.index == nil
 
-    responses = LlmCall.Protocol.OpenAI.Responses
+    responses = LlmCall.Dialect.OpenAI.Responses
     assert {:ok, rstate} = responses.init_stream(request(responses), %Config{})
 
     assert {:ok, [revent], _state} =
@@ -99,7 +99,7 @@ defmodule LlmCall.MalformedStreamTest do
   end
 
   test "Gemini ignores a non-map usageMetadata instead of crashing" do
-    codec = LlmCall.Protocol.Gemini.GenerateContent
+    codec = LlmCall.Dialect.Gemini.GenerateContent
     assert {:ok, state} = codec.init_stream(request(codec), %Config{})
 
     assert {:ok, _events, %LlmCall.StreamState{data: %{usage: nil}}} =

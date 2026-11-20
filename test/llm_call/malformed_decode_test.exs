@@ -5,7 +5,7 @@ defmodule LlmCall.MalformedDecodeTest do
 
   test "Anthropic rejects a non-map content block as invalid_response" do
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.Anthropic.Messages.decode_response(
+             LlmCall.Dialect.Anthropic.Messages.decode_response(
                %{"content" => [nil]},
                %Config{}
              )
@@ -15,26 +15,26 @@ defmodule LlmCall.MalformedDecodeTest do
     payload = %{"candidates" => [%{"content" => %{"parts" => [nil]}}]}
 
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+             LlmCall.Dialect.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
 
   test "OpenAI Chat rejects a non-list tool_calls value as invalid_response" do
     payload = %{"choices" => [%{"message" => %{"tool_calls" => "not-a-list"}}]}
 
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
+             LlmCall.Dialect.OpenAI.Chat.decode_response(payload, %Config{})
   end
 
   test "OpenAI Chat rejects a non-map tool call as invalid_response" do
     payload = %{"choices" => [%{"message" => %{"tool_calls" => [1]}}]}
 
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
+             LlmCall.Dialect.OpenAI.Chat.decode_response(payload, %Config{})
   end
 
   test "OpenAI Images rejects a nil data item as invalid_response" do
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Media.Protocol.OpenAI.Images.decode_submit(
+             LlmCall.Media.Dialect.OpenAI.Images.decode_submit(
                %{"data" => [nil]},
                %Config{}
              )
@@ -42,7 +42,7 @@ defmodule LlmCall.MalformedDecodeTest do
 
   test "Anthropic keeps a malformed text block as raw" do
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "text"}]}} =
-             LlmCall.Protocol.Anthropic.Messages.decode_response(
+             LlmCall.Dialect.Anthropic.Messages.decode_response(
                %{"content" => [%{"type" => "text", "text" => nil}]},
                %Config{}
              )
@@ -56,7 +56,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{data: %{"functionCall" => _}}]}} =
-             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+             LlmCall.Dialect.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
 
   test "Gemini rejects a non-map functionResponse body as invalid_response" do
@@ -71,7 +71,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+             LlmCall.Dialect.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
 
   test "Anthropic keeps an invalid tool_use block as raw" do
@@ -82,7 +82,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "tool_use"}]}} =
-             LlmCall.Protocol.Anthropic.Messages.decode_response(payload, %Config{})
+             LlmCall.Dialect.Anthropic.Messages.decode_response(payload, %Config{})
   end
 
   test "Gemini keeps an inlineData block without bytes as raw" do
@@ -93,7 +93,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "inlineData"}]}} =
-             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+             LlmCall.Dialect.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
 
   test "OpenAI Chat rejects empty tool call names" do
@@ -108,7 +108,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
+             LlmCall.Dialect.OpenAI.Chat.decode_response(payload, %Config{})
   end
 
   test "OpenAI Chat rejects empty tool call ids" do
@@ -123,7 +123,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Protocol.OpenAI.Chat.decode_response(payload, %Config{})
+             LlmCall.Dialect.OpenAI.Chat.decode_response(payload, %Config{})
   end
 
   test "Gemini keeps a fileData block without fileUri as raw" do
@@ -134,7 +134,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "fileData"}]}} =
-             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+             LlmCall.Dialect.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
 
   test "Gemini keeps a thought block without text as raw" do
@@ -145,7 +145,7 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "text"}]}} =
-             LlmCall.Protocol.Gemini.GenerateContent.decode_response(payload, %Config{})
+             LlmCall.Dialect.Gemini.GenerateContent.decode_response(payload, %Config{})
   end
 
   test "Anthropic keeps a thinking block with an invalid signature as raw" do
@@ -154,12 +154,12 @@ defmodule LlmCall.MalformedDecodeTest do
     }
 
     assert {:ok, %LlmCall.Response{content: [%LlmCall.Content.Raw{type: "thinking"}]}} =
-             LlmCall.Protocol.Anthropic.Messages.decode_response(payload, %Config{})
+             LlmCall.Dialect.Anthropic.Messages.decode_response(payload, %Config{})
   end
 
   test "Seedance rejects a succeeded task with non-map content" do
     assert {:error, %Error{kind: :invalid_response}} =
-             LlmCall.Media.Protocol.Seedance.Video.decode_operation(
+             LlmCall.Media.Dialect.Seedance.Video.decode_operation(
                %{"status" => "succeeded", "content" => "x"},
                %Config{}
              )

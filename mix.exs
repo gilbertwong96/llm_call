@@ -80,7 +80,7 @@ defmodule LlmCall.MixProject do
   end
 
   # The gate runs ExDNA with --max-clones 0: any clone fails it. Shared logic
-  # lives in LlmCall.Protocol.Helpers and the two adapter macros, so the adapters
+  # lives in LlmCall.Dialect.Helpers and the two adapter macros, so the adapters
   # keep their protocol-specific parts without duplicating them.
   @max_clones 0
 

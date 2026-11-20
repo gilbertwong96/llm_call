@@ -1,6 +1,6 @@
 defmodule LlmCall.Codec do
   @moduledoc """
-  The behaviour every protocol adapter implements.
+  The behaviour every dialect adapter implements.
 
   A codec turns a canonical request into one protocol's wire request, and one
   provider's response terms into canonical responses and stream events. It does

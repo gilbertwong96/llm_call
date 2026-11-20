@@ -20,7 +20,7 @@ defmodule LlmCall.QueryParamTest do
     use LlmCall.Provider,
       base_url: "http://127.0.0.1:1",
       auth: :none,
-      codecs: [chat: LlmCall.Protocol.Gemini.GenerateContent]
+      codecs: [chat: LlmCall.Dialect.Gemini.GenerateContent]
   end
 
   setup do
