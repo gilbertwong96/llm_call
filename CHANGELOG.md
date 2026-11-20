@@ -25,6 +25,10 @@ back to `llm_call` because it now ships the client that name promised.
   policy stays outside the core. `LlmCall.Error.reason` carries the structured
   transport reason (`:econnrefused`, `:timeout`, `:unknown_pool`, ...), so callers
   match on it instead of parsing the message.
+- `LlmCall.HTTP.build_url/3` joins a base URL, a request path and an encoded query
+  on the `URI` struct, keeping the base path. The client and the Responses
+  WebSocket handshake both use it, so a caller that owns a transport joins its
+  URLs the way the library does.
 - `config :llm_call, capture_raw: ...` sets the compile-time capture default,
   symmetric with `json_library:`; `LlmCall.Config.new(capture_raw: ...)` still
   overrides it per client.
