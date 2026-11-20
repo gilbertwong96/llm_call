@@ -9,7 +9,7 @@ defmodule LlmCall.Reasoning.Capabilities do
           default_effort: LlmCall.Reasoning.level() | nil,
           budget_tokens: boolean(),
           adaptive: boolean(),
-          summary: [:none | :auto | :concise | :detailed]
+          summary: [:auto | :concise | :detailed]
         }
 
   defstruct supported: false,

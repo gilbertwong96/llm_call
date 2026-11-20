@@ -485,7 +485,7 @@ axes:
 %LlmCall.Reasoning{
   effort: :none | :minimal | :low | :medium | :high | :xhigh | :max | nil,
   budget_tokens: pos_integer() | nil,
-  summary: :none | :auto | :concise | :detailed | nil,
+  summary: :auto | :concise | :detailed | nil,
   provider_options: %{}
 }
 ```
@@ -493,7 +493,8 @@ axes:
 - `effort` is a canonical hint, not a guarantee that every provider accepts
   every value. `nil` means the provider/model default.
 - `budget_tokens` is for providers that expose an explicit thinking budget.
-- `summary` is for providers that expose a separate reasoning-summary control.
+- `summary` is for providers that expose a separate reasoning-summary control;
+  `nil` means "do not ask for one".
 - A provider adapter maps `effort`/`budget_tokens`/`summary` to its native
   fields; if it cannot express a non-nil canonical field, it must return a
   validation/capability error rather than silently dropping it.
@@ -868,7 +869,7 @@ defmodule LlmCall.Reasoning do
   @type level ::
           :none | :minimal | :low | :medium | :high | :xhigh | :max
   @type effort :: level() | nil
-  @type summary :: :none | :auto | :concise | :detailed | nil
+  @type summary :: :auto | :concise | :detailed | nil
   @type t :: %__MODULE__{
           effort: effort(),
           budget_tokens: pos_integer() | nil,
@@ -884,7 +885,7 @@ defmodule LlmCall.Reasoning.Capabilities do
           default_effort: LlmCall.Reasoning.level() | nil,
           budget_tokens: boolean(),
           adaptive: boolean(),
-          summary: [:none | :auto | :concise | :detailed]
+          summary: [:auto | :concise | :detailed]
         }
 end
 
