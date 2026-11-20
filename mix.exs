@@ -66,8 +66,8 @@ defmodule LlmCall.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib docs/design.md README.md CHANGELOG.md CONTRIBUTING.md LICENSE
-                mix.exs .formatter.exs)
+      files: ~w(lib docs/design.md docs/roadmap.md README.md CHANGELOG.md CONTRIBUTING.md
+                LICENSE mix.exs .formatter.exs)
     ]
   end
 
@@ -75,7 +75,13 @@ defmodule LlmCall.MixProject do
     [
       filter_modules: ~r/^Elixir\.LlmCall(?!\.Examples)/,
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "docs/design.md"],
+      extras: [
+        "README.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "docs/design.md",
+        "docs/roadmap.md"
+      ],
       source_url: @source_url
     ]
   end

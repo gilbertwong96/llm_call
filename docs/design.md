@@ -1703,159 +1703,50 @@ The dialect adapter is selected independently from the provider endpoint.
 
 ## 15. Module layout
 
-```text
-lib/llm_call.ex
-lib/llm_call/request.ex
-lib/llm_call/response.ex
-lib/llm_call/message.ex
-lib/llm_call/content.ex
-lib/llm_call/tool_spec.ex
-lib/llm_call/tool_call.ex
-lib/llm_call/tool_result.ex
-lib/llm_call/reasoning.ex
-lib/llm_call/reasoning/capabilities.ex
-lib/llm_call/stream_event.ex
-lib/llm_call/stream_state.ex
-lib/llm_call/stream_delta.ex
-lib/llm_call/stream_assembler.ex
-lib/llm_call/usage.ex
-lib/llm_call/error.ex
-lib/llm_call/json.ex
-lib/llm_call/capabilities.ex
-lib/llm_call/config.ex
-lib/llm_call/encoded_request.ex
-lib/llm_call/codec.ex
-lib/llm_call/codec/info.ex
-lib/llm_call/conformance.ex
-lib/llm_call/codec_conformance.ex
-lib/llm_call/client.ex
-lib/llm_call/provider.ex
-lib/llm_call/application.ex
-lib/llm_call/http.ex
-lib/llm_call/http/error.ex
-lib/llm_call/ws.ex
-lib/llm_call/ws/mint.ex
-lib/llm_call/ws/error.ex
-lib/llm_call/sse.ex
-lib/llm_call/stream.ex
-lib/llm_call/dialect/adapter.ex
-lib/llm_call/dialect/helpers.ex
-lib/llm_call/dialect/openai/chat.ex
-lib/llm_call/dialect/openai/responses.ex
-lib/llm_call/dialect/openai/responses/connection.ex
-lib/llm_call/dialect/openai/responses/connection/stream.ex
-lib/llm_call/dialect/anthropic/messages.ex
-lib/llm_call/dialect/gemini/generate_content.ex
-lib/llm_call/media.ex
-lib/llm_call/media/codec.ex
-lib/llm_call/media/request.ex
-lib/llm_call/media/response.ex
-lib/llm_call/media/capabilities.ex
-lib/llm_call/media/conformance.ex
-lib/llm_call/media/dialect/adapter.ex
-lib/llm_call/media/dialect/openai/images.ex
-lib/llm_call/media/dialect/gemini/predict.ex
-lib/llm_call/media/dialect/seedance/video.ex
-lib/llm_call/media/dialect/minimax/video.ex
-lib/llm_call/operation.ex
-```
+`lib/llm_call/` holds the core: canonical structs, the two codec behaviours, the
+client, the Finch transport, the SSE parser and the pure stream assembler.
+`dialect/*` holds the **reference adapters** — the protocol families the IR is
+written against — and `media/dialect/*` the **vendored** media adapters, which ship
+with the library but are not part of the stable surface. `mix docs` lists every
+module; the file tree is not repeated here, and nothing in the core depends on a
+dialect module: an adapter is selected by name at call time.
 
-The `dialect/*` modules are **reference adapters**: the dialect families
-the IR is written against. The `media/dialect/*` modules are **vendored**
-adapters: they ship with the library but are not part of the stable surface.
+Optional packages live outside this repository: `llm_call_cost` for pricing and
+`llm_call_langchain` for a LangChain adapter. `LlmCall.HTTP` is Finch and
+`LlmCall.WS.Mint` is the WebSocket implementation; there is no HTTP behaviour and no
+tool behaviour (`tool_call` is a companion the application adds itself).
 
-Optional packages:
+Test support and the compiled examples are not part of the design: `test/support/`
+holds the fixture payloads, the two test servers, the JSON doubles and the codec
+fakes, and `examples/` holds provider modules compiled in `:dev` and `:test` so they
+cannot rot.
 
-```text
-llm_call_cost         optional pricing/cost calculation
-llm_call_langchain    LangChain adapter
-```
+## 16. Public API
 
-`LlmCall.HTTP` is Finch, not an optional package; `LlmCall.WS.Mint` is the
-WebSocket implementation. There is no tool behaviour: `tool_call` is a companion the application adds
-itself.
-
-Test support (core's own suite):
-
-```text
-test/support/codecs/            completing and non-conforming codec fakes
-test/support/fixtures/          reference-adapter payloads
-test/support/test_http_server.ex     minimal HTTP server for transport tests
-test/support/test_ws_server.ex       minimal WebSocket server for transport tests
-test/support/test_proxy.ex           minimal HTTP CONNECT/forward proxy
-test/support/test_provider.ex        completion provider for client tests
-test/support/test_media_provider.ex  media provider for client tests
-test/support/marker_json.ex          JSON double that proves the seam is honoured
-test/support/test_json.ex            tagged JSON decoder used by assembler tests
-```
-
-Examples (compiled in dev/test, excluded from the package):
-
-```text
-examples/openai.ex        chat + images on one endpoint
-examples/anthropic.ex
-examples/gemini.ex        chat + Imagen
-examples/deepseek.ex      OpenAI-compatible endpoint
-```
-
-## 16. Public API sketch
+Two tiers. The one-call client is the default:
 
 ```elixir
-request = %LlmCall.Request{
-  model: "claude-sonnet-4-5",
-  system: [%LlmCall.Content.Text{text: "You are helpful."}],
-  messages: [
-    %LlmCall.Message{
-      role: :user,
-      content: [%LlmCall.Content.Text{text: "Hello"}]
-    }
-  ]
-}
-
-config = %LlmCall.Config{capture_raw: :none}
-
-{:ok, encoded} =
-  LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request, config)
-
-# client performs HTTP + JSON (or your own transport does)
-
-{:ok, response} =
-  LlmCall.decode_response(
-    LlmCall.Dialect.Anthropic.Messages,
-    response_term,
-    config
-  )
-```
-
-Streaming:
-
-```elixir
-protocol = LlmCall.Dialect.Anthropic.Messages
-
-{:ok, state} = LlmCall.init_stream(protocol, request, config)
-
-{:ok, events, state} =
-  LlmCall.decode_stream_event(protocol, json_event, config, state)
-
-# Optional pure assembler; no tool execution.
-assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
-
-{:ok, assembler, completed_calls} =
-  Enum.reduce(events, {:ok, assembler, []}, fn event, {:ok, acc, calls} ->
-    {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
-    {:ok, acc, calls ++ new_calls}
-  end)
-```
-
-The one-call API is the default:
-
-```elixir
-LlmCall.complete(client, request, opts \\ [])   # opts: codec:, headers:
-LlmCall.stream(client, request, opts \\ [])     # opts: codec:, on_event:, headers:
-LlmCall.generate(client, media_request, opts)    # opts: codec:, headers:
-LlmCall.poll(client, operation_or_encoded, opts) # opts: codec:, headers:
+LlmCall.complete(client, request, opts \\ [])     # opts: codec:, headers:
+LlmCall.stream(client, request, opts \\ [])       # opts: codec:, on_event:, headers:
+LlmCall.generate(client, media_request, opts)     # opts: codec:, headers:
+LlmCall.poll(client, operation_or_encoded, opts)  # opts: codec:, headers:
 LlmCall.execute(client, encoded)
 LlmCall.fetch(client, encoded)
+```
+
+A caller that owns a transport keeps the encode/decode boundary:
+
+```elixir
+LlmCall.encode(codec, request, config \\ LlmCall.Config.new())
+LlmCall.decode_response(codec, response_term, config \\ LlmCall.Config.new())
+LlmCall.init_stream(codec, request, config \\ LlmCall.Config.new())
+LlmCall.decode_stream_event(codec, event_term, config, state)
+LlmCall.finish_stream(codec, state, config)
+LlmCall.validate_request(codec, request, config \\ LlmCall.Config.new())
+LlmCall.capabilities(codec, request, config \\ LlmCall.Config.new())
+LlmCall.StreamAssembler.new(keyword())
+LlmCall.StreamAssembler.feed(assembler, event)
+LlmCall.StreamAssembler.finish(assembler)
 ```
 
 `headers:` is a list of string `{name, value}` pairs for this call only. The
@@ -1869,38 +1760,21 @@ the default. WebSocket handshake headers are connection-level:
 pass `headers:` to `Connection.start_link/1`; they are merged with the client
 headers and reused on reconnect.
 
-JSON resolution has a compile-time default and runtime overrides. The default
-is read with `Application.compile_env(:llm_call, :json_library, ...)` and is
-Elixir `JSON`. Changing it recompiles the library. A provider declaration, a
+`encode` returns `{:ok, %LlmCall.EncodedRequest{}}`; the media operations return
+their documented success/error tuples, and `capabilities` and `media_capabilities`
+return `{:ok, struct} | {:error, %LlmCall.Error{}}`.
+
+JSON resolution has a compile-time default and runtime overrides: the default is
+read with `Application.compile_env(:llm_call, :json_library, ...)` and is Elixir
+`JSON`, so changing it recompiles the library, while a provider declaration, a
 client `json_library:` option or an explicit `%LlmCall.Config{}` overrides it.
 `LlmCall.JSON.encode/2` and `decode/2` accept a module with tagged
 `encode/1`/`decode/1` (Torque, Jason, Poison) or bang `encode!/1`/`decode!/1`
 (Elixir `JSON`) and normalize to tagged tuples.
 
-`capture_raw` has the same shape: `Application.compile_env(:llm_call,
-:capture_raw, :none)`, overridden by `%LlmCall.Config{}` — there is no provider
+`capture_raw` has the same shape — `Application.compile_env(:llm_call,
+:capture_raw, :none)`, overridden by `%LlmCall.Config{}` — and there is no provider
 or call-level capture option.
-
-The encode/decode boundary stays public for callers that own a transport:
-
-```elixir
-LlmCall.encode(protocol, request, config \\ LlmCall.Config.new())
-LlmCall.decode_response(protocol, response_term, config \\ LlmCall.Config.new())
-LlmCall.init_stream(protocol, request, config \\ LlmCall.Config.new())
-LlmCall.decode_stream_event(protocol, event_term, config, state)
-LlmCall.finish_stream(protocol, state, config)
-LlmCall.StreamAssembler.new(keyword())
-LlmCall.StreamAssembler.feed(assembler, event)
-LlmCall.StreamAssembler.finish(assembler)
-LlmCall.validate_request(protocol, request, config \\ LlmCall.Config.new())
-LlmCall.capabilities(protocol, request, config \\ LlmCall.Config.new())
-```
-
-`encode` returns `{:ok, %LlmCall.EncodedRequest{}}`; `decode_response`,
-`decode_stream_event`, `finish_stream`, `validate_request`, `capabilities`,
-`decode_operation`, and the media operations return their documented
-success/error tuples; `capabilities` and `media_capabilities` return
-`{:ok, struct} | {:error, %LlmCall.Error{}}`.
 
 Dispatch never raises for a module that implements the other behaviour: each
 entry checks a behaviour-unique callback (`encode_request/2` for completion,
@@ -1909,83 +1783,33 @@ entry checks a behaviour-unique callback (`encode_request/2` for completion,
 
 ## 17. Testing
 
-The core test suite must not need a live API.
+The core suite must not need a live API. Every adapter is pinned with fixtures it
+supplies, and the suite proves four things beyond the happy path:
 
-For each protocol:
+- **Request fixtures** — a canonical request to an exact body, path, query and
+  headers; tool definitions and tool choice; system placement; multi-modal content.
+- **Response and stream fixtures** — text, tool calls, multiple blocks,
+  usage/stop-reason mapping and provider errors; for streams, fragmented arguments,
+  multiple calls by `index`, early completion, the terminator, unknown-event
+  preservation and `capture_raw` at `:none`/`:response`/`:all`.
+- **Capabilities and contracts** — an unsupported field is rejected rather than
+  dropped, a declared capability accepts its representative, cost is never
+  fabricated, and handing a streaming call to a non-streaming codec or a
+  `StreamState` to the wrong codec is a typed error.
+- **Audits** — three mutation suites keep silent drops out:
+  - encode: every canonical-derived wire key is rejected from every source that can
+    write it (§8.1);
+  - decode: deleting a provider field either changes the canonical struct or is
+    listed as an ignored envelope/echo field, and never raises; an absent field is
+    `nil`/`:unknown`, never a fabricated value;
+  - stream deltas: the same audit over chunks, so every `StreamDelta` field
+    (`text`, `thinking`/`signature`, tool-call `id`/`name`/`arguments`/`index`,
+    `stop_reason`/`usage`) and every `StreamEvent.index` has a provider source, and
+    an unmapped field becomes a `Raw` event.
 
-1. **Request fixtures**
-   - canonical request -> exact JSON-compatible body
-   - path/query/headers
-   - tool definitions and tool choice
-   - system placement
-   - multi-modal content
-
-2. **Response fixtures**
-   - text response
-   - tool call response
-   - multiple content blocks
-   - usage/stop reason mapping
-   - provider error response
-
-3. **Streaming fixtures**
-   - text deltas
-   - tool call fragments
-   - thinking/reasoning deltas
-   - final `message_delta` stop reason and usage
-   - streaming tool-call start/delta/stop assembly
-   - fragmented JSON arguments and malformed arguments
-   - multiple tool calls by `index`
-   - early completion before `message_stop`
-   - terminator handling
-   - unknown event preservation
-   - `capture_raw: :none/:response/:all`
-
-4. **Capability tests**
-   - unsupported request fields are rejected, not silently dropped
-   - provider-specific options pass through
-   - protocol-level capabilities are checked per codec
-   - reasoning effort/budget/summary mapping and unsupported combinations
-   - cost is not fabricated from token counts
-   - non-streaming codecs reject streaming calls cleanly
-   - passing a StreamState to the wrong codec returns a typed error
-
-5. **Round-trip tests**
-   - canonical request -> provider term -> expected canonical request shape
-   - provider response -> canonical response -> expected content/tool calls
-
-6. **Tool framework adapter tests**
-   - `ToolCall` describe -> `ToolSpec`
-   - canonical `ToolCall` -> `ToolCall.run` input
-   - missing call ids and provider-specific constraints
-   - malformed JSON arguments produce `arguments_error`, not an empty map
-
-7. **Codec conformance**
-   - `info/0` protocol/version/IR version
-   - optional streaming callbacks
-   - `finish_stream/2` flushes final usage/stop events
-   - shared `LlmCall.Codec.Conformance` fixtures
-
-8. **Media generation tests**
-   - image request -> exact body, path, headers
-   - synchronous image response -> `LlmCall.Media.Response.assets`
-   - submit -> poll -> completed state machine, including an asset-fetch step
-   - capability rejection for knobs a codec cannot express
-   - `capture_raw` on `LlmCall.Media.Response.raw` and `Operation.raw`
-   - a media codec without `decode_operation/2` returns a typed error
-   - `Request.modalities` mapping per codec, including the streaming rejection
-
-9. **Write-path and decode-path audits**
-   - encode: every canonical-derived wire key is rejected from every source that
-     can write it (see §8.1)
-   - decode: deleting any single provider field either changes the canonical
-     struct or is listed as an ignored envelope/echo field; deleting any field
-     never raises; an absent field is `nil`/`:unknown`, never a fabricated value
-   - streaming deltas: the same mutation audit over stream chunks, so every
-     `StreamDelta` field (`text`, `thinking`/`signature`, tool-call
-     `id`/`name`/`arguments`/`index`, `stop_reason`/`usage`) and every
-     `StreamEvent.index` has a provider source, and an unmapped field becomes a
-     `Raw` event (`test/llm_call/write_path_audit_test.exs`,
-     `decode_path_audit_test.exs`, `stream_delta_audit_test.exs`)
+The audit suites live in `test/llm_call/` (`write_path_audit_test.exs`,
+`decode_path_audit_test.exs`, `stream_delta_audit_test.exs`), and the published
+conformance assertions run over every adapter this package ships.
 
 ## 18. Failure and compatibility policy
 
@@ -2051,35 +1875,8 @@ Settled:
 
 ## 21. Implementation order
 
-1. Define canonical structs and types, including reasoning.
-2. Define codec behaviour, encoded request, error, capabilities.
-3. Implement OpenAI Chat codec with request/response/stream fixtures.
-4. Implement Anthropic Messages codec.
-5. Implement Gemini GenerateContent codec.
-6. Add generic OpenAI-compatible configuration.
-7. Add `LlmCall.HTTP` on Finch and the default pool.
-8. Add `LlmCall.JSON` as a behaviour, thread it through the codecs, and resolve
-   it (with `http`, `http_opts`, `timeout`) from call option, provider,
-   application environment and default.
-9. Add `LlmCall.Client`, `LlmCall.Provider`, and `complete/3`, `execute/2`,
-   `fetch/2`.
-10. Add `LlmCall.SSE`, `LlmCall.Stream` and `stream/3`.
-11. Add the media IR ([§23](#23-media-generation-image-and-video)):
-    `Content.Video`, `Request.modalities`, `Capabilities.modalities`,
-    `LlmCall.Media.Request`, `LlmCall.Media.Response`, `LlmCall.Operation`,
-    `LlmCall.Media.Capabilities`, the `LlmCall.Media.Codec` behaviour, and the
-    public media API.
-12. Add `generate/3` and `poll/3` for the media IR.
-13. Publish the conformance suites from `lib/`, ban `@moduledoc false`, and
-    document the adapter-authoring contract.
-14. Add provider-hosted tools: the builtin envelope, `builtin_tools`
-    capability, and the codec branches.
-15. Add the media adapters under `LlmCall.Media.Dialect.*`: OpenAI Images,
-    Gemini Imagen `predict`, Seedance, MiniMax Hailuo.
-16. Add the OpenAI Responses codec (`POST /v1/responses`) on the HTTP/SSE
-    transport.
-17. Add the `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, and the test servers
-    that exercise them.
+The order the release followed, and what it taught, are recorded in
+[roadmap.md](roadmap.md).
 
 ## 22. Design success criteria
 
@@ -2560,60 +2357,3 @@ the wire boundary; this section records the split so the core does not drift.
    structured-output request that disables thought summaries), the codec must
    either validate the conflict or document the winning rule; it must not drop
    the loser silently.
-
-## 26. Roadmap: further operation families
-
-0.1 ships two operation families — completion (`LlmCall.Codec`) and media generation
-with its long-running operations (`LlmCall.Media.Codec`) — plus the Responses
-WebSocket transport (§24). Further families — embeddings, rerank, speech,
-transcription, OCR — follow the same rule as §25.3.1: **a new operation is a new IR
-plus a codec behaviour**, and never a new field on `Request`. Adding one is
-therefore additive and does not disturb the IR contract.
-
-### 26.1 What a family costs
-
-A codec is small; the fixed cost per family is what surrounds it, and it multiplies
-per provider:
-
-- the canonical request/response/capabilities structs;
-- a codec behaviour, an adapter macro and a conformance suite;
-- one adapter, fixture set and wire-fact verification per provider;
-- client entry points, documentation and CHANGELOG surface.
-
-The suite cost scales with the family's wire surface, not with its importance. An
-embedding suite covers shapes, vector dimensions, usage and errors — no stream, no
-operation state machine, no asset hop — so it is a fraction of §23's media suite.
-
-That cost model is the reason the order below exists: breadth is the wrong thing to
-buy first. The library's claim is a verifiable wire contract, not "every model in
-every modality"; a full-client library already occupies that ground.
-
-### 26.2 Prerequisite: parameterise the family
-
-Completion and media are currently two hand-written pipelines: two behaviours, two
-adapter macros, two conformance skeletons, two client surfaces. Writing a third and
-fourth family by hand multiplies that plumbing. Before family #3, one refactor turns
-"a family" into a parameterised mechanism — codec behaviour, adapter macro,
-conformance skeleton, client entry points — with media as its first instance. That
-is a reorganisation, not a feature, and it belongs in a 0.x minor.
-
-### 26.3 Order and verdict
-
-| Operation | Canonical shape | New family | Demand | Plan |
-| --- | --- | --- | --- | --- |
-| Embeddings | `{model, input, dimensions?}` → vectors + usage | yes, small | highest: a conversation library is almost always paired with a vector store | 0.2, with rerank |
-| Rerank | `{model, query, documents, top_n?}` → ordered scores | shares the vector family | medium, narrow vendor set | 0.2 |
-| Speech | text in, media bytes out | media-shaped | medium-low | 0.3 |
-| Transcription | bytes in, text and segments out; needs the multipart boundary the transport deliberately does not own (§23.7) | yes | medium | 0.3, once that boundary has a design |
-| OCR | image or file in, text out | **no**: `Content.Image` and `Content.File` in a chat request already express it for every multimodal codec | low | documentation; a dedicated endpoint only on demand |
-| Evaluation | "answer named questions about this text/JSON" | **no**: it is an upper-layer abstraction built on chat or structured output, not a provider endpoint | low | never in core |
-
-### 26.4 Criteria for adding a family
-
-A family enters the core only when all three hold:
-
-1. its canonical shape is expressible without `provider_options`;
-2. at least two providers need it — a single-vendor endpoint belongs in the
-   application, not in a protocol library;
-3. someone carries the per-provider adapter and verification cost, and the conformance
-   suite for the family is written in the same change.
