@@ -2417,6 +2417,9 @@ Enum.to_list(stream)
   `:transport` error. Continuing a conversation is the caller's decision.
 - The URL is built from the client's `base_url` plus the Responses path, with
   `http`/`https` mapped to `ws`/`wss`; Azure's `/openai` base path is preserved.
+  The provider's `query:` parameters apply here too, merged over any query
+  already present in `base_url`, so a vendor that keys on a URL parameter
+  (`GroupId`, `api-version`) still gets it on the handshake.
 
 Scope is the Responses protocol. There is no realtime audio session, audio
 format handling, VAD, or WebRTC in 0.1.

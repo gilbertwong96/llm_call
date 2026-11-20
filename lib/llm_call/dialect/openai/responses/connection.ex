@@ -406,7 +406,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
     ws.connect(ws_url(client), LlmCall.HTTP.merge_headers([client.headers, headers]), ws_opts)
   end
 
-  defp ws_url(%Client{base_url: base_url}) do
+  defp ws_url(%Client{base_url: base_url, query: query}) do
     uri = URI.parse(base_url)
 
     scheme =
@@ -418,7 +418,17 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
 
     path = String.trim_trailing(uri.path || "", "/") <> Responses.path()
 
-    URI.to_string(%{uri | scheme: scheme, path: path})
+    URI.to_string(%{uri | scheme: scheme, path: path, query: ws_query(uri.query, query)})
+  end
+
+  defp ws_query(base_query, client_query) do
+    merged =
+      Map.merge(
+        if(base_query, do: URI.decode_query(base_query), else: %{}),
+        client_query
+      )
+
+    if map_size(merged) == 0, do: nil, else: URI.encode_query(merged)
   end
 
   defp create_event(body, stream_id) do
