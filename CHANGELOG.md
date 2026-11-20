@@ -106,3 +106,7 @@ back to `llm_call` because it now ships the client that name promised.
 - `LlmCall.Media.Dialect.Gemini.Predict` accepted a non-string
   `params.negative_prompt` and put it on the wire; it is now a `:validation`
   error like its sibling knobs.
+- A query string in `base_url` (`https://…/openai?api-version=1`) was glued in
+  front of the codec path over HTTP, producing `/openai?api-version=1/v1/…` on the
+  wire; the WebSocket handshake already merged it. It is now folded into the
+  client's `query` at build time, with an explicit `query:` winning.
