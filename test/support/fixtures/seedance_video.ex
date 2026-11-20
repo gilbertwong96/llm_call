@@ -15,7 +15,8 @@ defmodule LlmCall.Media.Fixtures.SeedanceVideo do
     %{
       "id" => "cgt-2026-abc",
       "status" => "succeeded",
-      "content" => %{"video_url" => "https://files.example/v.mp4"}
+      "content" => %{"video_url" => "https://files.example/v.mp4"},
+      "usage" => %{"completion_tokens" => 24_684, "total_tokens" => 24_684}
     }
   end
 

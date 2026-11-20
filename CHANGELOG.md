@@ -150,3 +150,6 @@ back to `llm_call` because it now ships the client that name promised.
   That parameter is legacy for the retired DALL·E models and is unsupported by the
   GPT image models, which always return base64; it is now only sent when a caller
   sets it through `provider_options.openai`.
+- The Seedance video codec dropped the task's token usage; a finished task reports
+  `completion_tokens` and `total_tokens`, which now land on
+  `LlmCall.Media.Response.usage`.
