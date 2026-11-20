@@ -67,16 +67,13 @@ defmodule LlmCall.Media.Dialect.OpenAIImagesTest do
     assert message =~ "is not used by this codec"
   end
 
-  test "response_format is only sent to models that accept it" do
+  test "response_format is legacy and only sent when a caller asks for it" do
     refute Map.has_key?(encode_body(request()), "response_format")
-    assert encode_body(request(model: "dall-e-3"))["response_format"] == "b64_json"
+    refute Map.has_key?(encode_body(request(model: "dall-e-3")), "response_format")
 
-    assert encode_body(
-             request(
-               model: "dall-e-3",
-               provider_options: %{openai: %{"response_format" => "url"}}
-             )
-           )["response_format"] == "url"
+    assert encode_body(request(provider_options: %{openai: %{"response_format" => "b64_json"}}))[
+             "response_format"
+           ] == "b64_json"
   end
 
   test "nil knobs mean the provider default and are accepted" do
