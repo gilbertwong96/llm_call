@@ -2243,8 +2243,13 @@ caller asks for. The client loop is:
 ```
 
 `poll/3` executes `op.next` and decodes the body with `decode_operation/2`; an
-`:asset` operation is rejected with a pointer at `fetch/2`. A caller that owns a
-transport can call the codec functions directly, as before:
+`:asset` operation is rejected with a pointer at `fetch/2`. `fetch/2` never
+follows a redirect: a `3xx` is a `:transport` error with the status, and since
+`%LlmCall.Error{}` carries no headers the `Location` is lost. A caller whose
+asset URL redirects (CDN, pre-signed link) builds an `%LlmCall.HTTP.Request{}`
+for that URL and calls `LlmCall.HTTP.request/2`, which returns the response with
+headers. A caller that owns a transport can call the codec functions directly,
+as before:
 
 ```elixir
 {:ok, encoded} = LlmCall.encode_media(codec, media_request, config)

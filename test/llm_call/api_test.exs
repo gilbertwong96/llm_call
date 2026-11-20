@@ -93,6 +93,13 @@ defmodule LlmCall.ApiTest do
              LlmCall.decode_error(Fake, %{"error" => %{"message" => "boom"}})
   end
 
+  test "decode_error/3 returns a typed error when the codec has no callback" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.decode_error(EncodeOnly, %{"error" => %{"message" => "boom"}})
+
+    assert message =~ "does not export decode_error/2"
+  end
+
   test "validate_request/3 and capabilities/3 delegate" do
     assert :ok = LlmCall.validate_request(Fake, request())
 

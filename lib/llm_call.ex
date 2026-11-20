@@ -230,6 +230,12 @@ defmodule LlmCall do
   Performs a request and returns the body bytes, without JSON decoding.
 
   For `Operation.next_kind: :asset`, where the body is media.
+
+  A non-`2xx` status is a `:transport` error carrying the status. Redirects are
+  never followed, and `%LlmCall.Error{}` has no header field, so a `3xx` hides
+  its `Location`. When you need it — a CDN or pre-signed asset URL that answers
+  `302` — build an `%LlmCall.HTTP.Request{}` for the same URL and use
+  `LlmCall.HTTP.request/2`, which returns the whole response with headers.
   """
   @spec fetch(Client.t(), EncodedRequest.t() | LlmCall.Operation.t()) ::
           {:ok, %{status: non_neg_integer(), headers: list(), body: binary()}}
@@ -561,9 +567,12 @@ defmodule LlmCall do
   end
 
   @doc "Normalizes a provider error payload."
-  @spec decode_error(module(), LlmCall.wire_value(), Config.t()) :: Error.t()
+  @spec decode_error(module(), LlmCall.wire_value(), Config.t()) ::
+          Error.t() | {:error, Error.t()}
   def decode_error(codec, term, config \\ Config.new()) do
-    codec.decode_error(term, config)
+    with :ok <- require_callback(codec, :decode_error, 2) do
+      codec.decode_error(term, config)
+    end
   end
 
   @doc "Checks a request against the fields a codec can represent."
