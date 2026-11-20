@@ -130,3 +130,7 @@ back to `llm_call` because it now ships the client that name promised.
 - The Anthropic `anthropic-version` header was pinned to `2023-06-01`; it now sends
   the version the provider's own SDK sends, `2026-10-21`. A codec header wins over a
   client header, so the pin was not overridable.
+- The OpenAI Chat and Responses codecs rejected `reasoning effort: :xhigh` and
+  `:max`, which `ReasoningEffort` accepts, and their `Usage.cache_write_tokens` was
+  always `nil` although both usage breakdowns report it
+  (`prompt_tokens_details.cache_write_tokens`, `input_tokens_details.cache_write_tokens`).

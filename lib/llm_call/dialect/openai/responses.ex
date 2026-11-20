@@ -45,7 +45,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   }
   @builtin_tools :passthrough
   @param_keys [:max_tokens, :temperature, :top_p]
-  @efforts [:none, :minimal, :low, :medium, :high]
+  @efforts [:none, :minimal, :low, :medium, :high, :xhigh, :max]
   @summaries [:auto, :concise, :detailed]
   @retryable_codes ~w(rate_limit_exceeded server_error overloaded_error timeout)
   @namespaces [:openai]
@@ -938,7 +938,9 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
       cache_read_tokens:
         Helpers.token(Helpers.nested(wire, ["input_tokens_details", "cached_tokens"])) ||
           base.cache_read_tokens,
-      cache_write_tokens: base.cache_write_tokens,
+      cache_write_tokens:
+        Helpers.token(Helpers.nested(wire, ["input_tokens_details", "cache_write_tokens"])) ||
+          base.cache_write_tokens,
       reasoning_tokens:
         Helpers.token(Helpers.nested(wire, ["output_tokens_details", "reasoning_tokens"])) ||
           base.reasoning_tokens

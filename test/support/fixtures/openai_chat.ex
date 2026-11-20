@@ -19,7 +19,7 @@ defmodule LlmCall.Fixtures.OpenAIChat do
         "prompt_tokens" => 12,
         "completion_tokens" => 5,
         "total_tokens" => 17,
-        "prompt_tokens_details" => %{"cached_tokens" => 3},
+        "prompt_tokens_details" => %{"cached_tokens" => 3, "cache_write_tokens" => 2},
         "completion_tokens_details" => %{"reasoning_tokens" => 0}
       }
     }

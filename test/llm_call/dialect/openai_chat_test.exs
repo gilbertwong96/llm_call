@@ -220,8 +220,13 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
     assert encode(text_request(reasoning: %Reasoning{effort: :high})).body["reasoning_effort"] ==
              "high"
 
+    for effort <- [:xhigh, :max] do
+      assert encode(text_request(reasoning: %Reasoning{effort: effort})).body["reasoning_effort"] ==
+               Atom.to_string(effort)
+    end
+
     assert {:error, %Error{kind: :validation}} =
-             Chat.encode_request(text_request(reasoning: %Reasoning{effort: :max}), %Config{})
+             Chat.encode_request(text_request(reasoning: %Reasoning{effort: :bogus}), %Config{})
 
     assert {:error, %Error{kind: :validation}} =
              Chat.encode_request(
@@ -634,7 +639,7 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
                output_tokens: 5,
                total_tokens: 17,
                cache_read_tokens: 3,
-               cache_write_tokens: nil,
+               cache_write_tokens: 2,
                reasoning_tokens: 0
              }
 
