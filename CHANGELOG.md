@@ -127,3 +127,6 @@ back to `llm_call` because it now ships the client that name promised.
 - `Usage.total_tokens` for Anthropic counted only `input_tokens + output_tokens`,
   while the API defines `input_tokens` as the tokens *after* the last cache
   breakpoint: cache creation and cache reads were missing from the total.
+- The Anthropic `anthropic-version` header was pinned to `2023-06-01`; it now sends
+  the version the provider's own SDK sends, `2026-10-21`. A codec header wins over a
+  client header, so the pin was not overridable.

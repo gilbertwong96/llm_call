@@ -19,10 +19,13 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   `model_context_window_exceeded`. `refusal` decodes as `:content_filter`, because
   it is a classifier stop. The wire value stays in `Response.raw`.
 
+  The `anthropic-version` header is pinned to the API version this codec targets,
+  and a codec header wins over a client one, so it is not overridable per call.
+
   `call_id` on a tool result is the Anthropic `tool_use_id`.
   """
 
-  @api_version "2023-06-01"
+  @api_version "2026-10-21"
   @path "/v1/messages"
   @headers [{"content-type", "application/json"}, {"anthropic-version", @api_version}]
   @envelope_keys ~w(model messages system tools thinking stream)
