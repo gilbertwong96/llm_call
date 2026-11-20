@@ -60,6 +60,10 @@ defmodule LlmCall.Provider do
   implementation as the transport. A `config:` call option supplies the base
   config; a `json_library:` call option still wins over it, and the declaration's
   `json_library:` applies only when the caller passes neither.
+
+  `capture_raw` is not a provider option; it comes from `%LlmCall.Config{}`,
+  whose default is `Application.compile_env(:llm_call, :capture_raw, :none)`.
+  Pass `config: LlmCall.Config.new(capture_raw: ...)` to override it per client.
   """
 
   alias LlmCall.{Client, Config}

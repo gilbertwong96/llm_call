@@ -5,6 +5,16 @@ defmodule LlmCall.Config do
   Holds no credentials and no base URL: those belong to the transport.
   `default_provider_options` is merged before a request's `provider_options`
   (completion or media), and the request wins per key.
+
+  `json` and `capture_raw` have compile-time defaults:
+
+      config :llm_call,
+        json_library: Torque,
+        capture_raw: :all
+
+  Both are read with `Application.compile_env/3`, so changing them recompiles
+  the library; a `%LlmCall.Config{}` built with `new/1` overrides them per
+  client without touching the compiled default.
   """
 
   @type t :: %__MODULE__{
@@ -13,18 +23,28 @@ defmodule LlmCall.Config do
           json: module()
         }
 
-  @default_json Application.compile_env(:llm_call, :json_library, JSON)
+  @capture_raw_values [:none, :response, :all]
 
-  defstruct default_provider_options: %{}, capture_raw: :none, json: @default_json
+  @default_json Application.compile_env(:llm_call, :json_library, JSON)
+  @default_capture_raw Application.compile_env(:llm_call, :capture_raw, :none)
+
+  unless @default_capture_raw in @capture_raw_values do
+    raise "config :llm_call, :capture_raw must be one of #{inspect(@capture_raw_values)}, " <>
+            "got: #{inspect(@default_capture_raw)}"
+  end
+
+  defstruct default_provider_options: %{},
+            capture_raw: @default_capture_raw,
+            json: @default_json
 
   @doc """
-  Builds a config from the compile-time JSON default.
+  Builds a config from the compile-time defaults.
 
-  `json_library:` overrides the compiled default per config. The default is
-  Elixir's built-in `JSON`. Any module exposing either tagged
-  `encode/1`/`decode/1` (Torque, Jason, Poison) or bang `encode!/1`/`decode!/1`
-  (Elixir `JSON`) can be configured; `LlmCall.JSON` normalizes both to tagged
-  tuples.
+  `json_library:` and `capture_raw:` override the compiled defaults per config.
+  The JSON default is Elixir's built-in `JSON`; any module exposing either
+  tagged `encode/1`/`decode/1` (Torque, Jason, Poison) or bang
+  `encode!/1`/`decode!/1` (Elixir `JSON`) can be configured, and `LlmCall.JSON`
+  normalizes both to tagged tuples. The capture default is `:none`.
   """
   @option_keys [:json_library, :capture_raw, :default_provider_options]
 
@@ -40,14 +60,14 @@ defmodule LlmCall.Config do
     end
 
     json = Keyword.get(opts, :json_library, @default_json)
-    capture_raw = Keyword.get(opts, :capture_raw, :none)
+    capture_raw = Keyword.get(opts, :capture_raw, @default_capture_raw)
     default_provider_options = Keyword.get(opts, :default_provider_options, %{})
 
     unless is_atom(json) and not is_nil(json) do
       raise ArgumentError, "config option :json_library must be a module"
     end
 
-    unless capture_raw in [:none, :response, :all] do
+    unless capture_raw in @capture_raw_values do
       raise ArgumentError, "config option :capture_raw must be :none, :response or :all"
     end
 

@@ -8,6 +8,21 @@ defmodule LlmCall.ConfigTest do
     assert Config.new(json_library: MarkerJSON).json == MarkerJSON
   end
 
+  test "capture_raw defaults to the value compiled into the struct" do
+    assert %Config{}.capture_raw == :none
+    assert Config.new().capture_raw == :none
+    assert Config.new(capture_raw: :all).capture_raw == :all
+  end
+
+  test "capture_raw is compile-time, so a runtime setting does not move it" do
+    Application.put_env(:llm_call, :capture_raw, :all)
+    on_exit(fn -> Application.delete_env(:llm_call, :capture_raw) end)
+
+    assert %Config{}.capture_raw == :none
+    assert Config.new().capture_raw == :none
+    assert Config.new(capture_raw: :response).capture_raw == :response
+  end
+
   test "new/1 carries default_provider_options" do
     assert Config.new(default_provider_options: %{openai: %{"logprobs" => true}}).default_provider_options ==
              %{openai: %{"logprobs" => true}}
