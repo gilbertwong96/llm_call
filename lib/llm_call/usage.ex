@@ -2,6 +2,10 @@ defmodule LlmCall.Usage do
   @moduledoc """
   Token accounting as reported by the provider.
 
+  `total_tokens` is the provider's total. A provider that reports input split across
+  counters — Anthropic's `input_tokens` excludes the cached part — is summed by the
+  codec, so the field stays the real total.
+
   Pricing and cost are outside the core: they depend on provider, model, region,
   cache, and tier, none of which is a wire field.
   """

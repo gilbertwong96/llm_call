@@ -117,3 +117,13 @@ back to `llm_call` because it now ships the client that name promised.
   front of the codec path over HTTP, producing `/openai?api-version=1/v1/…` on the
   wire; the WebSocket handshake already merged it. It is now folded into the
   client's `query` at build time, with an explicit `query:` winning.
+- The Anthropic codec emitted server tools as `{"type": …}` alone, but the API
+  requires the callable `name` as well (`web_search` next to
+  `web_search_20250305`). It is now derived from the type's date suffix and can be
+  overridden through `provider_options.anthropic`.
+- The Anthropic codec accepted `thinking.budget_tokens` from 1 upward; the API
+  requires at least 1024 and less than `max_tokens`, so both bounds are validation
+  errors now.
+- `Usage.total_tokens` for Anthropic counted only `input_tokens + output_tokens`,
+  while the API defines `input_tokens` as the tokens *after* the last cache
+  breakpoint: cache creation and cache reads were missing from the total.

@@ -90,7 +90,7 @@ defmodule LlmCall.WritePathAuditTest do
           tools: tools(),
           tool_choice: {:tool, "f"},
           reasoning: %Reasoning{budget_tokens: 1024},
-          params: %{max_tokens: 64, temperature: 0.2, top_p: 0.9, top_k: 5, stop: ["X"]},
+          params: %{max_tokens: 2048, temperature: 0.2, top_p: 0.9, top_k: 5, stop: ["X"]},
           stream: true
         },
         envelope: ~w(model messages system tools thinking stream),
