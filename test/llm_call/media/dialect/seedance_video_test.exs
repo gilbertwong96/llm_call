@@ -219,6 +219,7 @@ defmodule LlmCall.Media.Dialect.SeedanceVideoTest do
               status: :completed,
               next: nil,
               result: %MediaResponse{
+                usage: %LlmCall.Usage{output_tokens: 24_684, total_tokens: 24_684},
                 assets: [
                   %Content.Video{
                     source: {:url, "https://files.example/v.mp4"},

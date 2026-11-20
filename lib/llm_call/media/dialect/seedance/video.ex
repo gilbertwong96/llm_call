@@ -13,6 +13,10 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
 
   `durations_s` declares the range this codec accepts; the core has no model
   catalog, so a model-specific limit surfaces as a provider error.
+
+  A finished task reports its token usage (`completion_tokens`, `total_tokens`),
+  which lands on `LlmCall.Media.Response.usage`. The video URL is valid for 24
+  hours, so it has to be fetched soon after the task completes.
   """
 
   use LlmCall.Media.Dialect.Adapter,
@@ -158,7 +162,8 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
            id: Helpers.id(payload["id"]),
            status: :completed,
            result: %Response{
-             assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}]
+             assets: [%Content.Video{source: {:url, url}, media_type: "video/mp4"}],
+             usage: decode_usage(payload["usage"])
            },
            raw: Helpers.capture_response(config, payload)
          }}
@@ -167,6 +172,19 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
         {:error, invalid_response("succeeded task has no video url")}
     end
   end
+
+  # Video generation is billed in tokens; the task payload reports them as
+  # `completion_tokens` and `total_tokens`.
+  defp decode_usage(nil), do: nil
+
+  defp decode_usage(%{} = usage) do
+    %Usage{
+      output_tokens: Helpers.token(usage["completion_tokens"]),
+      total_tokens: Helpers.token(usage["total_tokens"])
+    }
+  end
+
+  defp decode_usage(_usage), do: nil
 
   defp failed_operation(payload, terminal, config) do
     error = if is_map(payload["error"]), do: payload["error"], else: %{}
