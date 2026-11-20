@@ -24,6 +24,21 @@ defmodule LlmCall.Provider do
   (`/v1/chat/completions`, `/v1beta/models/...`), so a provider whose base URL
   already ends in `/v1` would produce `/v1/v1/...`.
 
+  `query` adds parameters to every request URL, which is how a vendor that keys
+  on a URL parameter is configured — MiniMax's `GroupId`, Azure OpenAI's
+  `api-version`:
+
+      use LlmCall.Provider,
+        base_url: "https://api.minimax.io",
+        auth: :bearer,
+        query: %{"GroupId" => "1234567890"},
+        codecs: [video: LlmCall.Media.Protocol.MiniMax.Video]
+
+  Like every declaration value it must be a literal; pass a runtime value to
+  `client/1` instead (`MyProvider.client(api_key: key, query: %{"GroupId" => id})`).
+  A codec's own parameter wins over the client's on the same key, because it is a
+  protocol fact (Gemini's `alt=sse`); everything else is merged in.
+
   Declaration values are literals: `use` receives its options before the module
   body runs, so `base_url: @url` or `base_url: Application.fetch_env!(...)` is a
   compile error. Read a dynamic value where it is known instead —
@@ -35,6 +50,9 @@ defmodule LlmCall.Provider do
   `http_opts` and `timeout` may be declared here, and each resolves call option →
   provider → `config :llm_call, ...` → built-in default. A declaration that omits
   them leaves the value `nil`, so the application setting still applies.
+
+  `query` resolves call option → provider → `%{}`; it deliberately has no
+  application-wide default, since a URL parameter is vendor-specific.
 
   `json_library` resolves call option → provider → the compile-time application
   default (`Application.compile_env(:llm_call, :json_library, JSON)`). It is
@@ -53,6 +71,7 @@ defmodule LlmCall.Provider do
     :api_key,
     :base_url,
     :headers,
+    :query,
     :http_opts,
     :timeout,
     :json_library,
@@ -62,8 +81,8 @@ defmodule LlmCall.Provider do
   @doc """
   Builds a `%LlmCall.Client{}` from a provider module's declaration and options.
 
-  Options: `api_key:`, `base_url:`, `headers:`, `http_opts:`, `timeout:`,
-  `json_library:`, `config:`.
+  Options: `api_key:`, `base_url:`, `headers:`, `query:`, `http_opts:`,
+  `timeout:`, `json_library:`, `config:`.
   """
   @spec build(module(), keyword()) :: Client.t()
   def build(provider, opts \\ []) do
@@ -80,6 +99,7 @@ defmodule LlmCall.Provider do
       codecs: Map.new(declaration.codecs),
       base_url: validate_base_url!(opts[:base_url] || declaration.base_url),
       headers: headers(declaration, opts),
+      query: query(opts, declaration),
       http_opts: resolve(:http_opts, opts, declaration, []) |> validate_http_opts!(),
       timeout: resolve(:timeout, opts, declaration, @default_timeout) |> validate_timeout!(),
       config: config
@@ -185,6 +205,40 @@ defmodule LlmCall.Provider do
     raise ArgumentError, "client option :json_library must be a module, got: #{inspect(module)}"
   end
 
+  defp query(opts, declaration) do
+    validate_query!(opts[:query] || declaration[:query] || %{})
+  end
+
+  defp validate_query!(nil), do: %{}
+
+  defp validate_query!(query) when is_map(query) or is_list(query) do
+    query
+    |> Enum.map(fn
+      {key, value} when is_binary(key) or is_atom(key) ->
+        {to_string(key), validate_query_value!(key, value)}
+
+      {key, _value} ->
+        raise ArgumentError,
+              "client option :query key must be a string or atom, got: #{inspect(key)}"
+    end)
+    |> Map.new()
+  end
+
+  defp validate_query!(query) do
+    raise ArgumentError,
+          "client option :query must be a map or keyword list, got: #{inspect(query)}"
+  end
+
+  defp validate_query_value!(_key, value)
+       when is_binary(value) or is_integer(value) or is_boolean(value),
+       do: value
+
+  defp validate_query_value!(key, value) do
+    raise ArgumentError,
+          "client option :query #{inspect(key)} must be a string, integer or boolean, " <>
+            "got: #{inspect(value)}"
+  end
+
   defp resolve(key, opts, declaration, default) do
     opts[key] || declaration[key] || app_env(key) || default
   end
@@ -252,7 +306,10 @@ defmodule LlmCall.Provider do
                   "got: #{Macro.to_string(value)}"
         end
 
-        expanded
+        # A map literal is still AST (`{:%{}, [], [...]}`) after expansion, so the
+        # declaration needs the evaluated value rather than the quote.
+        {evaluated, _binding} = Code.eval_quoted(expanded, [], caller)
+        evaluated
     end
   end
 
@@ -304,6 +361,7 @@ defmodule LlmCall.Provider do
     timeout = literal!(opts, :timeout, __CALLER__, nil)
     auth = literal!(opts, :auth, __CALLER__, :none)
     json_library = literal!(opts, :json_library, __CALLER__, nil)
+    query = literal!(opts, :query, __CALLER__, nil) |> validate_query!()
 
     unless is_binary(base_url) and base_url != "" do
       raise ArgumentError,
@@ -331,6 +389,7 @@ defmodule LlmCall.Provider do
       codecs: codecs,
       auth: auth,
       headers: headers,
+      query: query,
       http_opts: http_opts,
       timeout: timeout,
       json_library: json_library
