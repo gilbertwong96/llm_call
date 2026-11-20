@@ -323,9 +323,20 @@ defmodule LlmCall do
 
   defp encode_body(%Client{config: %Config{json: json}}, body) do
     case LlmCall.JSON.encode(json, body) do
-      {:ok, encoded} -> {:ok, encoded}
-      {:error, _reason} -> {:error, invalid("request body is not JSON-encodable", :validation)}
+      {:ok, encoded} ->
+        {:ok, encoded}
+
+      {:error, {:missing_json_encoder, module}} ->
+        {:error, invalid(json_module_error(module, "encode"), :validation)}
+
+      {:error, _reason} ->
+        {:error, invalid("request body is not JSON-encodable", :validation)}
     end
+  end
+
+  defp json_module_error(module, verb) do
+    "the configured JSON module #{inspect(module)} cannot #{verb}; " <>
+      "set config :llm_call, json_library: Mod or a client json_library: Mod"
   end
 
   defp normalize(_client, {:ok, %{status: status, headers: headers, body: body}}) do
@@ -383,8 +394,14 @@ defmodule LlmCall do
 
   defp decode_json_body(%Client{config: %Config{json: json}}, %{body: raw} = response) do
     case LlmCall.JSON.decode(json, raw) do
-      {:ok, term} -> {:ok, %{response | body: term}}
-      {:error, _reason} -> {:error, invalid("response body is not JSON", :invalid_response)}
+      {:ok, term} ->
+        {:ok, %{response | body: term}}
+
+      {:error, {:missing_json_decoder, module}} ->
+        {:error, invalid(json_module_error(module, "decode"), :invalid_response)}
+
+      {:error, _reason} ->
+        {:error, invalid("response body is not JSON", :invalid_response)}
     end
   end
 

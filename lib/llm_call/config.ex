@@ -43,7 +43,7 @@ defmodule LlmCall.Config do
     capture_raw = Keyword.get(opts, :capture_raw, :none)
     default_provider_options = Keyword.get(opts, :default_provider_options, %{})
 
-    unless is_atom(json) do
+    unless is_atom(json) and not is_nil(json) do
       raise ArgumentError, "config option :json_library must be a module"
     end
 
