@@ -2,7 +2,7 @@ defmodule LlmCall.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/gilbertwong/llm_call"
+  @source_url "https://github.com/gilbertwong96/llm_call"
 
   def project do
     [
