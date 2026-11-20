@@ -2,13 +2,14 @@ defmodule LlmCall.HTTP do
   @moduledoc """
   HTTP transport, backed by Finch.
 
-  There is one transport. The pool is named `LlmCall.Finch` and started by the
-  application; pass `http_opts: [name: MyPool]` to a provider or client to use a
-  pool from your own supervision tree.
+  There is one transport. The pool is named `LlmCall.Finch`; the application
+  starts it unless that name is already taken, so a host can own it by starting
+  its pool first. Pass `http_opts: [name: MyPool]` to a provider or client to use
+  a pool from your own supervision tree.
 
   ## Streaming events
 
-  `stream/3` delivers, in order:
+  `stream/4` delivers, in order:
 
     * `{:status, status}` — before any body bytes, so a caller can stop on a
       non-`2xx` response instead of treating an error body as an empty stream;
