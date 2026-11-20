@@ -193,6 +193,28 @@ defmodule LlmCall.ClientTest do
              client(http_opts: [name: MyPool], timeout: 5_000)
   end
 
+  test "a query in the base URL becomes a request parameter, not part of the path" do
+    TestHTTP.put_response({:ok, %{status: 200, headers: [], body: ~s({"text":"pong"})}})
+
+    client = client(base_url: TestHTTP.url() <> "/openai?api-version=2024-02-01")
+
+    assert %Client{base_url: base_url, query: %{"api-version" => "2024-02-01"}} = client
+    assert base_url == TestHTTP.url() <> "/openai"
+
+    assert {:ok, %Response{}} = LlmCall.complete(client, request())
+
+    assert [sent] = TestHTTP.requests()
+    assert sent.path == "/openai/fake?api-version=2024-02-01"
+  end
+
+  test "an explicit query option wins over the base URL query" do
+    assert %Client{query: %{"api-version" => "call"}} =
+             client(
+               base_url: TestHTTP.url() <> "/openai?api-version=url",
+               query: %{"api-version" => "call"}
+             )
+  end
+
   test "request_timeout in http_opts reaches the transport" do
     TestHTTP.put_response(
       {:ok, %{status: 200, headers: [], body: ~s({"text":"late"}), delay: 200}}

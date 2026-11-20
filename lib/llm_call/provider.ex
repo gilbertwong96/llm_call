@@ -34,6 +34,11 @@ defmodule LlmCall.Provider do
         query: %{"GroupId" => "1234567890"},
         codecs: [video: LlmCall.Media.Dialect.MiniMax.Video]
 
+  A query already present in `base_url` (`https://…/openai?api-version=1`) is folded
+  into `query` when the client is built, so it reaches the provider as a parameter
+  instead of being glued in front of the codec path; an explicit `query:` wins on
+  the same key.
+
   Like every declaration value it must be a literal; pass a runtime value to
   `client/1` instead (`MyProvider.client(api_key: key, query: %{"GroupId" => id})`).
   A codec's own parameter wins over the client's on the same key, because it is a
@@ -102,6 +107,11 @@ defmodule LlmCall.Provider do
     validate_build_options!(opts)
     declaration = provider.__provider__()
 
+    {base_url, url_query} =
+      (opts[:base_url] || declaration.base_url)
+      |> validate_base_url!()
+      |> split_url_query()
+
     config =
       opts
       |> base_config(declaration)
@@ -110,9 +120,9 @@ defmodule LlmCall.Provider do
     %Client{
       provider: provider,
       codecs: Map.new(declaration.codecs),
-      base_url: validate_base_url!(opts[:base_url] || declaration.base_url),
+      base_url: base_url,
       headers: headers(declaration, opts),
-      query: query(opts, declaration),
+      query: Map.merge(url_query, query(opts, declaration)),
       http_opts: resolve(:http_opts, opts, declaration, []) |> validate_http_opts!(),
       timeout: resolve(:timeout, opts, declaration, @default_timeout) |> validate_timeout!(),
       config: config
@@ -222,6 +232,21 @@ defmodule LlmCall.Provider do
   defp validate_base_url!(url) do
     raise ArgumentError,
           "client option :base_url must be a non-empty string, got: #{inspect(url)}"
+  end
+
+  # A base URL is an origin plus a path. Its own query string is folded into the
+  # client's parameters, so `https://…/openai?api-version=1` reaches the provider
+  # as a query and not as a segment glued in front of the codec path.
+  defp split_url_query(url) do
+    uri = URI.parse(url)
+
+    case uri.query do
+      nil ->
+        {URI.to_string(%{uri | fragment: nil}), %{}}
+
+      query ->
+        {URI.to_string(%{uri | query: nil, fragment: nil}), URI.decode_query(query)}
+    end
   end
 
   defp validate_json_library!(nil), do: nil
