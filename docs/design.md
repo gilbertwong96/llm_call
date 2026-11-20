@@ -773,263 +773,49 @@ before a transport sends anything. No silent field dropping.
 
 ### 8.11 Canonical type specifications
 
-The public structs should expose the following types. These are the types an
-implementation should write into the canonical modules; they are not optional
-documentation.
+Each canonical module's `@type t` is the authoritative shape, and ExDoc renders it
+next to the module. What a shape cannot state is recorded here: which unions are
+closed, and what each struct is for.
+
+Four unions are closed, and changing one is an IR change:
 
 ```elixir
-defmodule LlmCall do
-  @type model :: String.t()
-  @type capture_raw :: :none | :response | :all
+@type capture_raw :: :none | :response | :all
+@type modality :: :text | :image | :video
 
-  @type modality :: :text | :image | :video
-  @type wire_value ::
-          nil
-          | boolean()
-          | number()
-          | String.t()
-          | [wire_value()]
-          | %{optional(String.t()) => wire_value()}
+@type wire_value ::
+        nil
+        | boolean()
+        | number()
+        | String.t()
+        | [wire_value()]
+        | %{optional(String.t()) => wire_value()}
 
-  @type stop_reason ::
-          :end_turn
-          | :tool_calls
-          | :max_tokens
-          | :stop_sequence
-          | :content_filter
-          | :error
-          | :unknown
-end
-
-defmodule LlmCall.StreamState do
-  @opaque t :: %__MODULE__{codec: module(), data: term()}
-  defstruct [:codec, :data]
-
-  @spec new(module(), term()) :: t()
-  def new(codec, data), do: %__MODULE__{codec: codec, data: data}
-
-  @spec codec(t()) :: module()
-  def codec(%__MODULE__{codec: codec}), do: codec
-
-  @spec data(t()) :: term()
-  def data(%__MODULE__{data: data}), do: data
-end
-
-defmodule LlmCall.Content do
-  @type source ::
-          String.t()
-          | {:url, String.t()}
-          | {:base64, String.t()}
-          | {:file_id, String.t()}
-
-  @type part ::
-          %LlmCall.Content.Text{text: String.t()}
-          | %LlmCall.Content.Image{source: source(), media_type: String.t() | nil}
-          | %LlmCall.Content.File{
-              source: source(),
-              media_type: String.t() | nil,
-              filename: String.t() | nil
-            }
-          | %LlmCall.Content.Video{source: source(), media_type: String.t() | nil}
-          | %LlmCall.ToolCall{}
-          | %LlmCall.ToolResult{}
-          | %LlmCall.Content.Thinking{text: String.t(), signature: String.t() | nil}
-          | %LlmCall.Content.Raw{type: String.t() | nil, data: map()}
-end
-
-defmodule LlmCall.Content.Text do
-  @type t :: %__MODULE__{text: String.t()}
-  defstruct [:text]
-end
-
-defmodule LlmCall.Content.Image do
-  @type t :: %__MODULE__{
-          source: LlmCall.Content.source(),
-          media_type: String.t() | nil
-        }
-  defstruct [:source, :media_type]
-end
-
-defmodule LlmCall.Content.File do
-  @type t :: %__MODULE__{
-          source: LlmCall.Content.source(),
-          media_type: String.t() | nil,
-          filename: String.t() | nil
-        }
-  defstruct [:source, :media_type, :filename]
-end
-
-defmodule LlmCall.Content.Thinking do
-  @type t :: %__MODULE__{text: String.t(), signature: String.t() | nil}
-  defstruct [:text, :signature]
-end
-
-defmodule LlmCall.Content.Raw do
-  @type t :: %__MODULE__{type: String.t() | nil, data: map()}
-  defstruct [:type, :data]
-end
-
-defmodule LlmCall.Request do
-  @type system :: nil | String.t() | [LlmCall.Content.Text.t()]
-  @type tool_choice ::
-          :auto
-          | :none
-          | :required
-          | {:tool, String.t()}
-          | {:allowed, [String.t()]}
-  @type output ::
-          :text
-          | :json_object
-          | {:json_schema, String.t(), map(), boolean() | nil}
-  @type params :: %{optional(atom()) => nil | boolean() | number() | String.t() | [String.t()]}
-
-  @type t :: %__MODULE__{
-          model: String.t(),
-          system: system(),
-          messages: [LlmCall.Message.t()],
-          tools: [LlmCall.ToolSpec.t()],
-          tool_choice: tool_choice(),
-          output: output(),
-          modalities: [LlmCall.modality()],
-          reasoning: LlmCall.Reasoning.t() | nil,
-          params: params(),
-          provider_options: map(),
-          stream: boolean()
-        }
-end
-
-defmodule LlmCall.Message do
-  @type role :: :user | :assistant
-  @type t :: %__MODULE__{role: role(), content: [LlmCall.Content.part()]}
-end
-
-defmodule LlmCall.Reasoning do
-  @type level ::
-          :none | :minimal | :low | :medium | :high | :xhigh | :max
-  @type effort :: level() | nil
-  @type summary :: :auto | :concise | :detailed | nil
-  @type t :: %__MODULE__{
-          effort: effort(),
-          budget_tokens: pos_integer() | nil,
-          summary: summary(),
-          provider_options: map()
-        }
-end
-
-defmodule LlmCall.Reasoning.Capabilities do
-  @type t :: %__MODULE__{
-          supported: boolean(),
-          efforts: [LlmCall.Reasoning.level()],
-          default_effort: LlmCall.Reasoning.level() | nil,
-          budget_tokens: boolean(),
-          adaptive: boolean(),
-          summary: [:auto | :concise | :detailed]
-        }
-end
-
-defmodule LlmCall.ToolSpec do
-  @type kind :: :function | :builtin
-  @type t :: %__MODULE__{
-          kind: kind(),
-          name: String.t() | nil,
-          description: String.t() | nil,
-          parameters: map() | nil,
-          strict: boolean() | nil,
-          provider_options: map()
-        }
-end
-
-defmodule LlmCall.ToolCall do
-  @type arguments :: map() | nil
-  @type arguments_error :: nil | {:invalid_json, String.t()} | :no_json_decoder
-  @type t :: %__MODULE__{
-          id: String.t() | nil,
-          name: String.t(),
-          arguments: arguments(),
-          raw_arguments: String.t() | nil,
-          arguments_error: arguments_error(),
-          index: non_neg_integer() | nil
-        }
-end
-
-defmodule LlmCall.ToolResult do
-  @type content :: [LlmCall.Content.Text.t()] | String.t()
-  @type t :: %__MODULE__{
-          call_id: String.t() | nil,
-          name: String.t() | nil,
-          content: content(),
-          is_error: boolean()
-        }
-end
-
-defmodule LlmCall.Response do
-  @type t :: %__MODULE__{
-          id: String.t() | nil,
-          model: String.t() | nil,
-          content: [LlmCall.Content.part()],
-          stop_reason: LlmCall.stop_reason(),
-          usage: LlmCall.Usage.t() | nil,
-          raw: map() | nil
-        }
-end
-
-defmodule LlmCall.Usage do
-  @type tokens :: non_neg_integer() | nil
-  @type t :: %__MODULE__{
-          input_tokens: tokens(),
-          output_tokens: tokens(),
-          total_tokens: tokens(),
-          cache_read_tokens: tokens(),
-          cache_write_tokens: tokens(),
-          reasoning_tokens: tokens()
-        }
-end
-
-defmodule LlmCall.Error do
-  @type t :: %__MODULE__{
-          kind: :validation | :invalid_response | :provider | :transport,
-          message: String.t(),
-          code: String.t() | nil,
-          status: non_neg_integer() | nil,
-          retryable?: boolean(),
-          raw: map() | nil
-        }
-end
-
-defmodule LlmCall.Config do
-  @type t :: %__MODULE__{
-          default_provider_options: map(),
-          capture_raw: LlmCall.capture_raw()
-        }
-end
-
-defmodule LlmCall.Capabilities do
-  @type t :: %__MODULE__{
-          tools: boolean(),
-          parallel_tool_calls: boolean(),
-          tool_choice: boolean(),
-          structured_output: :none | :json_object | :json_schema,
-          modalities: [LlmCall.modality()],
-          image_input: boolean(),
-          file_input: boolean(),
-          reasoning: LlmCall.Reasoning.Capabilities.t() | nil,
-          streaming_tool_calls: boolean(),
-          prompt_cache: boolean(),
-          stateful: boolean(),
-          streaming: boolean()
-        }
-end
-
-defmodule LlmCall.EncodedRequest do
-  @type t :: %__MODULE__{
-          method: :post | :get,
-          path: String.t(),
-          query: %{optional(String.t()) => String.t() | integer() | boolean()},
-          headers: [{String.t(), String.t()}],
-          body: map()
-        }
-end
+@type stop_reason ::
+        :end_turn
+        | :tool_calls
+        | :max_tokens
+        | :stop_sequence
+        | :content_filter
+        | :error
+        | :unknown
 ```
+
+| Module | What it carries | Rules |
+| --- | --- | --- |
+| `LlmCall.Request` | model, system, messages, tools, tool_choice, output, modalities, reasoning, params, provider_options, stream | §8.1 |
+| `LlmCall.Message` | role and a list of content parts | §8.2 |
+| `LlmCall.Content.Text` / `.Image` / `.File` / `.Video` / `.Thinking` / `.Raw` | one content part each; a `source()` is a string, `{:url, _}`, `{:base64, _}` or `{:file_id, _}` | §8.3 |
+| `LlmCall.Reasoning` / `LlmCall.Reasoning.Capabilities` | effort, budget_tokens, summary, provider_options; what a protocol supports | §8.3.1 |
+| `LlmCall.ToolSpec` / `.ToolCall` / `.ToolResult` | tool wire data; no schema derivation, no dispatch | §8.4–§8.6 |
+| `LlmCall.Response` | id, model, content, stop_reason, usage, raw | §8.7 |
+| `LlmCall.Usage` | six token counters, provider-reported and token-only | §8.8 |
+| `LlmCall.Error` | kind, message, code, status, reason, retryable?, retry_after_ms, raw | §8.9 |
+| `LlmCall.Capabilities` | protocol-level support flags | §8.10 |
+| `LlmCall.Config` | default_provider_options, capture_raw, json | §10, §16 |
+| `LlmCall.EncodedRequest` | method, path, query, headers, body | §11 |
+| `LlmCall.StreamState` | the owning codec plus opaque data | §12 |
+| `LlmCall.Codec.Info` | name, protocol, wire version, ir_version | §10 |
 
 `LlmCall.StreamEvent` and its `StreamDelta` types are specified in
 [Streaming](#12-streaming).
