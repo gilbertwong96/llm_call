@@ -324,6 +324,6 @@ See [`docs/design.md`](docs/design.md) for the canonical IR, the codec contract,
 the streaming model, the client, and the failure and compatibility policy.
 
 Adapters check themselves with `LlmCall.Codec.Conformance` or
-`LlmCall.MediaConformance` (test support published from `lib/`, not a runtime
+`LlmCall.Media.Conformance` (test support published from `lib/`, not a runtime
 dependency). The vendored media adapters run the media suite in this repository's
 own `mix test`.

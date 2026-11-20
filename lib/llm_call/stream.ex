@@ -9,6 +9,9 @@ defmodule LlmCall.Stream do
   The struct is an immutable description, not a cursor: reducing it twice issues
   the request twice. Build it once and pass it to one consumer.
 
+  Refer to it as `LlmCall.Stream` rather than `alias`-ing it as `Stream`, which
+  would shadow Elixir's `Stream` module for the rest of that module.
+
   ## Errors
 
   A `2xx` body's events are yielded as they decode. Everything that fails while

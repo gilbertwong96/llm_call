@@ -36,7 +36,6 @@ defmodule LlmCall.Dialect.Adapter do
         Error,
         Message,
         Reasoning,
-        ReasoningCapabilities,
         Request,
         Response,
         StreamState,
@@ -47,6 +46,7 @@ defmodule LlmCall.Dialect.Adapter do
       }
 
       alias LlmCall.Dialect.Helpers
+      alias LlmCall.Reasoning.Capabilities, as: ReasoningCapabilities
       alias LlmCall.StreamDelta
 
       @codec unquote(codec)

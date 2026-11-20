@@ -1,4 +1,4 @@
-defmodule LlmCall.ReasoningCapabilities do
+defmodule LlmCall.Reasoning.Capabilities do
   @moduledoc """
   The reasoning surface a codec and model accept.
   """

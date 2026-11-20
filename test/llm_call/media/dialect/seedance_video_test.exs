@@ -164,7 +164,7 @@ defmodule LlmCall.Media.Dialect.SeedanceVideoTest do
              next: %{method: :get, path: "/api/v3/contents/generations/tasks/cgt-2026-abc"}
            } = operation
 
-    assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+    assert :ok = LlmCall.Media.Conformance.assert_operation(operation)
   end
 
   test "poll paths encode the task id as one path segment" do
@@ -196,7 +196,7 @@ defmodule LlmCall.Media.Dialect.SeedanceVideoTest do
 
   test "operation raw follows the capture_raw policy" do
     assert :ok =
-             LlmCall.MediaConformance.assert_operation_capture_raw(
+             LlmCall.Media.Conformance.assert_operation_capture_raw(
                Video,
                Fx.succeeded_response(),
                %Config{}
@@ -211,7 +211,7 @@ defmodule LlmCall.Media.Dialect.SeedanceVideoTest do
       assert {:ok, %Operation{status: ^status, next_kind: :poll} = operation} =
                Video.decode_operation(payload, %Config{})
 
-      assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+      assert :ok = LlmCall.Media.Conformance.assert_operation(operation)
     end
 
     assert {:ok,
@@ -228,14 +228,14 @@ defmodule LlmCall.Media.Dialect.SeedanceVideoTest do
               }
             } = done} = Video.decode_operation(Fx.succeeded_response(), %Config{})
 
-    assert :ok = LlmCall.MediaConformance.assert_operation(done)
+    assert :ok = LlmCall.Media.Conformance.assert_operation(done)
 
     for payload <- [Fx.failed_response(), Fx.cancelled_response(), Fx.expired_response()] do
       assert {:ok,
               %Operation{status: :failed, next: nil, result: nil, error: %Error{kind: :provider}} =
                 failed} = Video.decode_operation(payload, %Config{})
 
-      assert :ok = LlmCall.MediaConformance.assert_operation(failed)
+      assert :ok = LlmCall.Media.Conformance.assert_operation(failed)
     end
   end
 

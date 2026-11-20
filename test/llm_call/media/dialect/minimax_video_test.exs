@@ -113,19 +113,19 @@ defmodule LlmCall.Media.Dialect.MiniMaxVideoTest do
              }
            } = operation
 
-    assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+    assert :ok = LlmCall.Media.Conformance.assert_operation(operation)
   end
 
   test "operation raw follows the capture_raw policy" do
     assert :ok =
-             LlmCall.MediaConformance.assert_operation_capture_raw(
+             LlmCall.Media.Conformance.assert_operation_capture_raw(
                Video,
                Fx.retrieve_response(),
                %Config{}
              )
 
     assert :ok =
-             LlmCall.MediaConformance.assert_operation_capture_raw(
+             LlmCall.Media.Conformance.assert_operation_capture_raw(
                Video,
                Fx.fail_response(),
                %Config{}
@@ -156,7 +156,7 @@ defmodule LlmCall.Media.Dialect.MiniMaxVideoTest do
                 next: %{path: "/v1/query/video_generation"}
               } = operation} = Video.decode_operation(payload, %Config{})
 
-      assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+      assert :ok = LlmCall.Media.Conformance.assert_operation(operation)
     end
   end
 
@@ -172,7 +172,7 @@ defmodule LlmCall.Media.Dialect.MiniMaxVideoTest do
               }
             } = operation} = Video.decode_operation(Fx.success_response(), %Config{})
 
-    assert :ok = LlmCall.MediaConformance.assert_operation(operation)
+    assert :ok = LlmCall.Media.Conformance.assert_operation(operation)
   end
 
   test "the file retrieve payload completes the job with a download url" do
@@ -191,7 +191,7 @@ defmodule LlmCall.Media.Dialect.MiniMaxVideoTest do
               }
             } = done} = Video.decode_operation(Fx.retrieve_response(), %Config{})
 
-    assert :ok = LlmCall.MediaConformance.assert_operation(done)
+    assert :ok = LlmCall.Media.Conformance.assert_operation(done)
   end
 
   test "Fail and a non-zero base_resp are provider errors" do
@@ -203,7 +203,7 @@ defmodule LlmCall.Media.Dialect.MiniMaxVideoTest do
               error: %Error{kind: :provider}
             } = failed} = Video.decode_operation(Fx.fail_response(), %Config{})
 
-    assert :ok = LlmCall.MediaConformance.assert_operation(failed)
+    assert :ok = LlmCall.Media.Conformance.assert_operation(failed)
 
     for payload <- [
           Fx.submit_error_response(),

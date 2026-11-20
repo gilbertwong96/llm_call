@@ -710,7 +710,7 @@ fabricated local guess.
   modalities: [:text],
   image_input: true,
   file_input: false,
-  reasoning: %LlmCall.ReasoningCapabilities{
+  reasoning: %LlmCall.Reasoning.Capabilities{
     supported: true,
     efforts: [:low, :medium, :high],
     default_effort: :medium,
@@ -877,7 +877,7 @@ defmodule LlmCall.Reasoning do
         }
 end
 
-defmodule LlmCall.ReasoningCapabilities do
+defmodule LlmCall.Reasoning.Capabilities do
   @type t :: %__MODULE__{
           supported: boolean(),
           efforts: [LlmCall.Reasoning.level()],
@@ -973,7 +973,7 @@ defmodule LlmCall.Capabilities do
           modalities: [LlmCall.modality()],
           image_input: boolean(),
           file_input: boolean(),
-          reasoning: LlmCall.ReasoningCapabilities.t() | nil,
+          reasoning: LlmCall.Reasoning.Capabilities.t() | nil,
           streaming_tool_calls: boolean(),
           prompt_cache: boolean(),
           stateful: boolean(),
@@ -1221,7 +1221,7 @@ them:
 ```text
 lib/llm_call/conformance.ex          # shared assertions
 lib/llm_call/codec_conformance.ex    # LlmCall.Codec.Conformance
-lib/llm_call/media_conformance.ex    # LlmCall.MediaConformance
+lib/llm_call/media/conformance.ex    # LlmCall.Media.Conformance
 ```
 
 They are test support, not runtime dependencies: they `import
@@ -1659,7 +1659,7 @@ lib/llm_call/tool_spec.ex
 lib/llm_call/tool_call.ex
 lib/llm_call/tool_result.ex
 lib/llm_call/reasoning.ex
-lib/llm_call/reasoning_capabilities.ex
+lib/llm_call/reasoning/capabilities.ex
 lib/llm_call/stream_event.ex
 lib/llm_call/stream_state.ex
 lib/llm_call/stream_delta.ex
@@ -1673,6 +1673,7 @@ lib/llm_call/encoded_request.ex
 lib/llm_call/codec.ex
 lib/llm_call/codec/info.ex
 lib/llm_call/conformance.ex
+lib/llm_call/codec_conformance.ex
 lib/llm_call/client.ex
 lib/llm_call/provider.ex
 lib/llm_call/application.ex
@@ -1683,14 +1684,6 @@ lib/llm_call/ws/mint.ex
 lib/llm_call/ws/error.ex
 lib/llm_call/sse.ex
 lib/llm_call/stream.ex
-lib/llm_call/media/codec.ex
-lib/llm_call/media/request.ex
-lib/llm_call/media/response.ex
-lib/llm_call/media/dialect/adapter.ex
-lib/llm_call/media/capabilities.ex
-lib/llm_call/operation.ex
-lib/llm_call/codec_conformance.ex
-lib/llm_call/media_conformance.ex
 lib/llm_call/dialect/adapter.ex
 lib/llm_call/dialect/helpers.ex
 lib/llm_call/dialect/openai/chat.ex
@@ -1700,10 +1693,17 @@ lib/llm_call/dialect/openai/responses/connection/stream.ex
 lib/llm_call/dialect/anthropic/messages.ex
 lib/llm_call/dialect/gemini/generate_content.ex
 lib/llm_call/media.ex
+lib/llm_call/media/codec.ex
+lib/llm_call/media/request.ex
+lib/llm_call/media/response.ex
+lib/llm_call/media/capabilities.ex
+lib/llm_call/media/conformance.ex
+lib/llm_call/media/dialect/adapter.ex
 lib/llm_call/media/dialect/openai/images.ex
 lib/llm_call/media/dialect/gemini/predict.ex
 lib/llm_call/media/dialect/seedance/video.ex
 lib/llm_call/media/dialect/minimax/video.ex
+lib/llm_call/operation.ex
 ```
 
 The `dialect/*` modules are **reference adapters**: the dialect families
