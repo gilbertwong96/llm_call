@@ -104,12 +104,8 @@ The tool concepts in `LlmCall` are wire data only:
 
 The application maps between them; neither project depends on the other:
 
-```elixir
-specs =
-  for tool <- ToolCall.describe(MyApp.Tools) do
-    %LlmCall.ToolSpec{name: tool.name, description: tool.description, parameters: tool.parameters}
-  end
-```
+A `ToolCall.describe/2` entry becomes a `%LlmCall.ToolSpec{}` with its
+`name`, `description` and `parameters`.
 
 `ToolCall.describe/2` returns a provider-neutral `name`/`description`/`parameters`
 per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
@@ -297,28 +293,13 @@ Rules:
 
 ### 8.1 Request
 
-```elixir
-%LlmCall.Request{
-  model: "claude-sonnet-4-5",
-  system: [%LlmCall.Content.Text{text: "You are helpful."}],
-  messages: [%LlmCall.Message{}],
-  tools: [%LlmCall.ToolSpec{}],
-  tool_choice: :auto,
-  output: :text,
-  modalities: [:text],
-  reasoning: %LlmCall.Reasoning{effort: :high},
-  params: %{
-    temperature: 0.2,
-    top_p: nil,
-    top_k: nil,
-    max_tokens: 1024,
-    stop: nil,
-    seed: nil
-  },
-  provider_options: %{},
-  stream: false
-}
-```
+A request is a `%LlmCall.Request{}` holding `model`, `system`, `messages`, `tools`,
+`tool_choice`, `output`, `modalities`, `reasoning`, `params`, `provider_options` and
+`stream`. `params` is an atom-keyed map of the six sampling and length controls
+(`temperature`, `top_p`, `top_k`, `max_tokens`, `stop`, `seed`); a `nil` value means
+"provider default" and is not sent. The struct defaults are `tool_choice: :auto`,
+`output: :text`, `modalities: [:text]`, `params: %{}`, `provider_options: %{}` and
+`stream: false`.
 
 Fields:
 
@@ -418,12 +399,8 @@ a field the codec does not know about must produce a `Raw` event, never silence.
 
 ### 8.2 Message
 
-```elixir
-%LlmCall.Message{
-  role: :user | :assistant,
-  content: [LlmCall.content_part()]
-}
-```
+A message is a `%LlmCall.Message{}`: `role` is `:user` or `:assistant`, and
+`content` is a list of content parts.
 
 System instructions stay in `Request.system`, because provider placement
 differs:
@@ -434,21 +411,8 @@ differs:
 - Gemini: `systemInstruction`
 - Bedrock Converse: top-level `system`
 
-Tool results are represented as content parts inside a user message:
-
-```elixir
-%LlmCall.Message{
-  role: :user,
-  content: [
-    %LlmCall.ToolResult{
-      call_id: "call_1",
-      name: "get_weather",
-      content: [%LlmCall.Content.Text{text: "Sunny"}],
-      is_error: false
-    }
-  ]
-}
-```
+Tool results are content parts inside a user message — a `%LlmCall.ToolResult{}`
+with `call_id`, `name`, `content` (a string or text parts) and `is_error`.
 
 Adapters translate this into provider-specific forms:
 
@@ -511,14 +475,9 @@ built by hand must therefore carry the discriminator inside `data`.
 Reasoning config is separate from `params` because providers expose different
 axes:
 
-```elixir
-%LlmCall.Reasoning{
-  effort: :none | :minimal | :low | :medium | :high | :xhigh | :max | nil,
-  budget_tokens: pos_integer() | nil,
-  summary: :auto | :concise | :detailed | nil,
-  provider_options: %{}
-}
-```
+`%LlmCall.Reasoning{}` carries `effort` (`:none | :minimal | :low | :medium |
+:high | :xhigh | :max | nil`), `budget_tokens` (a positive integer or `nil`),
+`summary` (`:auto | :concise | :detailed | nil`) and `provider_options` (a map).
 
 - `effort` is a canonical hint, not a guarantee that every provider accepts
   every value. `nil` means the provider/model default.
@@ -541,16 +500,9 @@ Examples:
 
 ### 8.4 ToolSpec
 
-```elixir
-%LlmCall.ToolSpec{
-  kind: :function | :builtin,
-  name: "get_weather" | nil,
-  description: "Get current weather" | nil,
-  parameters: %{...} | nil,
-  strict: nil,
-  provider_options: %{}
-}
-```
+`%LlmCall.ToolSpec{}` carries `kind` (`:function` or `:builtin`), `name`,
+`description`, `parameters` (a JSON Schema object or `nil`), `strict` (`nil` or a
+boolean) and `provider_options`.
 
 - `parameters` is a JSON Schema object (`map()`), not a JSON string or a
   provider-specific schema struct. `nil` is valid for a built-in tool that has
@@ -569,16 +521,8 @@ Examples:
 
 ### 8.5 ToolCall
 
-```elixir
-%LlmCall.ToolCall{
-  id: "call_1" | nil,
-  name: "get_weather",
-  arguments: %{"city" => "Oslo"} | nil,
-  raw_arguments: ~s({"city":"Oslo"}) | nil,
-  arguments_error: nil | {:invalid_json, String.t()} | :no_json_decoder,
-  index: 0 | nil
-}
-```
+`%LlmCall.ToolCall{}` carries `id`, `name`, `arguments`, `raw_arguments`,
+`arguments_error` (`nil | {:invalid_json, reason} | :no_json_decoder`) and `index`.
 
 The `arguments` map is the decoded form where decoding is safe. Keep the raw
 JSON string because:
@@ -600,14 +544,8 @@ payload travels. The codec must not silently turn malformed arguments into
 
 ### 8.6 ToolResult
 
-```elixir
-%LlmCall.ToolResult{
-  call_id: "call_1" | nil,
-  name: "get_weather",
-  content: [LlmCall.ContentPart.t()] | String.t(),
-  is_error: false
-}
-```
+`%LlmCall.ToolResult{}` carries `call_id`, `name`, `content` (a string or text
+parts) and `is_error`.
 
 Adapters validate required identifiers:
 
@@ -620,22 +558,8 @@ Adapters validate required identifiers:
 
 ### 8.7 Response
 
-```elixir
-%LlmCall.Response{
-  id: "msg_123",
-  model: "claude-sonnet-4-5",
-  content: [LlmCall.ContentPart.t()],
-  stop_reason: :end_turn
-               | :tool_calls
-               | :max_tokens
-               | :stop_sequence
-               | :content_filter
-               | :error
-               | :unknown,
-  usage: %LlmCall.Usage{},
-  raw: nil
-}
-```
+`%LlmCall.Response{}` carries `id`, `model`, `content` (content parts),
+`stop_reason` (a member of the union in §8.11), `usage` and `raw`.
 
 `content` is a list of content parts, not provider-specific `choices` or output
 items. `raw` is a `map() | nil` provider snapshot, populated only when
@@ -645,25 +569,14 @@ items. `raw` is a `map() | nil` provider snapshot, populated only when
 `content`/`usage`/`stop_reason`; use raw only when provider-specific information
 was not represented canonically.
 
-Convenience helpers can be added without changing the IR:
-
-```elixir
-LlmCall.Response.text(response)
-LlmCall.Response.tool_calls(response)
-```
+`LlmCall.Response.text/1` and `tool_calls/1` are conveniences over `content`; adding
+more does not change the IR.
 
 ### 8.8 Usage
 
-```elixir
-%LlmCall.Usage{
-  input_tokens: 123,
-  output_tokens: 45,
-  total_tokens: 168,
-  cache_read_tokens: 0,
-  cache_write_tokens: 0,
-  reasoning_tokens: nil
-}
-```
+`%LlmCall.Usage{}` carries six counters — `input_tokens`, `output_tokens`,
+`total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens` — each a
+non-negative integer or `nil`.
 
 Pricing and cost calculation are outside the core.
 
@@ -677,18 +590,9 @@ provider-specific extension.
 
 ### 8.9 Error
 
-```elixir
-%LlmCall.Error{
-  kind: :validation | :invalid_response | :provider | :transport,
-  message: "...",
-  code: "invalid_request_error" | nil,
-  status: 400 | nil,
-  reason: atom() | tuple() | nil,
-  retryable?: false,
-  retry_after_ms: 2_000 | nil,
-  raw: map() | nil
-}
-```
+`%LlmCall.Error{}` carries `kind`, `message`, `code`, `status`, `reason`,
+`retryable?`, `retry_after_ms` and `raw`; `kind` is one of `:validation`,
+`:invalid_response`, `:provider`, `:transport`.
 
 `code` is the provider's machine-readable code as a string (OpenAI's `code`,
 Anthropic's error type, Google's status such as `"RESOURCE_EXHAUSTED"`,
@@ -739,30 +643,16 @@ Capabilities are explicit and per protocol/config. They are **protocol-level**:
 model; a model-specific limit surfaces as a provider error rather than a
 fabricated local guess.
 
-```elixir
-%LlmCall.Capabilities{
-  tools: true,
-  builtin_tools: :passthrough,
-  parallel_tool_calls: false,
-  tool_choice: true,
-  structured_output: :json_schema,
-  modalities: [:text],
-  image_input: true,
-  file_input: false,
-  reasoning: %LlmCall.Reasoning.Capabilities{
-    supported: true,
-    efforts: [:low, :medium, :high],
-    default_effort: :medium,
-    budget_tokens: false,
-    adaptive: true,
-    summary: [:auto, :concise, :detailed]
-  },
-  streaming_tool_calls: true,
-  prompt_cache: true,
-  stateful: false,
-  streaming: true
-}
-```
+| Field | Values | What it says |
+| --- | --- | --- |
+| `tools` | boolean | function tools are accepted |
+| `builtin_tools` | `false` / `:passthrough` / list of names | provider-hosted tools |
+| `parallel_tool_calls`, `tool_choice` | boolean | |
+| `structured_output` | `:none` / `:json_object` / `:json_schema` | |
+| `modalities` | list of `:text`, `:image`, `:video` | |
+| `image_input`, `file_input` | boolean | |
+| `reasoning` | `%LlmCall.Reasoning.Capabilities{}` | `supported`, `efforts`, `default_effort`, `budget_tokens`, `adaptive`, `summary` |
+| `streaming_tool_calls`, `prompt_cache`, `stateful`, `streaming` | boolean | |
 
 `builtin_tools` declares provider-hosted tools: `false` rejects them,
 `:passthrough` forwards any name the caller supplies, and a list forwards only
@@ -857,17 +747,7 @@ for the caller to continue the conversation.
 
 ## 10. Codec contract
 
-```elixir
-defmodule LlmCall.Codec.Info do
-  @type t :: %__MODULE__{
-          name: atom(),
-          protocol: atom(),
-          version: String.t() | nil,
-          ir_version: pos_integer()
-        }
-  defstruct [:name, :protocol, :version, :ir_version]
-end
-```
+`%LlmCall.Codec.Info{}` carries `name`, `protocol`, `version` and `ir_version`.
 
 `name` identifies the codec instance and `protocol` the wire family; they are
 equal for every codec today (one codec per family) and differ only when one
@@ -876,66 +756,20 @@ targets — Anthropic's `2026-10-21`, Gemini's `v1beta`, Seedance's `v3` — and
 `nil` when the protocol has no versioned surface (OpenAI Chat and Images).
 `ir_version` is the canonical IR contract the codec was written against.
 
-```elixir
-defmodule LlmCall.Codec do
-  @callback info() :: LlmCall.Codec.Info.t()
+| Callback | Contract |
+| --- | --- |
+| `info/0` | `%LlmCall.Codec.Info{}` |
+| `encode_request(request, config)` | `{:ok, %EncodedRequest{}}` or an error |
+| `decode_response(term, config)` | `{:ok, %Response{}}` or an error |
+| `validate_request(request, config)` | `:ok` or a `:validation` error |
+| `capabilities(request, config)` | `%LlmCall.Capabilities{}` |
+| `decode_error(term, config)` | `%LlmCall.Error{}`, never an error tuple |
+| `init_stream(request, config)` | `{:ok, %StreamState{}}` or an error |
+| `decode_stream_event(term, config, state)` | `{:ok, events, state}`, `{:done, state}`, or an error |
+| `finish_stream(state, config)` | `{:ok, events, state}` or an error |
 
-  @callback encode_request(
-              LlmCall.Request.t(),
-              LlmCall.Config.t()
-            ) ::
-              {:ok, LlmCall.EncodedRequest.t()}
-              | {:error, LlmCall.Error.t()}
-
-  @callback decode_response(
-              LlmCall.wire_value(),
-              LlmCall.Config.t()
-            ) ::
-              {:ok, LlmCall.Response.t()}
-              | {:error, LlmCall.Error.t()}
-
-  @callback decode_stream_event(
-              LlmCall.wire_value(),
-              LlmCall.Config.t(),
-              LlmCall.StreamState.t()
-            ) ::
-              {:ok, [LlmCall.StreamEvent.t()], LlmCall.StreamState.t()}
-              | {:done, LlmCall.StreamState.t()}
-              | {:error, LlmCall.Error.t()}
-
-  @callback decode_error(
-              LlmCall.wire_value(),
-              LlmCall.Config.t()
-            ) :: LlmCall.Error.t()
-
-  @callback validate_request(
-              LlmCall.Request.t(),
-              LlmCall.Config.t()
-            ) :: :ok | {:error, LlmCall.Error.t()}
-
-  @callback init_stream(
-              LlmCall.Request.t(),
-              LlmCall.Config.t()
-            ) :: {:ok, LlmCall.StreamState.t()} | {:error, LlmCall.Error.t()}
-
-  @callback finish_stream(
-              LlmCall.StreamState.t(),
-              LlmCall.Config.t()
-            ) ::
-              {:ok, [LlmCall.StreamEvent.t()], LlmCall.StreamState.t()}
-              | {:error, LlmCall.Error.t()}
-
-  @callback capabilities(
-              LlmCall.Request.t(),
-              LlmCall.Config.t()
-            ) :: LlmCall.Capabilities.t()
-
-  @optional_callbacks
-    init_stream: 2,
-    decode_stream_event: 3,
-    finish_stream: 2
-end
-```
+`init_stream/2`, `decode_stream_event/3` and `finish_stream/2` are optional, so a
+non-streaming codec implements no dummy callbacks.
 
 `LlmCall.Codec` is a behaviour. `LlmCall.Dialect.*` modules are concrete
 dialects of one wire protocol; each implements that behaviour. The namespace is
@@ -949,27 +783,14 @@ IR version it implements. `init_stream/2`, `decode_stream_event/3`, and
 implement dummy callbacks. When streaming is unavailable, the public API returns
 a typed `LlmCall.Error` rather than raising.
 
-Streaming state is never exposed as a bare `term()`. It is wrapped in opaquely
-typed `LlmCall.StreamState`:
+Streaming state is never exposed as a bare `term()`: it is wrapped in opaquely typed
+`LlmCall.StreamState{}`, and the public API checks `StreamState.codec(state) ==
+selected_codec` before delegating, so passing an Anthropic state to the OpenAI codec
+is a typed error. Codec implementations use `StreamState.data/1` and
+`StreamState.new/2`; the `data` remains deliberately opaque.
 
-```elixir
-%LlmCall.StreamState{codec: MyCodec, data: codec_private_state}
-```
-
-The public API checks `StreamState.codec(state) == selected_codec` before
-delegating, so passing an Anthropic state to the OpenAI codec is a typed error.
-Codec implementations use `StreamState.data/1` and `StreamState.new/2`; the
-`data` remains deliberately opaque.
-
-`Config` contains codec defaults and capture policy, not the canonical model
-selection:
-
-```elixir
-%LlmCall.Config{
-  default_provider_options: %{},
-  capture_raw: :none
-}
-```
+`%LlmCall.Config{}` contains codec defaults and capture policy, not the canonical
+model selection: `default_provider_options`, `capture_raw` and `json`.
 
 `default_provider_options` is merged before `Request.provider_options`; the
 request value wins per key, and a namespace present in both merges recursively,
@@ -977,17 +798,11 @@ so a nested native object keeps the config keys the request does not repeat.
 `Request.model` is the only model selection.
 `Config` does not contain credentials or a base URL.
 
-```elixir
-@type capture_raw :: :none | :response | :all
-```
-
 ### 10.1 Codec discovery and extension
 
 Codec selection is explicit:
 
-```elixir
-LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, config)
-```
+the module is passed to `LlmCall.encode/3`, or named by `codec:` on a call.
 
 There is no provider or codec registry in the core. A higher-level client may
 map provider/model names to codec modules, but `LlmCall` does not. This keeps a
@@ -1115,15 +930,8 @@ Anthropic Messages, and Gemini GenerateContent.
 
 ## 11. Encoded request boundary
 
-```elixir
-%LlmCall.EncodedRequest{
-  method: :post,
-  path: "/v1/chat/completions",
-  query: %{},
-  headers: [{"anthropic-version", "2026-10-21"}],
-  body: %{}
-}
-```
+An encoded request is an `%LlmCall.EncodedRequest{}` with `method`, `path`, `query`,
+`headers` and `body`.
 
 - `path`, `query`, `headers`, and `body` are protocol-level facts.
 - `body` is a JSON-compatible term, not an encoded JSON string.
@@ -1138,140 +946,47 @@ Anthropic Messages, and Gemini GenerateContent.
 
 The client is the default consumer:
 
-```elixir
-client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
-{:ok, %LlmCall.Response{}} = LlmCall.complete(client, request)
-```
+build it with `MyApp.OpenAI.client(api_key: ...)`, then call
+`LlmCall.complete(client, request)`.
 
 The boundary stays public for callers that own a transport:
 
-```elixir
-{:ok, encoded} = LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, config)
-
-body = JSON.encode!(encoded.body)
-
-case encoded.method do
-  :get -> Req.get!(base_url <> encoded.path, headers: auth_headers ++ encoded.headers)
-  :post -> Req.post!(base_url <> encoded.path, headers: auth_headers ++ encoded.headers, body: body)
-end
-```
+encode with `LlmCall.encode/3`, serialise `encoded.body`, and issue the request with
+`encoded.method`, `encoded.path`, `encoded.headers` and `encoded.query`.
 
 ## 12. Streaming
 
 The client parses SSE (`LlmCall.SSE`) and yields normalized events; codecs see
 provider event terms only.
 
-```elixir
-defmodule LlmCall.StreamEvent do
-  @type type ::
-          :message_start
-          | :content_start
-          | :text_delta
-          | :tool_call_start
-          | :tool_call_delta
-          | :tool_call_stop
-          | :thinking_delta
-          | :content_stop
-          | :message_delta
-          | :message_stop
-          | :error
+| Event type | Delta | Meaning |
+| --- | --- | --- |
+| `:message_start`, `:content_start`, `:content_stop`, `:message_stop` | none | structural |
+| `:text_delta` | `%StreamDelta.Text{text}` | answer text |
+| `:thinking_delta` | `%StreamDelta.Thinking{text, signature}` | reasoning text, or its signature |
+| `:tool_call_start` | `%StreamDelta.ToolCall{id, name, index}` | opens a call |
+| `:tool_call_delta` | `%StreamDelta.ToolCall{arguments}` | appends an argument fragment |
+| `:tool_call_stop` | `%StreamDelta.ToolCall{}` | closes a call |
+| `:message_delta` | `%StreamDelta.MessageDelta{stop_reason, usage}`, or `%StreamDelta.Raw{data}` | stop reason or usage; `Raw` when a provider field is unmapped |
+| `:error` | none | the provider reported a failure |
 
-  @type index :: non_neg_integer() | nil
+`type` is a closed union of those names, and no caller should have to pattern-match
+provider JSON. `raw` (a map or `nil`) is populated only when
+`Config.capture_raw == :all`.
 
-  @type delta ::
-          nil
-          | %LlmCall.StreamDelta.Text{text: String.t()}
-          | %LlmCall.StreamDelta.ToolCall{
-              id: String.t() | nil,
-              name: String.t() | nil,
-              arguments: String.t() | nil,
-              index: index()
-            }
-          | %LlmCall.StreamDelta.Thinking{
-              text: String.t(),
-              signature: String.t() | nil
-            }
-          | %LlmCall.StreamDelta.MessageDelta{
-              stop_reason: LlmCall.stop_reason() | nil,
-              usage: LlmCall.Usage.t() | nil
-            }
-          | %LlmCall.StreamDelta.Raw{data: map()}
-
-  @type raw :: map() | nil
-
-  @type t :: %__MODULE__{
-          type: type(),
-          index: index(),
-          delta: delta(),
-          raw: raw()
-        }
-
-  defstruct [:type, :index, :delta, :raw]
-end
-```
-
-The delta modules are small typed structs:
-
-```elixir
-defmodule LlmCall.StreamDelta.Text do
-  @type t :: %__MODULE__{text: String.t()}
-  defstruct [:text]
-end
-
-defmodule LlmCall.StreamDelta.ToolCall do
-  @type t :: %__MODULE__{
-          id: String.t() | nil,
-          name: String.t() | nil,
-          arguments: String.t() | nil,
-          index: non_neg_integer() | nil
-        }
-  defstruct [:id, :name, :arguments, :index]
-end
-
-defmodule LlmCall.StreamDelta.Thinking do
-  @type t :: %__MODULE__{
-          text: String.t(),
-          signature: String.t() | nil
-        }
-  defstruct [:text, :signature]
-end
-
-defmodule LlmCall.StreamDelta.MessageDelta do
-  @type t :: %__MODULE__{
-          stop_reason: LlmCall.stop_reason() | nil,
-          usage: LlmCall.Usage.t() | nil
-        }
-  defstruct [:stop_reason, :usage]
-end
-
-defmodule LlmCall.StreamDelta.Raw do
-  @type t :: %__MODULE__{data: map()}
-  defstruct [:data]
-end
-```
-
-`delta` is a closed union of these canonical delta structs. It must not be
-`term()`, and each delta type must be usable without pattern-matching raw
-provider JSON.
-
-`raw` is provider-specific but still typed as a JSON object (`map()`) or
-`nil`. It is populated only when `Config.capture_raw == :all`, so normal
-streaming does not retain a second full event per chunk. If a provider sends a
-non-object sentinel, the transport/codec should normalize it to
-`{:done, state}` or wrap it in a map; it should not leak an arbitrary term into
-the public type.
+`delta` is a closed union of those delta structs. It must not be `term()`, and each
+delta type must be usable without pattern-matching raw provider JSON. `raw` is
+provider-specific but still typed as a JSON object (`map()`) or `nil`, and it is
+populated only when `Config.capture_raw == :all`, so normal streaming does not retain
+a second full event per chunk. If a provider sends a non-object sentinel, the
+transport or codec normalizes it to `{:done, state}` or wraps it in a map; it must not
+leak an arbitrary term into the public type.
 
 A reasoning block is not one event: the text arrives incrementally, and a provider
 that signs its thinking blocks — Anthropic on every block, Gemini on the thought
 parts before a function call — sends the signature in a separate event whose `text`
 is `""`. A caller that folds only `text` builds a block the next request cannot
-carry, so the fold must take whichever field the event has:
-
-```elixir
-def merge(%LlmCall.Content.Thinking{} = block, %LlmCall.StreamDelta.Thinking{} = delta) do
-  %{block | text: block.text <> delta.text, signature: delta.signature || block.signature}
-end
-```
+carry: the fold has to append `delta.text` and keep `delta.signature` when it is set.
 
 ### 12.1 Streaming tool-call assembly
 
@@ -1279,26 +994,9 @@ The wire layer can emit tool-call fragments before the model has finished its
 output. A separate, pure `LlmCall.StreamAssembler` turns those fragments into
 complete `LlmCall.ToolCall` values.
 
-```elixir
-defmodule LlmCall.StreamAssembler do
-  @type decoder :: (String.t() -> {:ok, map()} | {:error, String.t()}) | nil
-
-  @opaque t :: %__MODULE__{
-            json_decoder: decoder(),
-            calls: map()
-          }
-
-  defstruct json_decoder: nil, calls: %{}
-
-  @spec new(keyword()) :: t()
-  def new(opts \\ [])
-
-  @spec feed(t(), LlmCall.StreamEvent.t()) ::
-          {:ok, t(), [LlmCall.ToolCall.t()]}
-
-  @spec finish(t()) :: {:ok, t(), [LlmCall.ToolCall.t()]}
-end
-```
+`LlmCall.StreamAssembler` is opaque: `new/1` takes an optional `json_decoder`,
+`feed/2` returns `{:ok, assembler, completed_calls}`, and `finish/1` flushes whatever
+is still pending.
 
 Rules:
 
@@ -1316,12 +1014,9 @@ Rules:
   must send the tool result in the next model request after the current
   response completes.
 
-The core does not depend on a JSON codec. `new/1` accepts an optional
-`json_decoder`:
-
-```elixir
-StreamAssembler.new(json_decoder: &JSON.decode/1)
-```
+The core does not depend on a JSON codec: `new/1` accepts an optional
+`json_decoder`, receiving the accumulated argument string and returning `{:ok,
+map()} | {:error, String.t()}`.
 
 `json_decoder` receives the accumulated argument string and returns
 `{:ok, map()} | {:error, String.t()}`. If no decoder is provided, the assembler
@@ -1384,33 +1079,10 @@ The core only defines tool wire data. It does not call tools.
 
 ### `tool_call`
 
-`LlmCall` does not wrap `tool_call`; the application maps the descriptions itself:
-
-```elixir
-tools =
-  for tool <- ToolCall.describe(MyApp.Tools) do
-    %LlmCall.ToolSpec{
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }
-  end
-
-request = %LlmCall.Request{
-  model: "...",
-  messages: messages,
-  tools: tools
-}
-```
-
-After decoding:
-
-```elixir
-for call <- LlmCall.Response.tool_calls(response) do
-  tool = String.to_existing_atom(call.name)
-  ToolCall.run(MyApp.Tools, tool, call.arguments)
-end
-```
+`LlmCall` does not wrap `tool_call`: the application maps `ToolCall.describe/2` into
+`%LlmCall.ToolSpec{}` values, and after decoding dispatches each call through
+`ToolCall.run/4` with `call.name` and `call.arguments`. The library neither runs the
+call nor builds the follow-up request.
 
 Dependency direction:
 
@@ -1511,29 +1183,15 @@ cannot rot.
 
 Two tiers. The one-call client is the default:
 
-```elixir
-LlmCall.complete(client, request, opts \\ [])     # opts: codec:, headers:
-LlmCall.stream(client, request, opts \\ [])       # opts: codec:, on_event:, headers:
-LlmCall.generate(client, media_request, opts)     # opts: codec:, headers:
-LlmCall.poll(client, operation_or_encoded, opts)  # opts: codec:, headers:
-LlmCall.execute(client, encoded)
-LlmCall.fetch(client, encoded)
-```
+`complete/3`, `stream/3` and `generate/3` take a client, the request and the call
+options (`codec:`, `headers:`, plus `on_event:` on `stream/3`); `poll/3` advances a
+media operation; `execute/2` and `fetch/2` run a request the caller already encoded.
 
 A caller that owns a transport keeps the encode/decode boundary:
 
-```elixir
-LlmCall.encode(codec, request, config \\ LlmCall.Config.new())
-LlmCall.decode_response(codec, response_term, config \\ LlmCall.Config.new())
-LlmCall.init_stream(codec, request, config \\ LlmCall.Config.new())
-LlmCall.decode_stream_event(codec, event_term, config, state)
-LlmCall.finish_stream(codec, state, config)
-LlmCall.validate_request(codec, request, config \\ LlmCall.Config.new())
-LlmCall.capabilities(codec, request, config \\ LlmCall.Config.new())
-LlmCall.StreamAssembler.new(keyword())
-LlmCall.StreamAssembler.feed(assembler, event)
-LlmCall.StreamAssembler.finish(assembler)
-```
+`encode/3`, `decode_response/3`, `init_stream/3`, `decode_stream_event/4`,
+`finish_stream/3`, `validate_request/3`, `capabilities/3`, and
+`StreamAssembler.new/1`, `feed/2`, `finish/1`.
 
 `headers:` is a list of string `{name, value}` pairs for this call only. The
 client merges them in this order: client/provider headers, then call headers,
@@ -1704,79 +1362,24 @@ The reason for two entry points is that dedicated image/video endpoints have no
 
 ### 23.1 Canonical additions
 
-```elixir
-defmodule LlmCall.Content.Video do
-  @type t :: %__MODULE__{
-          source: LlmCall.Content.source(),
-          media_type: String.t() | nil
-        }
-  defstruct [:source, :media_type]
-end
+`%LlmCall.Content.Video{}` mirrors `Content.Image` with a `source` and a
+`media_type`.
 
-defmodule LlmCall.Media.Request do
-  @type modality :: :image | :video
+`%LlmCall.Media.Request{}` carries `modality` (`:image` or `:video`), `model`,
+`prompt`, `references` (nil, or image and video parts), `params` and
+`provider_options`. Every `params` key is optional and nil-by-default: `n`, `size`,
+`aspect_ratio`, `duration_s`, `seed`, `negative_prompt`.
 
-  @type params :: %{
-          optional(:n) => pos_integer() | nil,
-          optional(:size) => String.t() | nil,
-          optional(:aspect_ratio) => String.t() | nil,
-          optional(:duration_s) => pos_integer() | nil,
-          optional(:seed) => non_neg_integer() | nil,
-          optional(:negative_prompt) => String.t() | nil
-        }
+`%LlmCall.Media.Response{}` carries `assets`, `revised_prompt`, `usage`, `operation`
+and `raw`.
 
-  @type t :: %__MODULE__{
-          modality: modality(),
-          model: String.t(),
-          prompt: String.t(),
-          references: nil | [LlmCall.Content.Image.t() | LlmCall.Content.Video.t()],
-          params: params(),
-          provider_options: map()
-        }
-end
+`%LlmCall.Operation{}` carries `id`, `status` (`:queued`, `:in_progress`,
+`:completed`, `:failed`), `progress`, `result`, `next`, `next_kind` (`:poll` or
+`:asset`), `next_media_type`, `error` and `raw`.
 
-defmodule LlmCall.Media.Response do
-  @type asset :: LlmCall.Content.Image.t() | LlmCall.Content.Video.t()
-
-  @type t :: %__MODULE__{
-          assets: [asset()],
-          revised_prompt: String.t() | nil,
-          usage: LlmCall.Usage.t() | nil,
-          operation: LlmCall.Operation.t() | nil,
-          raw: map() | nil
-        }
-end
-
-defmodule LlmCall.Operation do
-  @type status :: :queued | :in_progress | :completed | :failed
-
-  @type t :: %__MODULE__{
-          id: String.t() | nil,
-          status: status(),
-          progress: 0..100 | nil,
-          result: LlmCall.Media.Response.t() | nil,
-          next: LlmCall.EncodedRequest.t() | nil,
-          next_kind: :poll | :asset | nil,
-          next_media_type: String.t() | nil,
-          error: LlmCall.Error.t() | nil,
-          raw: map() | nil
-        }
-end
-
-defmodule LlmCall.Media.Capabilities do
-  @type t :: %__MODULE__{
-          modalities: [LlmCall.Media.Request.modality()],
-          async: boolean(),
-          max_n: pos_integer() | :unsupported,
-          sizes: [String.t()],
-          aspect_ratios: [String.t()],
-          durations_s: [pos_integer()],
-          max_references: non_neg_integer() | nil,
-          seed: boolean(),
-          negative_prompt: boolean()
-        }
-end
-```
+`%LlmCall.Media.Capabilities{}` carries `modalities`, `async`, `max_n` (a positive
+integer or `:unsupported`), `sizes`, `aspect_ratios`, `durations_s`, `max_references`
+(a non-negative integer or `nil`), `seed` and `negative_prompt`.
 
 `LlmCall.Media.Request` has no `stream`, no `system`, and no `tools` field. `prompt` is the
 provider's prompt field, not a message list.
@@ -1873,15 +1476,8 @@ it.
 The library never polls, sleeps, retries, or downloads beyond the request the
 caller asks for. The client loop is:
 
-```elixir
-{:ok, %LlmCall.Media.Response{operation: %Operation{status: :in_progress} = op}} =
-  LlmCall.generate(client, media_request, codec: :video)
-
-{:ok, %Operation{status: :completed, next: next, next_kind: :asset}} =
-  LlmCall.poll(client, op, codec: :video)
-
-{:ok, %{body: bytes}} = LlmCall.fetch(client, next)
-```
+`generate/3` until the operation is `:in_progress`, `poll/3` until it is `:completed`
+with `next_kind: :asset`, then `fetch/2` for the bytes.
 
 `poll/3` executes `op.next` and decodes the body with `decode_operation/2`; an
 `:asset` operation is rejected with a pointer at `fetch/2`. `fetch/2` never
@@ -1889,44 +1485,32 @@ follows a redirect: a `3xx` is a `:transport` error with the status, and since
 `%LlmCall.Error{}` carries no headers the `Location` is lost. A caller whose
 asset URL redirects (CDN, pre-signed link) builds an `%LlmCall.HTTP.Request{}`
 for that URL and calls `LlmCall.HTTP.request/2`, which returns the response with
-headers. A caller that owns a transport can call the codec functions directly,
-as before:
-
-```elixir
-{:ok, encoded} = LlmCall.encode_media(codec, media_request, config)
-{:ok, %Operation{} = op} = LlmCall.decode_operation(codec, poll_term, config)
-```
+headers. A caller that owns a transport calls `LlmCall.encode_media/3` and
+`LlmCall.decode_operation/3` directly instead.
 
 `Operation.raw` follows `capture_raw` (`:response` and `:all`).
 
 ### 23.5 `LlmCall.Media.Codec` behaviour and public API
 
-```elixir
-defmodule LlmCall.Media.Codec do
-  @callback info() :: LlmCall.Codec.Info.t()
-  @callback capabilities(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
-              LlmCall.Media.Capabilities.t()
-  @callback validate_request(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
-              :ok | {:error, LlmCall.Error.t()}
-  @callback encode_submit(LlmCall.Media.Request.t(), LlmCall.Config.t()) ::
-              {:ok, LlmCall.EncodedRequest.t()} | {:error, LlmCall.Error.t()}
-  @callback decode_submit(LlmCall.wire_value(), LlmCall.Config.t()) ::
-              {:ok, LlmCall.Media.Response.t()} | {:error, LlmCall.Error.t()}
-  @callback decode_operation(LlmCall.wire_value(), LlmCall.Config.t()) ::
-              {:ok, LlmCall.Operation.t()} | {:error, LlmCall.Error.t()}
-  @callback decode_error(LlmCall.wire_value(), LlmCall.Config.t()) :: LlmCall.Error.t()
+| Callback | Contract |
+| --- | --- |
+| `info/0` | `%LlmCall.Codec.Info{}` |
+| `capabilities(request, config)` | `%LlmCall.Media.Capabilities{}` |
+| `validate_request(request, config)` | `:ok` or a `:validation` error |
+| `encode_submit(request, config)` | `{:ok, %EncodedRequest{}}` or an error |
+| `decode_submit(term, config)` | `{:ok, %LlmCall.Media.Response{}}` or an error |
+| `decode_operation(term, config)` | `{:ok, %LlmCall.Operation{}}` or an error, optional |
+| `decode_error(term, config)` | `%LlmCall.Error{}`, never an error tuple |
 
-  @optional_callbacks decode_operation: 2
-end
-```
+`decode_operation/2` is the only optional callback.
 
-```elixir
-LlmCall.encode_media(codec, media_request, config \\ LlmCall.Config.new())
-LlmCall.decode_media(codec, term, config \\ LlmCall.Config.new())
-LlmCall.decode_operation(codec, term, config \\ LlmCall.Config.new())
-LlmCall.validate_media(codec, media_request, config \\ LlmCall.Config.new())
-LlmCall.media_capabilities(codec, media_request, config \\ LlmCall.Config.new())
-```
+| Entry point | Purpose |
+| --- | --- |
+| `encode_media/3` | validate and encode a submit |
+| `decode_media/3` | decode a submit response |
+| `decode_operation/3` | decode a poll or asset payload |
+| `validate_media/3` | run the codec's validation only |
+| `media_capabilities/3` | the codec's declared surface |
 
 `encode_media/3` delegates to the codec, which validates first. `decode_operation/3`
 returns a typed `:validation` error when the codec has no `decode_operation/2`,
@@ -2010,14 +1594,13 @@ project actually uses; Sora and Veo are not implemented.
 WebSocket is a **transport**, not a completion protocol. `LlmCall.WS` is a
 behaviour with five operations:
 
-```elixir
-@callback connect(url, headers, opts) :: {:ok, conn} | {:error, term}
-@callback feed(conn, socket_message) :: {:ok, [frame], conn} | {:error, term}
-@callback send_frame(conn, {:text | :binary, binary}) :: {:ok, conn} | {:error, term}
-@callback recv(conn, timeout) ::
-            {:ok, {:text | :binary, binary} | {:close, code, reason}, conn} | {:error, term}
-@callback close(conn, code, reason) :: :ok
-```
+| Callback | Contract |
+| --- | --- |
+| `connect(url, headers, opts)` | `{:ok, conn}` or `{:error, reason}` |
+| `feed(conn, socket_message)` | `{:ok, frames, conn}` or an error |
+| `send_frame(conn, {:text | :binary, binary})` | `{:ok, conn}` or an error |
+| `recv(conn, timeout)` | `{:ok, frame, conn}` or an error |
+| `close(conn, code, reason)` | `:ok` |
 
 `LlmCall.WS.Mint` implements it with `Mint.WebSocket`: it performs the upgrade,
 owns the socket in the calling process, answers pings inside `recv/2` and
@@ -2038,11 +1621,8 @@ WebSocket connection and multiplexes `response.create` calls. It is a transport
 connection, not conversation state: `previous_response_id` and `store` stay with
 the caller.
 
-```elixir
-{:ok, connection} = Connection.start_link(client: client)
-{:ok, stream} = Connection.create(connection, request, stream_id: "main")
-Enum.to_list(stream)
-```
+`Connection.start_link(client: client)` opens the socket, `create/3` starts a lane and
+returns the stream to reduce.
 
 - Each create names a `stream_id` lane (generated when omitted). Events are
   decoded per lane by the Responses codec and delivered as `StreamEvent`s to the
