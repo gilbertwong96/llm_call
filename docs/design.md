@@ -1801,7 +1801,9 @@ client merges them in this order: client/provider headers, then call headers,
 then the codec's encoded headers. Later entries win, so a call can override a
 provider default (a gateway routing header, a beta flag), while a protocol
 header emitted by the codec still wins. An invalid list is a `:validation`
-error before any request. WebSocket handshake headers are connection-level:
+error before any request. Any option outside the ones a call lists is a
+`:validation` error too, so a misspelled `codec:` cannot silently fall back to
+the default. WebSocket handshake headers are connection-level:
 pass `headers:` to `Connection.start_link/1`; they are merged with the client
 headers and reused on reconnect.
 
