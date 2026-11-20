@@ -49,6 +49,7 @@ defmodule LlmCall.MixProject do
   defp deps do
     [
       {:finch, "~> 0.25"},
+      {:mint, "~> 1.4"},
       {:mint_web_socket, "~> 1.0"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
