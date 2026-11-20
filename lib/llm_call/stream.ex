@@ -75,7 +75,7 @@ defmodule LlmCall.Stream do
            stream.client.http_opts
          ) do
       {:ok, state} -> finish(state)
-      {:error, reason} -> raise HTTP.Error, error: transport_error(reason)
+      {:error, reason} -> raise HTTP.Error, error: Error.from_transport(reason)
     end
   end
 
@@ -208,7 +208,7 @@ defmodule LlmCall.Stream do
           stream_error(state.codec.decode_error(payload, state.client.config))
 
         _other ->
-          transport_error("HTTP #{status}: body is not a JSON object")
+          Error.from_transport("HTTP #{status}: body is not a JSON object")
       end
 
     retry_after = HTTP.retry_after_ms(state.headers)
@@ -252,10 +252,6 @@ defmodule LlmCall.Stream do
   end
 
   defp invalid_response(message), do: %Error{kind: :invalid_response, message: message}
-
-  defp transport_error(reason) do
-    %Error{kind: :transport, message: "transport error: #{inspect(reason)}"}
-  end
 end
 
 defimpl Enumerable, for: LlmCall.Stream do
