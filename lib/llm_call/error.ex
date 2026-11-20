@@ -17,19 +17,28 @@ defmodule LlmCall.Error do
   it `nil`.
 
   `reason` is the structured counterpart of a `:transport` message, and only the
-  client sets it: `:unknown_pool` when the configured Finch pool is not running,
-  `:exception` when the transport raised, and otherwise the transport's own
-  reason (`:econnrefused`, `:timeout`, `:closed`, `:nxdomain`,
-  `{:tls_alert, ...}`). Match on it instead of the message; a codec leaves it
-  `nil`, and so does any failure that has a `status`.
+  client sets it. Match on it instead of the message. The library produces:
+
+    * `{:unknown_pool, name}` — the configured Finch pool is not running;
+    * `:exception` — the HTTP transport raised;
+    * `:disconnected` — the Responses WebSocket is not connected;
+    * `{:interrupted, why}` — an in-flight WebSocket lane was dropped
+      (`:reconnected`, `:max_age`, or the close reason);
+    * `{:connection_exited, why}` — the WebSocket connection process ended;
+    * the transport's own reason otherwise (`:econnrefused`, `:timeout`,
+      `:closed`, `:nxdomain`, `{:tls_alert, ...}`).
+
+  A codec leaves it `nil`, and so does any failure that has a `status`.
   """
 
   @typedoc """
   A structured transport reason, or `nil` when the failure has none.
 
-  See the module documentation for the values the client produces.
+  An atom or a tuple; the module documentation lists the values this library
+  produces and the transport reasons it passes through. Only `kind: :transport`
+  sets it.
   """
-  @type reason :: :unknown_pool | :exception | atom() | tuple() | nil
+  @type reason :: atom() | tuple() | nil
 
   @type t :: %__MODULE__{
           kind: :validation | :invalid_response | :provider | :transport,
