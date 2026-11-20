@@ -8,8 +8,9 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   delivered to the `%Stream{}` returned by `create/3`.
 
   `previous_response_id`, `store` and `include` belong in the request's
-  `provider_options`, exactly as on HTTP. `steer/3` sends `response.steer` for an
-  active lane; `cancel/2` sends `response.cancel` and ends the lane.
+  `provider_options`, exactly as on HTTP. `steer/3` sends `response.steer` for the
+  lane's active response id; `cancel/2` sends `response.cancel` and ends the lane.
+  Neither carries `stream_id`: the provider routes them by response id.
 
   ## Reconnect
 
@@ -48,6 +49,16 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   (`cancel` is sent), when the subscriber exits (monitored), or on a connection
   failure. An unknown or duplicate `stream_id` is a `:validation` error, not a
   crash: a caller mistake never takes down the other lanes.
+
+  ## One lane at a time without an echo
+
+  Lanes are routed by the `stream_id` the server echoes on every event, which the
+  real endpoint does for named lanes. A server that does not echo it can only be
+  attributed while one lane is in flight, so once an event has proven the echo is
+  missing, a second concurrent `create/3` is a `:validation` error instead of a
+  create that would later tear down the lane already running. Back-to-back creates
+  stay allowed while no event has arrived yet: that is how the documented endpoint
+  is used for parallel conversations, and the echo is not known until then.
   """
 
   use GenServer
@@ -84,7 +95,9 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   Queues `input` for the active response on `stream_id` with `response.steer`.
 
   `input` is wire-shaped (a string or a list of Responses input items); the
-  connection does not reinterpret it.
+  connection does not reinterpret it. The event carries the lane's
+  `previous_response_id`, which is what the provider routes a steer by; a lane that
+  has not received `response.created` yet has no id and is a `:validation` error.
   """
   @spec steer(t(), String.t(), term()) :: :ok | {:error, Error.t()}
   def steer(connection, stream_id, input) do
@@ -168,6 +181,8 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
          retry_timer: nil,
          retry_ref: nil,
          lanes: %{},
+         echoed_stream_id?: false,
+         observed_events?: false,
          finished: []
        }}
     end
@@ -213,9 +228,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   end
 
   def handle_call({:steer, stream_id, input}, _from, state) do
-    with {:ok, _lane} <- Map.fetch(state.lanes, stream_id),
+    with {:ok, lane} <- Map.fetch(state.lanes, stream_id),
+         {:ok, response_id} <- steer_target(lane),
          {:ok, json} <-
-           encode(state, %{"type" => "response.steer", "stream_id" => stream_id, "input" => input}),
+           encode(state, %{
+             "type" => "response.steer",
+             "previous_response_id" => response_id,
+             "input" => input
+           }),
          {:ok, conn} <- safe_send(state.ws, state.conn, {:text, json}) do
       {:reply, :ok, %{state | conn: conn}}
     else
@@ -250,7 +270,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   def handle_call({:cancel, stream_id}, _from, state) do
     case Map.fetch(state.lanes, stream_id) do
       {:ok, lane} ->
-        case send_cancel(state, stream_id, lane.response_id) do
+        case send_cancel(state, lane.response_id) do
           {:ok, state} ->
             state = remember_response(state, stream_id, lane.response_id)
             send(lane.subscriber, {:responses_ws, lane.ref, :done})
@@ -303,6 +323,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
         "lane-" <> Integer.to_string(System.unique_integer([:positive]))
 
     with :ok <- validate_stream_id(stream_id),
+         :ok <- validate_lane_count(state),
          false <- Map.has_key?(state.lanes, stream_id),
          {:ok, encoded} <- Responses.encode_request(request, state.client.config),
          {:ok, stream_state} <- Responses.init_stream(request, state.client.config),
@@ -476,7 +497,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
       {:ok, stream_id, lane} -> decode_for_lane(event, stream_id, lane, state)
       :ignore -> {:ok, state}
       :error when map_size(state.lanes) == 0 -> {:ok, state}
-      :error -> {:error, :unroutable_event, state}
+      :error -> {:error, {:unroutable_event, :stream_id_not_echoed}, state}
     end
   end
 
@@ -503,6 +524,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
 
   defp decode_for_lane(event, stream_id, lane, state) do
     response_id = response_id(event) || lane.response_id
+    state = observe(event, state)
 
     case safe_decode_event(event, state.client.config, lane.state) do
       {:ok, events, stream_state} ->
@@ -547,6 +569,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
     end)
   end
 
+  defp observe(event, state) do
+    %{
+      state
+      | observed_events?: true,
+        echoed_stream_id?: state.echoed_stream_id? or is_binary(event["stream_id"])
+    }
+  end
+
   defp do_reconnect(state, reason) do
     notify_lanes(state, interrupted(reason))
     state = state |> clear_lanes() |> cancel_max_age() |> cancel_retry()
@@ -586,7 +616,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   end
 
   defp cancel_and_drop(state, stream_id, lane) do
-    case send_cancel(state, stream_id, lane.response_id) do
+    case send_cancel(state, lane.response_id) do
       {:ok, state} -> drop_lane(state, stream_id, lane)
       {:error, %Error{}, state} -> drop_lane(state, stream_id, lane)
       {:error, reason, state} -> send_failure(state, reason)
@@ -604,9 +634,9 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
 
   defp demonitor_lane(_lane), do: :ok
 
-  defp send_cancel(state, stream_id, response_id) do
+  defp send_cancel(state, response_id) do
     event =
-      %{"type" => "response.cancel", "stream_id" => stream_id}
+      %{"type" => "response.cancel"}
       |> maybe_put("response_id", response_id)
 
     with {:ok, json} <- encode(state, event),
@@ -702,6 +732,27 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   defp validate_stream_id(_stream_id),
     do: {:error, validation("stream_id must be a string")}
 
+  # A lane's events are attributed by the `stream_id` the server echoes. Without
+  # the echo only the single active lane can be routed, so a second concurrent
+  # lane would be unroutable and take every lane down with it.
+  defp validate_lane_count(%{echoed_stream_id?: true}), do: :ok
+  defp validate_lane_count(%{observed_events?: false}), do: :ok
+  defp validate_lane_count(%{lanes: lanes}) when map_size(lanes) == 0, do: :ok
+
+  defp validate_lane_count(_state) do
+    {:error,
+     validation(
+       "this server does not echo stream_id, so only one response can be in flight; " <>
+         "finish the active lane before creating another"
+     )}
+  end
+
+  defp steer_target(%{response_id: nil}) do
+    {:error, validation("the lane has no response id yet; wait for response.created")}
+  end
+
+  defp steer_target(%{response_id: response_id}), do: {:ok, response_id}
+
   defp validation(message), do: %Error{kind: :validation, message: message}
 
   defp transport(reason) do
@@ -723,6 +774,10 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   end
 
   defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp reason_text({:unroutable_event, :stream_id_not_echoed}),
+    do: "the server does not echo stream_id, so the event cannot be routed to a lane"
+
   defp reason_text(reason), do: inspect(reason)
 
   defp safe_close(_ws, nil), do: :ok

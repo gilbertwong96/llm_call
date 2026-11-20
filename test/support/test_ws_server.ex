@@ -5,7 +5,13 @@ defmodule LlmCall.TestWSServer do
   In `:echo` mode it echoes data frames (the `LlmCall.WS.Mint` tests). In
   `:responses` mode it answers a `response.create` frame with a full Responses
   event sequence; `:hold` mode sends only `response.created`, leaving the lane
-  in flight for reconnect tests. It records every text frame it receives.
+  in flight for reconnect tests; `:silent` mode accepts frames and answers none,
+  which is a connection that has not seen an event yet. It records every text
+  frame it receives.
+
+  `echo_stream_id: true` adds the lane's `stream_id` to every event it sends,
+  which is what the real Responses WebSocket does for named lanes; the default
+  keeps the events id-less so the single-lane fallback stays covered.
   """
 
   @key :llm_call_test_ws_server
@@ -15,6 +21,7 @@ defmodule LlmCall.TestWSServer do
   def start(opts \\ []) do
     parent = self()
     mode = Keyword.get(opts, :mode, :echo)
+    echo_stream_id = Keyword.get(opts, :echo_stream_id, false)
     port = Keyword.get(opts, :port, 0)
 
     pid =
@@ -26,6 +33,7 @@ defmodule LlmCall.TestWSServer do
         serve(listen, %{
           buffer: "",
           mode: mode,
+          echo_stream_id: echo_stream_id,
           pongs: [],
           frames: [],
           close_sent?: false,
@@ -66,7 +74,7 @@ defmodule LlmCall.TestWSServer do
     "ws://127.0.0.1:#{port}/ws"
   end
 
-  def set_mode(mode) when mode in [:echo, :responses, :hold] do
+  def set_mode(mode) when mode in [:echo, :responses, :hold, :silent] do
     send(pid(), {:mode, mode, self()})
 
     receive do
@@ -269,7 +277,8 @@ defmodule LlmCall.TestWSServer do
 
     case state.mode do
       :echo -> :gen_tcp.send(socket, encode_frame({:text, data}))
-      mode -> respond(socket, data, mode)
+      :silent -> :ok
+      mode -> respond(socket, data, mode, state.echo_stream_id)
     end
 
     state
@@ -297,13 +306,13 @@ defmodule LlmCall.TestWSServer do
 
   defp handle_frame(_socket, _frame, state), do: state
 
-  defp respond(socket, data, mode) do
+  defp respond(socket, data, mode, echo_stream_id) do
     with %{} = event <- :json.decode(data),
          "response.create" <- event["type"] do
       stream_id = event["stream_id"]
       hold? = mode == :hold
 
-      for response_event <- response_events(stream_id, hold?) do
+      for response_event <- response_events(stream_id, hold?, echo_stream_id) do
         :gen_tcp.send(socket, encode_frame({:text, encode(response_event)}))
       end
     else
@@ -311,7 +320,7 @@ defmodule LlmCall.TestWSServer do
     end
   end
 
-  defp response_events(stream_id, hold?) do
+  defp response_events(stream_id, hold?, echo_stream_id) do
     created = %{
       "type" => "response.created",
       "response" => %{
@@ -322,39 +331,41 @@ defmodule LlmCall.TestWSServer do
       }
     }
 
-    if hold? do
-      [created]
-    else
-      [
-        created,
-        %{
-          "type" => "response.output_item.added",
-          "output_index" => 0,
-          "item" => %{"type" => "message", "role" => "assistant"}
-        },
-        %{
-          "type" => "response.content_part.added",
-          "output_index" => 0,
-          "part" => %{"type" => "output_text", "text" => ""}
-        },
-        %{"type" => "response.output_text.delta", "output_index" => 0, "delta" => "hello"},
-        %{"type" => "response.content_part.done", "output_index" => 0},
-        %{
-          "type" => "response.output_item.done",
-          "output_index" => 0,
-          "item" => %{"type" => "message"}
-        },
-        %{
-          "type" => "response.completed",
-          "response" => %{
-            "id" => "resp_#{stream_id}",
-            "status" => "completed",
-            "usage" => usage()
+    events =
+      if hold? do
+        [created]
+      else
+        [
+          created,
+          %{
+            "type" => "response.output_item.added",
+            "output_index" => 0,
+            "item" => %{"type" => "message", "role" => "assistant"}
+          },
+          %{
+            "type" => "response.content_part.added",
+            "output_index" => 0,
+            "part" => %{"type" => "output_text", "text" => ""}
+          },
+          %{"type" => "response.output_text.delta", "output_index" => 0, "delta" => "hello"},
+          %{"type" => "response.content_part.done", "output_index" => 0},
+          %{
+            "type" => "response.output_item.done",
+            "output_index" => 0,
+            "item" => %{"type" => "message"}
+          },
+          %{
+            "type" => "response.completed",
+            "response" => %{
+              "id" => "resp_#{stream_id}",
+              "status" => "completed",
+              "usage" => usage()
+            }
           }
-        }
-      ]
-      |> Enum.map(&with_stream_id(&1, stream_id))
-    end
+        ]
+      end
+
+    if echo_stream_id, do: Enum.map(events, &with_stream_id(&1, stream_id)), else: events
   end
 
   defp with_stream_id(event, stream_id), do: Map.put(event, "stream_id", stream_id)

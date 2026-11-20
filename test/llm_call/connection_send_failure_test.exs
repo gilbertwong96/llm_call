@@ -28,34 +28,37 @@ defmodule LlmCall.ConnectionSendFailureTest do
     @moduledoc false
     @behaviour LlmCall.WS
 
-    @impl true
-    def connect(_url, _headers, _opts), do: {:ok, :conn}
+    # A real connection, so the lane can receive `response.created`; the second
+    # send raises, which is the failure a steer must survive.
 
     @impl true
-    def send_frame(:conn, _frame) do
+    def connect(url, headers, opts), do: LlmCall.WS.Mint.connect(url, headers, opts)
+
+    @impl true
+    def send_frame(conn, frame) do
       if Process.get({__MODULE__, :sent?}) do
         raise "socket exploded"
       else
         Process.put({__MODULE__, :sent?}, true)
-        {:ok, :conn}
+        LlmCall.WS.Mint.send_frame(conn, frame)
       end
     end
 
     @impl true
-    def feed(:conn, _message), do: {:ok, [], :conn}
+    def feed(conn, message), do: LlmCall.WS.Mint.feed(conn, message)
 
     @impl true
-    def recv(_conn, _timeout), do: {:error, :timeout}
+    def recv(conn, timeout), do: LlmCall.WS.Mint.recv(conn, timeout)
 
     @impl true
-    def close(_conn, _code, _reason), do: :ok
+    def close(conn, code, reason), do: LlmCall.WS.Mint.close(conn, code, reason)
   end
 
-  defp client do
+  defp client(base_url) do
     %LlmCall.Client{
       provider: LlmCall.TestProvider,
       codecs: %{chat: LlmCall.Dialect.OpenAI.Responses},
-      base_url: "http://127.0.0.1:1",
+      base_url: base_url,
       headers: [],
       http_opts: [],
       timeout: 5_000,
@@ -70,8 +73,8 @@ defmodule LlmCall.ConnectionSendFailureTest do
     }
   end
 
-  defp start(ws) do
-    Connection.start_link(client: client(), ws: ws, max_age_ms: 60_000)
+  defp start(ws, base_url \\ "http://127.0.0.1:1") do
+    Connection.start_link(client: client(base_url), ws: ws, max_age_ms: 60_000)
   end
 
   test "a raising send_frame is a transport error, not a dead connection" do
@@ -90,8 +93,14 @@ defmodule LlmCall.ConnectionSendFailureTest do
   end
 
   test "a raising send_frame during steer keeps the connection alive" do
-    {:ok, connection} = start(RaisingLaterWS)
+    LlmCall.TestWSServer.start(mode: :hold)
+    on_exit(&LlmCall.TestWSServer.stop/0)
+
+    base_url = "http://127.0.0.1:" <> Integer.to_string(LlmCall.TestWSServer.port())
+    {:ok, connection} = start(RaisingLaterWS, base_url)
     assert {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "main")) end)
 
     assert {:error, %Error{kind: :transport, message: message}} =
              Connection.steer(connection, "main", "stop")
@@ -100,5 +109,13 @@ defmodule LlmCall.ConnectionSendFailureTest do
     assert Process.alive?(connection)
 
     Connection.close(connection)
+  end
+
+  defp eventually(fun, attempts \\ 40) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(50) && eventually(fun, attempts - 1)
+    end
   end
 end

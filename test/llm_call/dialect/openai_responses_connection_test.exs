@@ -200,7 +200,10 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
     assert :ok == Connection.cancel(connection, stream.stream_id)
   end
 
-  test "two lanes are decoded independently" do
+  test "two lanes are decoded independently when the server echoes stream_id" do
+    TestWSServer.stop()
+    TestWSServer.start(mode: :responses, echo_stream_id: true)
+
     {:ok, connection} = start()
 
     assert {:ok, first} = Connection.create(connection, request(), stream_id: "first")
@@ -284,16 +287,75 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
-  test "steer sends a response.steer event for the lane" do
+  test "steer routes by the lane's response id, not by stream_id" do
     TestWSServer.set_mode(:hold)
     {:ok, connection} = start()
     {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
 
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "main")) end)
     assert :ok = Connection.steer(connection, "main", "stop here")
 
     steer = await_event("response.steer")
-    assert steer["stream_id"] == "main"
+    assert steer["previous_response_id"] == "resp_main"
+    refute Map.has_key?(steer, "stream_id")
     assert steer["input"] == "stop here"
+
+    Connection.close(connection)
+  end
+
+  test "steer before response.created is a validation error, not an untenanted event" do
+    TestWSServer.set_mode(:silent)
+    {:ok, connection} = start()
+    {:ok, _stream} = Connection.create(connection, request(), stream_id: "main")
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Connection.steer(connection, "main", "stop here")
+
+    assert message =~ "no response id"
+
+    Connection.close(connection)
+  end
+
+  test "a second concurrent lane is refused once the server proves it does not echo stream_id" do
+    TestWSServer.set_mode(:hold)
+    {:ok, connection} = start()
+    {:ok, _stream} = Connection.create(connection, request(), stream_id: "lane-a")
+
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "lane-a")) end)
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Connection.create(connection, request(), stream_id: "lane-b")
+
+    assert message =~ "does not echo stream_id"
+
+    Connection.close(connection)
+  end
+
+  test "back-to-back creates are allowed before any event has been decoded" do
+    TestWSServer.set_mode(:silent)
+    {:ok, connection} = start()
+
+    assert {:ok, first} = Connection.create(connection, request(), stream_id: "lane-a")
+    assert {:ok, second} = Connection.create(connection, request(), stream_id: "lane-b")
+    assert first.stream_id == "lane-a"
+    assert second.stream_id == "lane-b"
+
+    Connection.close(connection)
+  end
+
+  test "a server that echoes stream_id runs two lanes at once" do
+    TestWSServer.stop()
+    TestWSServer.start(mode: :hold, echo_stream_id: true)
+
+    {:ok, connection} = start()
+
+    assert {:ok, _first} = Connection.create(connection, request(), stream_id: "lane-a")
+    assert {:ok, _second} = Connection.create(connection, request(), stream_id: "lane-b")
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "lane-a")) end)
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "lane-b")) end)
+
+    assert {:ok, _third} = Connection.create(connection, request(), stream_id: "lane-c")
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "lane-c")) end)
 
     Connection.close(connection)
   end
@@ -325,16 +387,18 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
     Connection.close(connection)
   end
 
-  test "cancelling a lane sends response.cancel and ends the stream" do
+  test "cancelling a lane sends response.cancel for its response id and ends the stream" do
     TestWSServer.set_mode(:hold)
     {:ok, connection} = start()
     {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
 
+    assert eventually(fn -> match?({:ok, _}, Connection.response_id(connection, "main")) end)
     assert :ok = Connection.cancel(connection, "main")
-    assert Enum.to_list(stream) == []
+    assert types(stream) == [:message_start]
 
     cancel = await_event("response.cancel")
-    assert cancel["stream_id"] == "main"
+    assert cancel["response_id"] == "resp_main"
+    refute Map.has_key?(cancel, "stream_id")
 
     Connection.close(connection)
   end
