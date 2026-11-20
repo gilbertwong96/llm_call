@@ -49,6 +49,8 @@ defmodule LlmCall.Media.Dialect.GeminiPredictTest do
           request(params: %{n: 0}),
           request(params: %{n: 5}),
           request(params: %{aspect_ratio: "7:3"}),
+          request(params: %{negative_prompt: 123}),
+          request(params: %{negative_prompt: :ugly}),
           request(references: [%Content.Image{source: {:url, "u"}}]),
           request(model: "models/imagen"),
           %MediaRequest{modality: :image, model: "imagen", prompt: ""}
@@ -59,6 +61,16 @@ defmodule LlmCall.Media.Dialect.GeminiPredictTest do
       assert is_binary(message)
       assert {:error, %Error{kind: :validation}} = Predict.encode_submit(request, %Config{})
     end
+  end
+
+  test "a non-string negative_prompt never reaches the wire" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Predict.validate_request(request(params: %{negative_prompt: 123}), %Config{})
+
+    assert message =~ "params.negative_prompt must be a string"
+
+    assert %{"parameters" => %{"negativePrompt" => "ugly"}} =
+             encode_body(request(params: %{negative_prompt: "ugly"}))
   end
 
   test "native parameters merge through provider_options" do

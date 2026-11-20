@@ -56,6 +56,10 @@ defmodule LlmCall.Provider do
   because the client would drop it. The read timeout is `timeout:`, not
   `http_opts: [receive_timeout: ...]`.
 
+  `timeout` is per chunk, not per call: it becomes Finch's `:receive_timeout`, so
+  a slow trickle can outlast it. Pair it with `http_opts: [request_timeout: ...]`
+  when you need a wall-clock cap.
+
   `query` resolves call option → provider → `%{}`; it deliberately has no
   application-wide default, since a URL parameter is vendor-specific.
 
