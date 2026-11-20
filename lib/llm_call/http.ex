@@ -25,7 +25,6 @@ defmodule LlmCall.HTTP do
   Returning `{:halt, acc}` from the callback stops the request and closes the
   connection.
   """
-
   defmodule Request do
     @moduledoc "One HTTP request, fully resolved by the client."
 
@@ -198,6 +197,35 @@ defmodule LlmCall.HTTP do
   end
 
   def valid_headers?(_headers), do: false
+
+  @doc """
+  Joins a base URL, a request path, and an already-encoded query.
+
+  The base URL's path is kept, so a vendor prefix (`https://…/openai`) survives
+  and the path is appended to it; a trailing slash on either side never doubles.
+  The query is set on the URI struct rather than glued onto the string, which is
+  what keeps a `?` in the base URL from ending up inside the path.
+
+  `base_url` may be a string or an already parsed `%URI{}`, which lets the
+  WebSocket handshake reuse it after changing the scheme.
+  """
+  @spec build_url(String.t() | URI.t(), String.t(), String.t() | nil) :: String.t()
+  def build_url(base_url, path, query \\ nil)
+
+  def build_url(base_url, path, query) when is_binary(base_url),
+    do: build_url(URI.parse(base_url), path, query)
+
+  def build_url(%URI{} = base, path, query) when is_binary(path) do
+    URI.to_string(%{
+      base
+      | path: join_path(base.path, path),
+        query: query,
+        fragment: nil
+    })
+  end
+
+  defp join_path(base_path, path) when base_path in [nil, ""], do: path
+  defp join_path(base_path, path), do: String.trim_trailing(base_path, "/") <> path
 
   @doc "Performs one request and returns the whole response."
   @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}

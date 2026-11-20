@@ -63,7 +63,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
 
   use GenServer
 
-  alias LlmCall.{Client, Error}
+  alias LlmCall.{Client, Error, HTTP}
   alias LlmCall.Dialect.OpenAI.Responses
   alias LlmCall.WS
 
@@ -431,18 +431,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
 
   defp ws_url(%Client{base_url: base_url, query: query}) do
     uri = URI.parse(base_url)
+    base = %{uri | scheme: ws_scheme(uri.scheme)}
 
-    scheme =
-      case uri.scheme do
-        "https" -> "wss"
-        "http" -> "ws"
-        scheme -> scheme
-      end
-
-    path = String.trim_trailing(uri.path || "", "/") <> Responses.path()
-
-    URI.to_string(%{uri | scheme: scheme, path: path, query: ws_query(uri.query, query)})
+    HTTP.build_url(base, Responses.path(), ws_query(uri.query, query))
   end
+
+  defp ws_scheme("https"), do: "wss"
+  defp ws_scheme("http"), do: "ws"
+  defp ws_scheme(scheme), do: scheme
 
   defp ws_query(base_query, client_query) do
     merged =

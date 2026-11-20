@@ -11,6 +11,49 @@ defmodule LlmCall.HTTPTest do
     :ok
   end
 
+  describe "build_url/3" do
+    test "keeps the base path and appends the request path" do
+      assert HTTP.build_url("https://api.example.test/openai", "/v1/chat/completions") ==
+               "https://api.example.test/openai/v1/chat/completions"
+    end
+
+    test "never doubles a slash at the join" do
+      assert HTTP.build_url("https://api.example.test/openai/", "/v1/chat") ==
+               "https://api.example.test/openai/v1/chat"
+
+      assert HTTP.build_url("https://api.example.test", "/v1/chat") ==
+               "https://api.example.test/v1/chat"
+
+      assert HTTP.build_url("https://api.example.test/", "/v1/chat") ==
+               "https://api.example.test/v1/chat"
+    end
+
+    test "sets the encoded query on the URI instead of the path" do
+      assert HTTP.build_url(
+               "https://api.example.test/openai",
+               "/v1/chat",
+               "api-version=2024-02-01"
+             ) ==
+               "https://api.example.test/openai/v1/chat?api-version=2024-02-01"
+
+      assert HTTP.build_url("https://api.example.test/openai", "/v1/chat", nil) ==
+               "https://api.example.test/openai/v1/chat"
+    end
+
+    test "keeps userinfo, port and scheme, and drops a fragment" do
+      assert HTTP.build_url("https://user:pass@host:8443/openai#frag", "/v1/chat") ==
+               "https://user:pass@host:8443/openai/v1/chat"
+    end
+
+    test "accepts a parsed URI so a transport can change the scheme first" do
+      base = URI.parse("http://api.example.test/openai")
+      base = %{base | scheme: "ws"}
+
+      assert HTTP.build_url(base, "/v1/responses", "GroupId=1") ==
+               "ws://api.example.test/openai/v1/responses?GroupId=1"
+    end
+  end
+
   test "request/2 returns status, headers and body" do
     TestHTTP.put_response(
       {:ok,
