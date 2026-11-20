@@ -693,15 +693,25 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp validation(message), do: %Error{kind: :validation, message: message}
 
   defp transport(reason) do
-    %Error{kind: :transport, message: "responses connection: #{inspect(reason)}"}
+    %Error{
+      kind: :transport,
+      message: "responses connection: #{reason_text(reason)}",
+      reason: reason
+    }
   end
 
   defp interrupted(reason) do
     %Error{
       kind: :transport,
-      message: "responses connection: the in-flight response was interrupted (#{inspect(reason)})"
+      message:
+        "responses connection: the in-flight response was interrupted " <>
+          "(#{reason_text(reason)})",
+      reason: {:interrupted, reason}
     }
   end
+
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(reason), do: inspect(reason)
 
   defp safe_close(_ws, nil), do: :ok
 
@@ -714,7 +724,8 @@ defmodule LlmCall.Protocol.OpenAI.Responses.Connection do
   defp disconnected_error do
     %Error{
       kind: :transport,
-      message: "responses connection is disconnected; call reconnect/1 or retry later"
+      message: "responses connection is disconnected; call reconnect/1 or retry later",
+      reason: :disconnected
     }
   end
 

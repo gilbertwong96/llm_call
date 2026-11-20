@@ -74,4 +74,50 @@ defmodule LlmCall.TransportReasonTest do
     assert {:error, %Error{kind: :provider, status: 401, reason: nil}} =
              LlmCall.complete(client, request())
   end
+
+  describe "over the Responses WebSocket" do
+    alias LlmCall.Protocol.OpenAI.Responses.Connection
+
+    setup do
+      LlmCall.TestWSServer.start(mode: :hold)
+      on_exit(&LlmCall.TestWSServer.stop/0)
+
+      client = %LlmCall.Client{
+        provider: LlmCall.TestProvider,
+        codecs: %{chat: LlmCall.Protocol.OpenAI.Responses},
+        base_url: String.replace(LlmCall.TestWSServer.url(), "ws://", "http://"),
+        headers: [],
+        http_opts: [],
+        timeout: 5_000,
+        config: %LlmCall.Config{}
+      }
+
+      {:ok, connection} =
+        Connection.start_link(client: client, ws_opts: [timeout: 2_000], max_age_ms: 60_000)
+
+      on_exit(fn -> if Process.alive?(connection), do: Connection.close(connection) end)
+      {:ok, connection: connection}
+    end
+
+    test "an interrupted lane reports its reason", %{connection: connection} do
+      {:ok, stream} = Connection.create(connection, request(), stream_id: "main")
+      :ok = Connection.reconnect(connection)
+
+      exception = assert_raise LlmCall.WS.Error, fn -> Enum.to_list(stream) end
+
+      assert %Error{kind: :transport, reason: {:interrupted, :reconnected}, message: message} =
+               LlmCall.WS.Error.error(exception)
+
+      assert message ==
+               "responses connection: the in-flight response was interrupted (reconnected)"
+    end
+
+    test "create while disconnected reports :disconnected", %{connection: connection} do
+      LlmCall.TestWSServer.stop()
+      Process.sleep(100)
+
+      assert {:error, %Error{kind: :transport, reason: :disconnected}} =
+               Connection.create(connection, request(), stream_id: "later")
+    end
+  end
 end

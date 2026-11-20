@@ -71,13 +71,15 @@ defimpl Enumerable, for: LlmCall.Protocol.OpenAI.Responses.Connection.Stream do
   defp untag({:suspend, _acc}), do: raise(ArgumentError, "suspending a stream is not supported")
   defp untag(acc), do: acc
 
-  defp connection_error(:normal),
-    do: %Error{kind: :transport, message: "responses connection closed"}
+  defp connection_error(:normal) do
+    %Error{kind: :transport, message: "responses connection closed", reason: :disconnected}
+  end
 
   defp connection_error(reason) do
     %Error{
       kind: :transport,
-      message: "responses connection exited: #{inspect(reason)}"
+      message: "responses connection exited: #{inspect(reason)}",
+      reason: {:connection_exited, reason}
     }
   end
 end
