@@ -23,7 +23,8 @@ defmodule LlmCall.Error do
     * `:exception` — the HTTP transport raised;
     * `:disconnected` — the Responses WebSocket is not connected;
     * `{:interrupted, why}` — an in-flight WebSocket lane was dropped
-      (`:reconnected`, `:max_age`, or the close reason);
+      (`:reconnected`, `:max_age`, `{:unroutable_event, :stream_id_not_echoed}`,
+      or the close reason);
     * `{:connection_exited, why}` — the WebSocket connection process ended;
     * the transport's own reason otherwise (`:econnrefused`, `:timeout`,
       `:closed`, `:nxdomain`, `{:tls_alert, ...}`).

@@ -2416,8 +2416,21 @@ Enum.to_list(stream)
 - Each create names a `stream_id` lane (generated when omitted). Events are
   decoded per lane by the Responses codec and delivered as `StreamEvent`s to the
   `%Connection.Stream{}` returned by `create/3`.
-- `steer/3` sends `response.steer`; `cancel/2` sends `response.cancel` and ends
-  the lane.
+- Events are routed by the `stream_id` the server echoes, which it does for named
+  lanes. A server that does not echo it can only be attributed while one lane is
+  in flight; `lane_for/2` degrades to that single lane and, once an event has
+  proven the echo is missing, a second concurrent `create/3` is a `:validation`
+  error instead of a response that would later be unroutable. Back-to-back creates
+  are allowed before the first event, because that is how the documented endpoint
+  runs parallel conversations and the echo is unknown until then. An event that
+  arrives with no route at all disconnects the connection with
+  `{:unroutable_event, :stream_id_not_echoed}` rather than delivering it to the
+  wrong lane.
+- `steer/3` sends `response.steer` with the lane's `previous_response_id` and the
+  caller's `input`; a lane that has not received `response.created` is a
+  `:validation` error. `cancel/2` sends `response.cancel` with `response_id` and
+  ends the lane. Neither event carries `stream_id`: the provider routes them by
+  response id.
 - `store` and `previous_response_id` stay in the request's `provider_options`;
   the connection does not model server-side conversation state.
 - `response_id/2` returns the provider id from `response.created`, so a caller can

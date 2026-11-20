@@ -86,3 +86,12 @@ back to `llm_call` because it now ships the client that name promised.
   message in another. `raw_arguments` is now the only place the payload lives:
   `{:invalid_json, reason}` always carries a message, and a missing decoder is
   `:no_json_decoder`.
+- `response.steer` and `response.cancel` carried `stream_id`, which the provider
+  does not route them by: a steer carries `previous_response_id` and a cancel
+  carries `response_id`. Steering a lane that has not received `response.created`
+  is a `:validation` error instead of an untenanted event.
+- A Responses connection whose server does not echo `stream_id` (the endpoint does
+  for named lanes) no longer accepts a second concurrent lane once an event has
+  proven the echo is missing, because that lane's events could not be routed and
+  the connection would drop every in-flight response with an opaque
+  `unroutable_event`. Back-to-back creates before the first event stay allowed.
