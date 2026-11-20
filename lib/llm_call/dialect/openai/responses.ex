@@ -473,7 +473,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   def decode_response(%{} = term, %Config{} = config) do
     case term["status"] do
       "failed" ->
-        {:error, failed_error(term)}
+        {:error, failed_error(term, config)}
 
       _status ->
         with {:ok, content} <- decode_output(term["output"], config) do
@@ -495,8 +495,8 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   end
 
   @impl true
-  def decode_error(payload, _config) do
-    Helpers.decode_provider_error(payload, @codec, ["code", "type"], @retryable_codes)
+  def decode_error(payload, %Config{} = config) do
+    Helpers.decode_provider_error(payload, config, @codec, ["code", "type"], @retryable_codes)
   end
 
   @impl true
@@ -745,14 +745,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
 
   def decode_stream_event(
         %{"type" => "response.failed"} = term,
-        %Config{},
+        %Config{} = config,
         %StreamState{}
       ) do
-    {:error, failed_error(term["response"] || term)}
+    {:error, failed_error(term["response"] || term, config)}
   end
 
-  def decode_stream_event(%{"type" => "error"} = term, %Config{}, %StreamState{}) do
-    {:error, stream_error(term)}
+  def decode_stream_event(%{"type" => "error"} = term, %Config{} = config, %StreamState{}) do
+    {:error, stream_error(term, config)}
   end
 
   def decode_stream_event(term, %Config{} = config, %StreamState{} = state)
@@ -947,37 +947,43 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
 
   defp merge_usage(current, _wire), do: current
 
-  defp failed_error(%{"error" => %{} = error} = response) do
-    error_from(error, response)
+  defp failed_error(%{"error" => %{} = error} = response, %Config{} = config) do
+    error_from(error, response, config)
   end
 
-  defp failed_error(response) when is_map(response) do
-    %Error{kind: :provider, message: "response failed", retryable?: false, raw: response}
+  defp failed_error(response, %Config{} = config) when is_map(response) do
+    %Error{
+      kind: :provider,
+      message: "response failed",
+      retryable?: false,
+      raw: Helpers.capture_response(config, response)
+    }
   end
 
-  defp failed_error(_response) do
+  defp failed_error(_response, %Config{}) do
     %Error{kind: :provider, message: "response failed", retryable?: false}
   end
 
-  defp stream_error(%{"error" => %{} = error} = event), do: error_from(error, event)
+  defp stream_error(%{"error" => %{} = error} = event, %Config{} = config),
+    do: error_from(error, event, config)
 
-  defp stream_error(event) do
+  defp stream_error(event, %Config{} = config) do
     %Error{
       kind: :provider,
       message: event["message"] || "stream error",
       code: Helpers.code(event["code"]) || event["type"],
       retryable?: Helpers.retryable?(event["code"], @retryable_codes),
-      raw: event
+      raw: Helpers.capture_response(config, event)
     }
   end
 
-  defp error_from(%{} = error, raw) do
+  defp error_from(%{} = error, %{} = raw, %Config{} = config) do
     %Error{
       kind: :provider,
       message: error["message"] || "response failed",
       code: Helpers.code(error["code"]) || error["type"],
       retryable?: Helpers.retryable?(error["code"], @retryable_codes),
-      raw: raw
+      raw: Helpers.capture_response(config, raw)
     }
   end
 

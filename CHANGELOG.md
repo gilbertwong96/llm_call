@@ -95,3 +95,11 @@ back to `llm_call` because it now ships the client that name promised.
   proven the echo is missing, because that lane's events could not be routed and
   the connection would drop every in-flight response with an opaque
   `unroutable_event`. Back-to-back creates before the first event stay allowed.
+- `LlmCall.Config` merged provider-option namespaces one level deep, so a nested
+  `default_provider_options` key was dropped as soon as the request set a sibling
+  key inside the same object — for six of the eight codecs; Gemini already
+  deep-merged. The merge is now recursive for every codec.
+- `Error.raw` carried the provider error envelope whatever `capture_raw` said,
+  while `Response.raw`, `StreamEvent.raw` and `Operation.raw` honoured it. It now
+  follows the same policy, so `:none` keeps no provider payload at all. The
+  conformance suites check it for completion and media codecs.

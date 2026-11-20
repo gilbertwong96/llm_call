@@ -28,6 +28,21 @@ defmodule LlmCall.ConfigTest do
              %{openai: %{"logprobs" => true}}
   end
 
+  test "provider_options/2 deep-merges a nested default with the request" do
+    config = Config.new(default_provider_options: %{openai: %{"extra_body" => %{"a" => 1}}})
+    request = %LlmCall.Request{provider_options: %{openai: %{"extra_body" => %{"b" => 2}}}}
+
+    assert Config.provider_options(request, config) ==
+             %{openai: %{"extra_body" => %{"a" => 1, "b" => 2}}}
+  end
+
+  test "provider_options/2 still lets the request win on the same nested key" do
+    config = Config.new(default_provider_options: %{openai: %{"extra_body" => %{"a" => 1}}})
+    request = %LlmCall.Request{provider_options: %{openai: %{"extra_body" => %{"a" => 2}}}}
+
+    assert Config.provider_options(request, config) == %{openai: %{"extra_body" => %{"a" => 2}}}
+  end
+
   test "new/1 rejects the removed json: option" do
     assert_raise ArgumentError, ~r/unknown option :json/, fn ->
       Config.new(json: MarkerJSON)

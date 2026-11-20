@@ -73,7 +73,7 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
           {:ok, Response.t()} | {:error, Error.t()}
   def decode_submit(%{"predictions" => [_ | _] = predictions} = payload, %Config{} = config)
       when is_list(predictions) do
-    with {:ok, assets} <- decode_predictions(predictions, payload) do
+    with {:ok, assets} <- decode_predictions(predictions, payload, config) do
       {:ok,
        %Response{
          assets: assets,
@@ -91,7 +91,7 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
 
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
-  def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{}) do
+  def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{} = config) do
     status = Helpers.code(error["status"])
 
     %Error{
@@ -100,7 +100,7 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
       code: status,
       status: nil,
       retryable?: Helpers.retryable?(status, @retryable_statuses),
-      raw: payload
+      raw: Helpers.capture_response(config, payload)
     }
   end
 
@@ -112,7 +112,7 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
     }
   end
 
-  defp decode_predictions(predictions, payload) do
+  defp decode_predictions(predictions, payload, config) do
     usable = Enum.filter(predictions, &valid_prediction?/1)
 
     cond do
@@ -120,7 +120,12 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
         {:ok, Enum.map(usable, &decode_asset/1)}
 
       filtered? = Enum.find(predictions, &filtered?/1) ->
-        {:error, %Error{kind: :provider, message: filtered?["raiFilteredReason"], raw: payload}}
+        {:error,
+         %Error{
+           kind: :provider,
+           message: filtered?["raiFilteredReason"],
+           raw: Helpers.capture_response(config, payload)
+         }}
 
       true ->
         {:error, invalid_response("prediction has no image bytes")}

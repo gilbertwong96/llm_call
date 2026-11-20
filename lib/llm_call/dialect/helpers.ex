@@ -132,11 +132,14 @@ defmodule LlmCall.Dialect.Helpers do
 
   `code_keys` names the fields that may carry the provider's machine code, in
   priority order (OpenAI and Seedance use `code` then `type`, Anthropic `type`,
-  Google `status`). `retryable_codes` is the codec's own retryable set.
+  Google `status`). `retryable_codes` is the codec's own retryable set, and
+  `Error.raw` follows `capture_raw`.
   """
-  @spec decode_provider_error(term(), codec(), [String.t()], [String.t()]) :: Error.t()
+  @spec decode_provider_error(term(), Config.t(), codec(), [String.t()], [String.t()]) ::
+          Error.t()
   def decode_provider_error(
         %{"error" => %{"message" => message} = error} = payload,
+        %Config{} = config,
         _codec,
         code_keys,
         retryable_codes
@@ -149,15 +152,15 @@ defmodule LlmCall.Dialect.Helpers do
       code: code,
       status: nil,
       retryable?: retryable?(code, retryable_codes),
-      raw: payload
+      raw: capture_response(config, payload)
     }
   end
 
-  def decode_provider_error(term, codec, _code_keys, _retryable_codes) do
+  def decode_provider_error(term, %Config{} = config, codec, _code_keys, _retryable_codes) do
     %Error{
       kind: :invalid_response,
       message: "#{codec}: unrecognized error payload",
-      raw: if(is_map(term), do: term, else: nil)
+      raw: capture_response(config, term)
     }
   end
 

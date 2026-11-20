@@ -273,10 +273,13 @@ use to update canonical fields after decoding.
 Rules:
 
 - `raw` is `nil` by default.
-- Raw capture is controlled by `LlmCall.Config.capture_raw`:
+- Raw capture is controlled by `LlmCall.Config.capture_raw`, and it covers every
+  payload a codec keeps, `Error.raw` included:
   - `:none` — no raw payloads (default)
   - `:response` — retain the full response payload on `Response.raw`
   - `:all` — also retain provider events on `StreamEvent.raw`
+- A provider error envelope is a response payload: `Error.raw` follows the same
+  policy, so `:none` leaves it `nil`.
 - A codec decodes normalized fields in one pass. It must not later overwrite
   them from `raw`.
 - Do not store the same full payload in `Usage.raw`, `provider_metadata`, and
@@ -679,6 +682,10 @@ of parsing `message`; a non-transport error never sets it.
 `retry_after_ms` is transport metadata: the client parses the `Retry-After`
 response header (delta-seconds or IMF-fixdate) and sets it on the error; a codec
 leaves it `nil`. It is a hint, like `retryable?`; backoff policy stays outside.
+
+`raw` is the provider payload the error was decoded from, and it follows
+`Config.capture_raw` like every other `raw`: it is `nil` unless the policy is
+`:response` or `:all`.
 
 `kind` says who is speaking:
 
@@ -1152,7 +1159,9 @@ selection:
 ```
 
 `default_provider_options` is merged before `Request.provider_options`; the
-request value wins per key. `Request.model` is the only model selection.
+request value wins per key, and a namespace present in both merges recursively,
+so a nested native object keeps the config keys the request does not repeat.
+`Request.model` is the only model selection.
 `Config` does not contain credentials or a base URL.
 
 ```elixir

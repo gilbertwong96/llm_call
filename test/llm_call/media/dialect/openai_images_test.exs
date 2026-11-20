@@ -189,9 +189,12 @@ defmodule LlmCall.Media.Dialect.OpenAIImagesTest do
              code: "billing_hard_limit_reached",
              retryable?: false,
              raw: ^payload
-           } = Images.decode_error(payload, %Config{})
+           } = Images.decode_error(payload, %Config{capture_raw: :response})
 
-    assert %Error{kind: :invalid_response} = Images.decode_error("boom", %Config{})
+    assert %Error{kind: :provider, raw: nil} =
+             Images.decode_error(payload, %Config{capture_raw: :none})
+
+    assert %Error{kind: :invalid_response, raw: nil} = Images.decode_error("boom", %Config{})
   end
 
   defp encode_body(request) do

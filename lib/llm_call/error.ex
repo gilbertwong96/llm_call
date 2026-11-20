@@ -10,6 +10,10 @@ defmodule LlmCall.Error do
   `retry_after_ms` is the parsed `Retry-After` header, when the transport saw
   one; it is a hint, not a retry policy.
 
+  `raw` is the provider payload the error was decoded from, and it follows
+  `LlmCall.Config.capture_raw` like every other `raw`: it is `nil` unless the
+  policy is `:response` or `:all`.
+
   `code` is the provider's machine-readable code as a string (OpenAI's `code`,
   Anthropic's error type, Google's status such as `"RESOURCE_EXHAUSTED"`,
   MiniMax's numeric code stringified). `status` is the HTTP status, and **only the

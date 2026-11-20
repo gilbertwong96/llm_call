@@ -578,8 +578,8 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   end
 
   @impl true
-  def decode_error(payload, _config) do
-    Helpers.decode_provider_error(payload, @codec, ["status"], @retryable_statuses)
+  def decode_error(payload, %Config{} = config) do
+    Helpers.decode_provider_error(payload, config, @codec, ["status"], @retryable_statuses)
   end
 
   @impl true

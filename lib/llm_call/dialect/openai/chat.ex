@@ -447,8 +447,8 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   end
 
   @impl true
-  def decode_error(payload, _config) do
-    Helpers.decode_provider_error(payload, @codec, ["code", "type"], @retryable_codes)
+  def decode_error(payload, %Config{} = config) do
+    Helpers.decode_provider_error(payload, config, @codec, ["code", "type"], @retryable_codes)
   end
 
   @impl true
