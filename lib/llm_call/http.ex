@@ -7,6 +7,12 @@ defmodule LlmCall.HTTP do
   its pool first. Pass `http_opts: [name: MyPool]` to a provider or client to use
   a pool from your own supervision tree.
 
+  `request/2` and `stream/4` forward exactly four transport options: `:name`
+  (the pool), plus Finch's `:pool_timeout`, `:request_timeout`, and
+  `:pool_strategy`. `LlmCall.Provider` rejects any other key, so a typo cannot be
+  dropped silently. The per-request read timeout is not one of them: it comes
+  from the request itself, which the client fills from its `timeout:` option.
+
   ## Streaming events
 
   `stream/4` delivers, in order:
@@ -214,9 +220,10 @@ defmodule LlmCall.HTTP do
   @doc """
   Performs one request, delivering `event()`s to `fun`.
 
-  `acc` is threaded through the callback; `{:halt, acc}` stops the request. The
-  last argument carries transport options (a pool name, a pool timeout); the
-  client forwards `http_opts` here.
+  `acc` is threaded through the callback; `{:halt, acc}` stops the request and
+  closes the connection. The last argument carries the transport options
+  described in the module documentation: `:name`, `:pool_timeout`,
+  `:request_timeout`, and `:pool_strategy`.
   """
   @spec stream(
           Request.t(),

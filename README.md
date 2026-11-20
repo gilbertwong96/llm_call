@@ -227,6 +227,9 @@ override them without touching the compiled default. An explicit
 `LlmCall.Application` starts a Finch pool named `LlmCall.Finch`; pass
 `http_opts: [name: MyPool]` to use your own. If that name is already taken when
 `:llm_call` starts, the existing pool is used and no second one is started.
+`http_opts` accepts only `:name`, `:pool_timeout`, `:request_timeout` and
+`:pool_strategy`; `timeout:` is the read timeout, and `receive_timeout` in
+`http_opts` is rejected instead of ignored.
 
 ## Tools
 

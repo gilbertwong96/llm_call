@@ -780,12 +780,35 @@ defmodule LlmCall.Codec.Conformance do
              "#{label} assembled a tool call with raw_arguments but no decoded arguments"
     end
 
-    :ok
+    assert_arguments_error(call, label)
   end
 
   defp assert_assembled_call(other, label) do
     flunk(
       "#{label} StreamAssembler must produce %LlmCall.ToolCall{} structs, got: #{inspect(other)}"
+    )
+  end
+
+  defp assert_arguments_error(%ToolCall{arguments_error: nil}, _label), do: :ok
+
+  defp assert_arguments_error(%ToolCall{arguments_error: :no_json_decoder} = call, label) do
+    assert is_nil(call.arguments),
+           "#{label} reported :no_json_decoder but decoded arguments anyway"
+  end
+
+  defp assert_arguments_error(%ToolCall{arguments_error: {:invalid_json, reason}} = call, label) do
+    assert is_binary(reason),
+           "#{label} ToolCall.arguments_error must carry a reason string, " <>
+             "got: #{inspect(reason)}"
+
+    assert is_nil(call.arguments),
+           "#{label} reported invalid_json but decoded arguments anyway"
+  end
+
+  defp assert_arguments_error(%ToolCall{arguments_error: other}, label) do
+    flunk(
+      "#{label} ToolCall.arguments_error must be nil, :no_json_decoder, " <>
+        "or {:invalid_json, reason}, got: #{inspect(other)}"
     )
   end
 

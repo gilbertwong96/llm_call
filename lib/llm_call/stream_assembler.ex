@@ -11,7 +11,9 @@ defmodule LlmCall.StreamAssembler do
       assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 
   Without a decoder, a call still arrives with its `raw_arguments` and an
-  `arguments_error`; it never arrives with invented arguments.
+  `arguments_error` of `:no_json_decoder`; it never arrives with invented
+  arguments. The decoder's own message becomes the `reason` of
+  `{:invalid_json, reason}`.
   """
 
   alias LlmCall.{StreamDelta, StreamEvent, ToolCall}
@@ -138,14 +140,21 @@ defmodule LlmCall.StreamAssembler do
     end
   end
 
-  defp decode(nil, raw), do: {nil, {:invalid_json, raw}}
+  defp decode(nil, _raw), do: {nil, :no_json_decoder}
 
   defp decode(decoder, raw) do
     case decoder.(raw) do
-      {:ok, arguments} when is_map(arguments) -> {arguments, nil}
-      {:ok, _not_a_map} -> {nil, {:invalid_json, raw}}
-      {:error, reason} when is_binary(reason) -> {nil, {:invalid_json, reason}}
-      {:error, _other} -> {nil, {:invalid_json, raw}}
+      {:ok, arguments} when is_map(arguments) ->
+        {arguments, nil}
+
+      {:ok, _not_an_object} ->
+        {nil, {:invalid_json, "arguments are not a JSON object"}}
+
+      {:error, reason} when is_binary(reason) ->
+        {nil, {:invalid_json, reason}}
+
+      {:error, _other} ->
+        {nil, {:invalid_json, "arguments are not valid JSON"}}
     end
   end
 

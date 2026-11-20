@@ -51,6 +51,11 @@ defmodule LlmCall.Provider do
   provider → `config :llm_call, ...` → built-in default. A declaration that omits
   them leaves the value `nil`, so the application setting still applies.
 
+  `http_opts` accepts `:name` (the Finch pool), `:pool_timeout`,
+  `:request_timeout`, and `:pool_strategy`; anything else is an `ArgumentError`,
+  because the client would drop it. The read timeout is `timeout:`, not
+  `http_opts: [receive_timeout: ...]`.
+
   `query` resolves call option → provider → `%{}`; it deliberately has no
   application-wide default, since a URL parameter is vendor-specific.
 
@@ -138,7 +143,8 @@ defmodule LlmCall.Provider do
     end
   end
 
-  @http_timeout_keys [:pool_timeout, :receive_timeout, :request_timeout]
+  @http_option_keys [:name, :pool_timeout, :request_timeout, :pool_strategy]
+  @http_timeout_keys [:pool_timeout, :request_timeout]
 
   defp validate_http_opts!(opts) do
     unless Keyword.keyword?(opts) do
@@ -147,6 +153,18 @@ defmodule LlmCall.Provider do
 
     Enum.each(opts, &validate_http_opt!/1)
     opts
+  end
+
+  defp validate_http_opt!({:receive_timeout, _value}) do
+    raise ArgumentError,
+          "client option :http_opts does not accept :receive_timeout; " <>
+            "the per-request read timeout is the :timeout option"
+  end
+
+  defp validate_http_opt!({key, _value}) when key not in @http_option_keys do
+    raise ArgumentError,
+          "client option :http_opts does not accept #{inspect(key)}; " <>
+            "accepted: #{inspect(@http_option_keys)}"
   end
 
   defp validate_http_opt!({key, value}) when key in @http_timeout_keys do

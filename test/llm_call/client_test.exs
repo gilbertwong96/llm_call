@@ -221,7 +221,6 @@ defmodule LlmCall.ClientTest do
   test "client http_opts values are type checked" do
     for opts <- [
           [request_timeout: "x"],
-          [receive_timeout: -1],
           [pool_timeout: nil],
           [name: "not-an-atom"],
           [pool_strategy: :bogus]
@@ -234,6 +233,16 @@ defmodule LlmCall.ClientTest do
 
     assert %Client{http_opts: [pool_strategy: :random]} =
              client(http_opts: [pool_strategy: :random])
+  end
+
+  test "http_opts rejects keys the client would drop" do
+    assert_raise ArgumentError, ~r/:http_opts does not accept :receive_timeout/, fn ->
+      client(http_opts: [receive_timeout: 5_000])
+    end
+
+    assert_raise ArgumentError, ~r/:http_opts does not accept :conn_opts/, fn ->
+      client(http_opts: [conn_opts: []])
+    end
   end
 
   test "unknown client options are rejected" do

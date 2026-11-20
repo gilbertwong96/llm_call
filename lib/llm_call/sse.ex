@@ -14,18 +14,18 @@ defmodule LlmCall.SSE do
       {payloads, state} = SSE.parse(state, chunk)
   """
 
-  @type t :: %__MODULE__{buffer: String.t()}
+  @type t :: %__MODULE__{buffer: String.t(), cr_pending?: boolean()}
 
-  defstruct buffer: ""
+  defstruct buffer: "", cr_pending?: false
 
   @spec new() :: t()
   def new, do: %__MODULE__{}
 
   @doc "Parses one body chunk into the events it completes."
   @spec parse(t(), binary()) :: {[String.t()], t()}
-  def parse(%__MODULE__{buffer: buffer}, chunk) when is_binary(chunk) do
-    data = normalise(buffer <> chunk)
-    blocks = String.split(data, "\n\n")
+  def parse(%__MODULE__{buffer: buffer, cr_pending?: cr_pending?}, chunk) when is_binary(chunk) do
+    raw = buffer <> join_split_crlf(chunk, cr_pending?)
+    blocks = raw |> normalise() |> String.split("\n\n")
     {complete, [rest]} = Enum.split(blocks, -1)
 
     payloads =
@@ -33,7 +33,7 @@ defmodule LlmCall.SSE do
       |> Enum.map(&event_payload/1)
       |> Enum.reject(&is_nil/1)
 
-    {payloads, %__MODULE__{buffer: rest}}
+    {payloads, %__MODULE__{buffer: rest, cr_pending?: cr_pending?(raw, rest)}}
   end
 
   @doc """
@@ -57,6 +57,18 @@ defmodule LlmCall.SSE do
     |> String.replace("\r\n", "\n")
     |> String.replace("\r", "\n")
   end
+
+  # `normalise/1` turns a lone `\r` into `\n` before the buffer is stored, so a
+  # CRLF split across chunks would arrive as `\n\n` and end the event early.
+  defp join_split_crlf("\n" <> rest, true), do: rest
+  defp join_split_crlf(chunk, _cr_pending?), do: chunk
+
+  defp cr_pending?(raw, rest) do
+    ends_with_cr?(raw) and String.ends_with?(rest, "\n")
+  end
+
+  defp ends_with_cr?(raw) when byte_size(raw) > 0, do: :binary.last(raw) == ?\r
+  defp ends_with_cr?(_raw), do: false
 
   defp event_payload(block) do
     data =
