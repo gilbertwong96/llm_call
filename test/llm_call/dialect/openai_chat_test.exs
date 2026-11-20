@@ -298,6 +298,14 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
     assert body["n"] == 1
   end
 
+  test "a nested config default survives a request that sets a sibling nested key" do
+    config = %Config{default_provider_options: %{openai: %{"extra_body" => %{"a" => 1}}}}
+    request = text_request(provider_options: %{openai: %{"extra_body" => %{"b" => 2}}})
+    body = encode(request, config).body
+
+    assert body["extra_body"] == %{"a" => 1, "b" => 2}
+  end
+
   test "unsupported canonical values are validation errors, never silent drops" do
     cases = [
       text_request(params: %{top_k: 5}),
@@ -712,7 +720,10 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
                status: nil,
                retryable?: true,
                raw: ^payload
-             } = Chat.decode_error(payload, %Config{})
+             } = Chat.decode_error(payload, %Config{capture_raw: :response})
+
+      assert %Error{kind: :provider, raw: nil} =
+               Chat.decode_error(payload, %Config{capture_raw: :none})
 
       assert %Error{kind: :invalid_response, raw: nil} = Chat.decode_error("boom", %Config{})
 

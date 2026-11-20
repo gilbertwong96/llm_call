@@ -124,8 +124,8 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
 
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
-  def decode_error(payload, _config) do
-    Helpers.decode_provider_error(payload, @codec, ["code", "type"], @retryable_codes)
+  def decode_error(payload, %Config{} = config) do
+    Helpers.decode_provider_error(payload, config, @codec, ["code", "type"], @retryable_codes)
   end
 
   defp in_progress_operation(payload, status, config) do
@@ -178,7 +178,7 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
         kind: :provider,
         message: error["message"] || "task #{terminal}",
         code: Helpers.code(error["code"]) || terminal,
-        raw: payload
+        raw: Helpers.capture_response(config, payload)
       },
       raw: Helpers.capture_response(config, payload)
     }

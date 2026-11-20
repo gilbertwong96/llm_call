@@ -611,12 +611,18 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
                code: "overloaded_error",
                retryable?: true,
                raw: ^payload
-             } = Messages.decode_error(payload, %Config{})
+             } = Messages.decode_error(payload, %Config{capture_raw: :response})
+
+      assert %Error{kind: :provider, raw: nil} =
+               Messages.decode_error(payload, %Config{capture_raw: :none})
 
       unknown = %{"weird" => 1}
 
       assert %Error{kind: :invalid_response, raw: ^unknown} =
-               Messages.decode_error(unknown, %Config{})
+               Messages.decode_error(unknown, %Config{capture_raw: :response})
+
+      assert %Error{kind: :invalid_response, raw: nil} =
+               Messages.decode_error(unknown, %Config{capture_raw: :none})
     end
 
     test "capabilities/2 declares the Anthropic surface" do

@@ -248,7 +248,10 @@ defmodule LlmCall.Media.Dialect.GeminiPredictTest do
              status: nil,
              retryable?: true,
              raw: ^payload
-           } = Predict.decode_error(payload, %Config{})
+           } = Predict.decode_error(payload, %Config{capture_raw: :response})
+
+    assert %Error{kind: :provider, raw: nil} =
+             Predict.decode_error(payload, %Config{capture_raw: :none})
 
     assert %Error{kind: :invalid_response} = Predict.decode_error(%{"weird" => 1}, %Config{})
   end

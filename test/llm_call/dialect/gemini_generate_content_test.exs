@@ -709,12 +709,18 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
                status: nil,
                retryable?: true,
                raw: ^payload
-             } = GenerateContent.decode_error(payload, %Config{})
+             } = GenerateContent.decode_error(payload, %Config{capture_raw: :response})
+
+      assert %Error{kind: :provider, raw: nil} =
+               GenerateContent.decode_error(payload, %Config{capture_raw: :none})
 
       unknown = %{"weird" => 1}
 
       assert %Error{kind: :invalid_response, raw: ^unknown} =
-               GenerateContent.decode_error(unknown, %Config{})
+               GenerateContent.decode_error(unknown, %Config{capture_raw: :response})
+
+      assert %Error{kind: :invalid_response, raw: nil} =
+               GenerateContent.decode_error(unknown, %Config{capture_raw: :none})
     end
 
     test "capabilities/2 declares the Gemini surface" do

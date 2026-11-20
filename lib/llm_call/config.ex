@@ -104,19 +104,16 @@ defmodule LlmCall.Config do
   @doc """
   Merged provider options for a request, keyed by provider namespace.
 
-  Namespaces present in both the config and the request are merged per key, with
-  the request value winning.
+  Namespaces present in both the config and the request are merged recursively,
+  with the request value winning per key, so a nested native object keeps the
+  config keys the request does not repeat.
   """
   @spec provider_options(LlmCall.Request.t() | LlmCall.Media.Request.t(), t()) :: map()
   def provider_options(%{provider_options: request_options}, %__MODULE__{
         default_provider_options: default_options
       }) do
     Map.merge(default_options, request_options, fn _namespace, defaults, request ->
-      if is_map(defaults) and is_map(request) do
-        Map.merge(defaults, request)
-      else
-        request
-      end
+      if is_map(defaults) and is_map(request), do: deep_merge(defaults, request), else: request
     end)
   end
 end

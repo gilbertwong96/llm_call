@@ -465,8 +465,8 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   end
 
   @impl true
-  def decode_error(payload, _config) do
-    Helpers.decode_provider_error(payload, @codec, ["type"], @retryable_types)
+  def decode_error(payload, %Config{} = config) do
+    Helpers.decode_provider_error(payload, config, @codec, ["type"], @retryable_types)
   end
 
   @impl true

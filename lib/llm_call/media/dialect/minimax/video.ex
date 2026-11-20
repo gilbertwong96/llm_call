@@ -76,7 +76,7 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
   @spec decode_submit(LlmCall.wire_value(), Config.t()) ::
           {:ok, Response.t()} | {:error, Error.t()}
   def decode_submit(payload, %Config{} = config) when is_map(payload) do
-    with :ok <- check_base_resp(payload),
+    with :ok <- check_base_resp(payload, config),
          {:ok, task_id} <- fetch_task_id(payload) do
       {:ok,
        %Response{
@@ -110,14 +110,14 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
          kind: :provider,
          message: base_resp["status_msg"] || "task failed",
          code: Helpers.code(base_resp["status_code"] || "Fail"),
-         raw: payload
+         raw: Helpers.capture_response(config, payload)
        },
        raw: Helpers.capture_response(config, payload)
      }}
   end
 
   def decode_operation(payload, %Config{} = config) when is_map(payload) do
-    with :ok <- check_base_resp(payload) do
+    with :ok <- check_base_resp(payload, config) do
       case payload do
         %{"file" => %{"download_url" => url}} when is_binary(url) and url != "" ->
           {:ok, completed_operation(url, payload, config)}
@@ -140,8 +140,8 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
 
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
-  def decode_error(payload, %Config{}) when is_map(payload) do
-    case check_base_resp(payload) do
+  def decode_error(payload, %Config{} = config) when is_map(payload) do
+    case check_base_resp(payload, config) do
       {:error, error} -> error
       :ok -> %Error{kind: :invalid_response, message: "minimax_video: unrecognized error payload"}
     end
@@ -195,7 +195,7 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
     end
   end
 
-  defp check_base_resp(payload) do
+  defp check_base_resp(payload, %Config{} = config) do
     case payload["base_resp"] do
       %{"status_code" => code} = base_resp when is_integer(code) and code != 0 ->
         {:error,
@@ -204,7 +204,7 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
            message: base_resp["status_msg"] || "provider error",
            code: Helpers.code(code),
            retryable?: Helpers.retryable?(Helpers.code(code), @retryable_codes),
-           raw: payload
+           raw: Helpers.capture_response(config, payload)
          }}
 
       _ok_or_absent ->

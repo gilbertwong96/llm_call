@@ -108,4 +108,19 @@ defmodule LlmCall.Media.Dialect.ConformanceTest do
       assert :ok = Conformance.assert_operation_capture_raw(codec, poll)
     end
   end
+
+  test "a media provider error payload follows capture_raw" do
+    for {codec, payload} <- [
+          {LlmCall.Media.Dialect.OpenAI.Images, OpenAIImages.error_payload()},
+          {LlmCall.Media.Dialect.Gemini.Predict, GeminiPredict.error_payload()},
+          {LlmCall.Media.Dialect.Seedance.Video, SeedanceVideo.error_payload()},
+          {LlmCall.Media.Dialect.MiniMax.Video, MiniMaxVideo.error_payload()}
+        ] do
+      assert %LlmCall.Error{kind: :provider, raw: nil} =
+               codec.decode_error(payload, %Config{capture_raw: :none})
+
+      assert %LlmCall.Error{kind: :provider, raw: ^payload} =
+               codec.decode_error(payload, %Config{capture_raw: :response})
+    end
+  end
 end

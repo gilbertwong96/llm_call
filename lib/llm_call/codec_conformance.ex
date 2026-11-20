@@ -254,6 +254,7 @@ defmodule LlmCall.Codec.Conformance do
         Shared.assert_error(error, label)
         assert_error_field(error, :code, Keyword.get(opts, :code, :any), label)
         assert_error_field(error, :retryable?, Keyword.get(opts, :retryable?, :any), label)
+        assert_error_capture_raw(codec, provider_payload, label)
 
         :ok
 
@@ -263,6 +264,20 @@ defmodule LlmCall.Codec.Conformance do
       other ->
         flunk("#{label}.decode_error/2 must return a %LlmCall.Error{}, got: #{inspect(other)}")
     end
+  end
+
+  # `capture_raw` covers every payload the codec keeps, the error envelope
+  # included: `:none` promises no provider payload at all.
+  defp assert_error_capture_raw(codec, provider_payload, label) do
+    for {capture_raw, expected} <- [none: nil, response: provider_payload] do
+      error = codec.decode_error(provider_payload, %Config{capture_raw: capture_raw})
+
+      assert error.raw == expected,
+             "#{label}.decode_error/2 raw must be #{inspect(expected)} with " <>
+               "capture_raw: #{inspect(capture_raw)}, got: #{inspect(error.raw)}"
+    end
+
+    :ok
   end
 
   defp assert_error_field(_error, _field, :any, _label), do: :ok
