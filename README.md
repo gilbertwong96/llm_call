@@ -118,6 +118,18 @@ It runs before the reducer, including for `finish_stream/2` output; the return
 value is ignored, and it is not called after the reducer halts. `LlmCall.HTTP` is
 the only HTTP transport, so raw bytes are not exposed as a hook.
 
+A reasoning block spans several events. The text arrives incrementally, and a
+provider that signs its thinking blocks sends the signature in its own event, with
+an empty `text` — Anthropic on every block, Gemini on the thought parts before a
+function call. Keep both when you fold the stream into an assistant turn, or the
+block cannot be replayed in the next request:
+
+```elixir
+def merge(%LlmCall.Content.Thinking{} = block, %LlmCall.StreamDelta.Thinking{} = delta) do
+  %{block | text: block.text <> delta.text, signature: delta.signature || block.signature}
+end
+```
+
 ### Responses over WebSocket
 
 The Responses protocol also has a multiplexed WebSocket connection:

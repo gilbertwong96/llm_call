@@ -34,7 +34,14 @@ defmodule LlmCall.Content.Thinking do
   A reasoning block.
 
   `signature` carries whatever the provider requires to replay the block in a
-  later request.
+  later request. Anthropic returns one on every thinking block and rejects the block
+  when it comes back without it; Gemini returns one on the thought parts that precede
+  a function call and accepts an unsigned thought otherwise. It is a provider-issued
+  token the API validates, not something to build or edit: put the decoded struct
+  back into an assistant message as it is.
+
+  A streamed block arrives as more than one event; see
+  `LlmCall.StreamDelta.Thinking`.
   """
 
   @type t :: %__MODULE__{text: String.t(), signature: String.t() | nil}

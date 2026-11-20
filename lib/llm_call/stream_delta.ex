@@ -26,7 +26,19 @@ defmodule LlmCall.StreamDelta.ToolCall do
 end
 
 defmodule LlmCall.StreamDelta.Thinking do
-  @moduledoc "Incremental reasoning text or a reasoning signature."
+  @moduledoc """
+  Incremental reasoning text, a reasoning signature, or both.
+
+  A provider streams the text as it is generated and the signature at the end of the
+  block, in an event whose `text` is `""`. Folding only `text` silently loses the
+  signature, and the finished block then cannot be replayed: a provider rejects it,
+  and this library reports a `:validation` error first. Take whichever field the
+  event carries:
+
+      def merge(%LlmCall.Content.Thinking{} = block, %__MODULE__{} = delta) do
+        %{block | text: block.text <> delta.text, signature: delta.signature || block.signature}
+      end
+  """
 
   @type t :: %__MODULE__{
           text: String.t(),
