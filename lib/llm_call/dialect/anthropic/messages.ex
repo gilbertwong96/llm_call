@@ -6,6 +6,19 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   `tool_result` blocks inside a user turn, and reasoning is controlled by an
   explicit thinking budget rather than an effort level.
 
+  A server tool is `{"type": "web_search_20250305", "name": "web_search"}`. The codec
+  takes `ToolSpec.name` as the versioned type and derives the callable name from its
+  date suffix; `provider_options.anthropic["name"]` overrides it.
+
+  `thinking.budget_tokens` must be at least 1024 and less than `max_tokens`, and
+  `usage.input_tokens` counts only the tokens after the last cache breakpoint, so
+  `Usage.total_tokens` adds the cache read and write counters.
+
+  `stop_reason` values outside the canonical union decode as `:unknown`:
+  `pause_turn` (a server-tool loop paused; send the response back to continue) and
+  `model_context_window_exceeded`. `refusal` decodes as `:content_filter`, because
+  it is a classifier stop. The wire value stays in `Response.raw`.
+
   `call_id` on a tool result is the Anthropic `tool_use_id`.
   """
 
@@ -19,6 +32,7 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(type budget_tokens)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
+  @min_budget_tokens 1024
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
   @namespaces [:anthropic]
@@ -51,7 +65,7 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
          :ok <- Helpers.validate_modalities(request.modalities, [:text], @codec),
          :ok <- validate_messages(request.messages),
          :ok <- validate_params(request.params),
-         :ok <- validate_reasoning(request.reasoning),
+         :ok <- validate_reasoning(request.reasoning, request.params[:max_tokens]),
          :ok <- validate_output(request.output),
          :ok <-
            Helpers.validate_tools(
@@ -157,7 +171,9 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   defp encode_tools(specs) do
     Enum.map(specs, fn
       %ToolSpec{kind: :builtin} = spec ->
-        %{"type" => spec.name} |> Config.deep_merge(tool_options(spec))
+        %{"type" => spec.name}
+        |> Helpers.maybe_put("name", builtin_tool_name(spec.name))
+        |> Config.deep_merge(tool_options(spec))
 
       %ToolSpec{} = spec ->
         %{
@@ -168,6 +184,18 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
         |> Config.deep_merge(tool_options(spec))
     end)
   end
+
+  # A server tool is `{"type": "web_search_20250305", "name": "web_search"}`: the type
+  # carries the version and the name is what the model calls, and both are required.
+  # The caller can still pin the name through `provider_options.anthropic`.
+  defp builtin_tool_name(name) when is_binary(name) do
+    case Regex.run(~r/\A(.+)_\d{8}\z/, name) do
+      [_, callable] -> callable
+      nil -> nil
+    end
+  end
+
+  defp builtin_tool_name(_name), do: nil
 
   defp tool_options(%ToolSpec{provider_options: options}) when is_map(options), do: options
   defp tool_options(_spec), do: %{}
@@ -232,11 +260,11 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
     Helpers.error(@codec, "params.max_tokens is required and must be a positive integer")
   end
 
-  defp validate_reasoning(nil), do: :ok
+  defp validate_reasoning(nil, _max_tokens), do: :ok
 
-  defp validate_reasoning(%Reasoning{} = reasoning) do
+  defp validate_reasoning(%Reasoning{} = reasoning, max_tokens) do
     with :ok <- validate_effort(reasoning.effort),
-         :ok <- validate_budget(reasoning.budget_tokens),
+         :ok <- validate_budget(reasoning.budget_tokens, max_tokens),
          :ok <- Helpers.reject(reasoning.summary, @codec, "reasoning summary is not supported"),
          :ok <- reject_budget_with_effort(reasoning) do
       with :ok <-
@@ -254,7 +282,7 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
     end
   end
 
-  defp validate_reasoning(_reasoning),
+  defp validate_reasoning(_reasoning, _max_tokens),
     do: Helpers.error(@codec, "reasoning must be a LlmCall.Reasoning struct")
 
   defp validate_effort(nil), do: :ok
@@ -267,13 +295,25 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
     )
   end
 
-  defp validate_budget(nil), do: :ok
+  defp validate_budget(nil, _max_tokens), do: :ok
 
-  defp validate_budget(budget) when is_integer(budget) and budget > 0,
-    do: :ok
+  # Anthropic requires `1024 <= budget_tokens < max_tokens`; both values are in the
+  # request, so a local error is better than the provider's 400.
+  defp validate_budget(budget, max_tokens)
+       when is_integer(budget) and budget >= @min_budget_tokens do
+    if is_integer(max_tokens) and budget >= max_tokens do
+      Helpers.error(@codec, "reasoning budget_tokens must be less than params.max_tokens")
+    else
+      :ok
+    end
+  end
 
-  defp validate_budget(_budget),
-    do: Helpers.error(@codec, "reasoning budget_tokens must be a positive integer")
+  defp validate_budget(_budget, _max_tokens) do
+    Helpers.error(
+      @codec,
+      "reasoning budget_tokens must be an integer of at least #{@min_budget_tokens}"
+    )
+  end
 
   defp reject_budget_with_effort(%Reasoning{budget_tokens: budget, effort: effort})
        when not is_nil(budget) and not is_nil(effort) do
@@ -654,27 +694,32 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
     input = Helpers.token(wire["input_tokens"]) || current.input_tokens
     output = Helpers.token(wire["output_tokens"]) || current.output_tokens
 
+    cache_read =
+      Helpers.token(wire["cache_read_input_tokens"]) || current.cache_read_tokens
+
+    cache_write =
+      Helpers.token(wire["cache_creation_input_tokens"]) || current.cache_write_tokens
+
     %Usage{
       input_tokens: input,
       output_tokens: output,
-      total_tokens: total_tokens(input, output),
-      cache_read_tokens:
-        Helpers.token(wire["cache_read_input_tokens"]) || current.cache_read_tokens,
-      cache_write_tokens:
-        Helpers.token(wire["cache_creation_input_tokens"]) || current.cache_write_tokens,
+      total_tokens: total_tokens(input, output, cache_read, cache_write),
+      cache_read_tokens: cache_read,
+      cache_write_tokens: cache_write,
       reasoning_tokens: current.reasoning_tokens
     }
   end
 
   defp merge_usage(%Usage{} = current, _wire), do: current
 
-  defp total_tokens(nil, _output), do: nil
-  defp total_tokens(_input, nil), do: nil
+  # `input_tokens` is only the part after the last cache breakpoint, so the total has
+  # to add the cache reads and writes as well.
+  defp total_tokens(input, output, cache_read, cache_write)
+       when is_integer(input) and is_integer(output) do
+    input + output + (cache_read || 0) + (cache_write || 0)
+  end
 
-  defp total_tokens(input, output) when is_integer(input) and is_integer(output),
-    do: input + output
-
-  defp total_tokens(_input, _output), do: nil
+  defp total_tokens(_input, _output, _cache_read, _cache_write), do: nil
 
   defp stream_events(%{"type" => "message_start"} = term, config, data) do
     message = term["message"] || %{}

@@ -322,7 +322,7 @@ defmodule LlmCall.CodecConformanceTest do
   defp request(model, stream) do
     %Request{
       model: model,
-      params: %{max_tokens: 64},
+      params: %{max_tokens: 2048},
       stream: stream,
       messages: [%Message{role: :user, content: [%Content.Text{text: "hi"}]}]
     }

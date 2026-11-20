@@ -174,9 +174,47 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     assert body["stop_sequences"] == ["END"]
   end
 
+  test "the thinking budget is validated against the documented bounds" do
+    for budget <- [512, 1024] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.validate_request(
+                 text_request(
+                   params: %{max_tokens: 1024},
+                   reasoning: %Reasoning{budget_tokens: budget}
+                 ),
+                 %Config{}
+               )
+
+      assert is_binary(message)
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(
+               text_request(
+                 params: %{max_tokens: 1024},
+                 reasoning: %Reasoning{budget_tokens: 1023}
+               ),
+               %Config{}
+             )
+
+    assert message =~ "at least 1024"
+
+    assert :ok =
+             Messages.validate_request(
+               text_request(
+                 params: %{max_tokens: 2048},
+                 reasoning: %Reasoning{budget_tokens: 1024}
+               ),
+               %Config{}
+             )
+  end
+
   test "thinking budget and disabled effort map to the thinking field" do
-    assert encode(text_request(reasoning: %Reasoning{budget_tokens: 2048})).body["thinking"] ==
-             %{"type" => "enabled", "budget_tokens" => 2048}
+    assert encode(
+             text_request(reasoning: %Reasoning{budget_tokens: 2048}, params: %{max_tokens: 4096})
+           ).body[
+             "thinking"
+           ] == %{"type" => "enabled", "budget_tokens" => 2048}
 
     assert encode(text_request(reasoning: %Reasoning{effort: :none})).body["thinking"] == %{
              "type" => "disabled"
@@ -287,6 +325,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     body =
       encode(
         text_request(
+          params: %{max_tokens: 2048},
           reasoning: %Reasoning{
             budget_tokens: 1024,
             provider_options: %{"display" => "omitted"}
@@ -366,6 +405,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     assert {:error, %Error{kind: :validation, message: message}} =
              Messages.validate_request(
                text_request(
+                 params: %{max_tokens: 2048},
                  reasoning: %Reasoning{
                    budget_tokens: 1024,
                    provider_options: %{"budget_tokens" => 5}
@@ -403,6 +443,32 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     assert [%{"input" => %{"city" => "Oslo"}}] = hd(body["messages"])["content"]
   end
 
+  test "hosted tools carry the callable name the provider requires" do
+    tools = [
+      %ToolSpec{kind: :builtin, name: "web_search_20250305", provider_options: %{"max_uses" => 5}}
+    ]
+
+    body = encode(text_request(tools: tools)).body
+
+    assert body["tools"] == [
+             %{"type" => "web_search_20250305", "name" => "web_search", "max_uses" => 5}
+           ]
+
+    overridden = [
+      %ToolSpec{
+        kind: :builtin,
+        name: "web_search_20250305",
+        provider_options: %{"name" => "search"}
+      }
+    ]
+
+    assert [tool] = encode(text_request(tools: overridden)).body["tools"]
+    assert tool["name"] == "search"
+
+    undated = [%ToolSpec{kind: :builtin, name: "web_search"}]
+    assert [%{"type" => "web_search"}] = encode(text_request(tools: undated)).body["tools"]
+  end
+
   test "hosted tools pass through as their provider type" do
     tools = [
       %ToolSpec{kind: :builtin, name: "web_search_20250305", provider_options: %{"max_uses" => 5}}
@@ -411,7 +477,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     body = encode(text_request(tools: tools)).body
 
     assert body["tools"] == [
-             %{"type" => "web_search_20250305", "max_uses" => 5}
+             %{"type" => "web_search_20250305", "name" => "web_search", "max_uses" => 5}
            ]
 
     assert {:error, %Error{kind: :validation}} =
@@ -543,7 +609,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
       assert response.usage == %LlmCall.Usage{
                input_tokens: 12,
                output_tokens: 5,
-               total_tokens: 17,
+               total_tokens: 27,
                cache_read_tokens: 3,
                cache_write_tokens: 7,
                reasoning_tokens: nil
@@ -695,7 +761,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
                  input_tokens: 12,
                  output_tokens: 1,
                  cache_read_tokens: 2,
-                 total_tokens: 13
+                 total_tokens: 15
                }
              } = Enum.at(events, 1).delta
     end
@@ -809,7 +875,9 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     test "reasoning and tool provider options are merged into their native locations" do
       reasoning = %Reasoning{budget_tokens: 1024, provider_options: %{"display" => "omitted"}}
 
-      assert encode(text_request(reasoning: reasoning)).body["thinking"] == %{
+      assert encode(text_request(reasoning: reasoning, params: %{max_tokens: 2048})).body[
+               "thinking"
+             ] == %{
                "type" => "enabled",
                "budget_tokens" => 1024,
                "display" => "omitted"
