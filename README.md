@@ -279,6 +279,11 @@ end
 Approvals, audits and timeouts stay in `tool_call`, and the follow-up request stays
 with you: the library does not run an agent loop.
 
+What a decoded turn can be sent back as depends on the protocol: text and tool
+calls always, thinking blocks and `Content.Raw` only where the request shape
+allows it. `docs/design.md` §8.2 has the table, and
+`LlmCall.Codec.Conformance.assert_replays/3` pins it for an adapter.
+
 Provider-hosted tools (web search, grounding, server tools) are builtin tools whose
 `name` is the vendor's own identifier; the codec forwards them verbatim when it
 declares `builtin_tools: :passthrough`:

@@ -47,7 +47,10 @@ defmodule LlmCall.Content.Raw do
   A provider block the codec does not understand.
 
   `type` is the provider's own discriminator and `data` is the provider's payload.
-  This is an escape hatch, not a substitute for a canonical type.
+  A codec that can render the block back emits `data` as-is, so a block decoded from
+  a response already carries its discriminator and `type` stays a caller-side
+  label; one built by hand must put the discriminator inside `data` too. This is an
+  escape hatch, not a substitute for a canonical type.
   """
 
   @type t :: %__MODULE__{type: String.t() | nil, data: map()}

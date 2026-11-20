@@ -479,6 +479,33 @@ are no duplicate `Content.ToolCall` or `Content.ToolResult` wrappers.
 understand. It must be preserved in canonical responses and rendered back when
 possible.
 
+#### Replay
+
+A response that can be decoded but not sent back makes a tool loop impossible, so
+which content parts a codec accepts in an assistant message is part of the
+contract. The answers differ because the request shapes do:
+
+| Part | OpenAI Chat | OpenAI Responses | Anthropic Messages | Gemini GenerateContent |
+| --- | --- | --- | --- | --- |
+| `Content.Text` | yes | yes | yes | yes |
+| `ToolCall` | yes | yes | yes | yes |
+| `Content.Thinking` with `signature` | rejected | rejected | yes | yes |
+| `Content.Thinking` without `signature` | rejected | rejected | rejected | yes |
+| `Content.Raw` | rejected | rejected | yes | yes |
+
+"Rejected" is a `:validation` error that names the part, never a silent drop.
+OpenAI's request bodies are closed sets, so no provider-specific block can go back
+in, and its reasoning output is not replayable either — Responses continues the
+conversation with `previous_response_id` instead. Anthropic rejects an unsigned
+thinking block because its API does. Gemini accepts an unsigned one because its
+API only requires a signature where a tool call follows the thought.
+
+`Content.Raw` is rendered back as its `data` alone: a block decoded from a provider
+already contains the discriminator, so `type` stays a caller-side label. A block
+built by hand must therefore carry the discriminator inside `data`.
+
+`LlmCall.Codec.Conformance.assert_replays/3` pins this table per codec.
+
 ### 8.3.1 Reasoning
 
 Reasoning config is separate from `params` because providers expose different

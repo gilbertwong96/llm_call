@@ -93,6 +93,7 @@ Every adapter must:
    LlmCall.Codec.Conformance.assert_stream_roundtrip(MyCodec, stream_request)
    LlmCall.Codec.Conformance.assert_stream_state_ownership(MyCodec, OtherCodec, request)
    LlmCall.Codec.Conformance.assert_rejects(MyCodec, invalid_request, %LlmCall.Config{})
+   LlmCall.Codec.Conformance.assert_replays(MyCodec, request, text: :ok, tool_call: :ok, thinking: :rejected, raw: :rejected)
    ```
 
    or, for media, `LlmCall.Media.Conformance` (`assert_info/1`,
@@ -105,10 +106,10 @@ Every adapter must:
    shapes), typed invalid-response and provider-error decoding, stream event
    shape and order, that a streaming request actually asks the provider to
    stream, tool-call assembly through `LlmCall.StreamAssembler`, `capture_raw`
-   on responses and operations, and capability declarations agreeing with
-   validation in both directions. What they cannot check is usage
-   *mapping* — which provider field lands in which counter — so pin that with
-   your own fixture assertions.
+   on responses, errors and operations, which decoded parts a request accepts
+   back, and capability declarations agreeing with validation in both
+   directions. What they cannot check is usage *mapping* — which provider field
+   lands in which counter — so pin that with your own fixture assertions.
 
 ## Tests
 
