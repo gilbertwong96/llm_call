@@ -25,6 +25,9 @@ back to `llm_call` because it now ships the client that name promised.
   policy stays outside the core. `LlmCall.Error.reason` carries the structured
   transport reason (`:econnrefused`, `:timeout`, `:unknown_pool`, ...), so callers
   match on it instead of parsing the message.
+- `config :llm_call, capture_raw: ...` sets the compile-time capture default,
+  symmetric with `json_library:`; `LlmCall.Config.new(capture_raw: ...)` still
+  overrides it per client.
 - Codecs validate the types of known native `provider_options` keys
   (`access_programs`, `logprobs`, `metadata`, `safetySettings`, ...); unknown
   native keys still pass through.

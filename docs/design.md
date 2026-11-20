@@ -1824,6 +1824,10 @@ client `json_library:` option or an explicit `%LlmCall.Config{}` overrides it.
 `encode/1`/`decode/1` (Torque, Jason, Poison) or bang `encode!/1`/`decode!/1`
 (Elixir `JSON`) and normalize to tagged tuples.
 
+`capture_raw` has the same shape: `Application.compile_env(:llm_call,
+:capture_raw, :none)`, overridden by `%LlmCall.Config{}` — there is no provider
+or call-level capture option.
+
 The encode/decode boundary stays public for callers that own a transport:
 
 ```elixir
