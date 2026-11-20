@@ -2560,3 +2560,60 @@ the wire boundary; this section records the split so the core does not drift.
    structured-output request that disables thought summaries), the codec must
    either validate the conflict or document the winning rule; it must not drop
    the loser silently.
+
+## 26. Roadmap: further operation families
+
+0.1 ships two operation families — completion (`LlmCall.Codec`) and media generation
+with its long-running operations (`LlmCall.Media.Codec`) — plus the Responses
+WebSocket transport (§24). Further families — embeddings, rerank, speech,
+transcription, OCR — follow the same rule as §25.3.1: **a new operation is a new IR
+plus a codec behaviour**, and never a new field on `Request`. Adding one is
+therefore additive and does not disturb the IR contract.
+
+### 26.1 What a family costs
+
+A codec is small; the fixed cost per family is what surrounds it, and it multiplies
+per provider:
+
+- the canonical request/response/capabilities structs;
+- a codec behaviour, an adapter macro and a conformance suite;
+- one adapter, fixture set and wire-fact verification per provider;
+- client entry points, documentation and CHANGELOG surface.
+
+The suite cost scales with the family's wire surface, not with its importance. An
+embedding suite covers shapes, vector dimensions, usage and errors — no stream, no
+operation state machine, no asset hop — so it is a fraction of §23's media suite.
+
+That cost model is the reason the order below exists: breadth is the wrong thing to
+buy first. The library's claim is a verifiable wire contract, not "every model in
+every modality"; a full-client library already occupies that ground.
+
+### 26.2 Prerequisite: parameterise the family
+
+Completion and media are currently two hand-written pipelines: two behaviours, two
+adapter macros, two conformance skeletons, two client surfaces. Writing a third and
+fourth family by hand multiplies that plumbing. Before family #3, one refactor turns
+"a family" into a parameterised mechanism — codec behaviour, adapter macro,
+conformance skeleton, client entry points — with media as its first instance. That
+is a reorganisation, not a feature, and it belongs in a 0.x minor.
+
+### 26.3 Order and verdict
+
+| Operation | Canonical shape | New family | Demand | Plan |
+| --- | --- | --- | --- | --- |
+| Embeddings | `{model, input, dimensions?}` → vectors + usage | yes, small | highest: a conversation library is almost always paired with a vector store | 0.2, with rerank |
+| Rerank | `{model, query, documents, top_n?}` → ordered scores | shares the vector family | medium, narrow vendor set | 0.2 |
+| Speech | text in, media bytes out | media-shaped | medium-low | 0.3 |
+| Transcription | bytes in, text and segments out; needs the multipart boundary the transport deliberately does not own (§23.7) | yes | medium | 0.3, once that boundary has a design |
+| OCR | image or file in, text out | **no**: `Content.Image` and `Content.File` in a chat request already express it for every multimodal codec | low | documentation; a dedicated endpoint only on demand |
+| Evaluation | "answer named questions about this text/JSON" | **no**: it is an upper-layer abstraction built on chat or structured output, not a provider endpoint | low | never in core |
+
+### 26.4 Criteria for adding a family
+
+A family enters the core only when all three hold:
+
+1. its canonical shape is expressible without `provider_options`;
+2. at least two providers need it — a single-vendor endpoint belongs in the
+   application, not in a protocol library;
+3. someone carries the per-provider adapter and verification cost, and the conformance
+   suite for the family is written in the same change.
