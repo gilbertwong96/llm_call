@@ -50,6 +50,8 @@ defmodule LlmCall do
 
   @default_codec :chat
 
+  @call_options [:codec, :headers]
+
   @doc """
   Calls a provider: encode, send, decode.
 
@@ -63,7 +65,8 @@ defmodule LlmCall do
   @spec complete(Client.t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Response.t()} | {:error, Error.t()}
   def complete(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
-    with :ok <- validate_headers(opts[:headers]),
+    with :ok <- validate_call_options(opts, @call_options),
+         :ok <- validate_headers(opts[:headers]),
          :ok <- reject_streaming(request),
          {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :encode_request, 2),
@@ -102,7 +105,8 @@ defmodule LlmCall do
   def stream(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
     request = %{request | stream: true}
 
-    with :ok <- validate_headers(opts[:headers]),
+    with :ok <- validate_call_options(opts, [:on_event | @call_options]),
+         :ok <- validate_headers(opts[:headers]),
          :ok <- validate_on_event(opts[:on_event]),
          {:ok, codec} <- fetch_codec(client, opts),
          :ok <- require_callback(codec, :init_stream, 2),
@@ -134,7 +138,8 @@ defmodule LlmCall do
   @spec generate(Client.t(), LlmCall.Media.Request.t(), keyword()) ::
           {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
   def generate(%Client{} = client, %LlmCall.Media.Request{} = request, opts \\ []) do
-    with :ok <- validate_headers(opts[:headers]),
+    with :ok <- validate_call_options(opts, @call_options),
+         :ok <- validate_headers(opts[:headers]),
          {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :encode_submit, 2),
          :ok <- require_callback(codec, :decode_submit, 2),
@@ -182,7 +187,8 @@ defmodule LlmCall do
   end
 
   def poll(%Client{} = client, %EncodedRequest{} = encoded, opts) do
-    with :ok <- validate_headers(opts[:headers]),
+    with :ok <- validate_call_options(opts, @call_options),
+         :ok <- validate_headers(opts[:headers]),
          {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :decode_operation, 2),
          :ok <- require_callback(codec, :decode_error, 2) do
@@ -387,6 +393,23 @@ defmodule LlmCall do
       :ok
     else
       {:error, invalid("headers: must be a list of {name, value} string tuples", :validation)}
+    end
+  end
+
+  defp validate_call_options(opts, allowed) do
+    cond do
+      not Keyword.keyword?(opts) ->
+        {:error, invalid("call options must be a keyword list", :validation)}
+
+      (unknown = Keyword.keys(opts) -- allowed) != [] ->
+        {:error,
+         invalid(
+           "unknown option #{inspect(hd(unknown))}; accepted: #{inspect(allowed)}",
+           :validation
+         )}
+
+      true ->
+        :ok
     end
   end
 
