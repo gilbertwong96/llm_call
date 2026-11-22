@@ -1328,6 +1328,12 @@ headers and reused on reconnect.
 their documented success/error tuples, and `capabilities` and `media_capabilities`
 return `{:ok, struct} | {:error, %LlmCall.Error{}}`.
 
+A request of the wrong shape is part of that contract, not a reason to raise: a
+caller that assembles a `%LlmCall.Request{}` from data gets a `:validation` error
+naming the expected struct, on every dispatch function. `decode_response/3`,
+`decode_error/3` and `decode_operation/3` take a wire term by design, so any term
+reaches the codec and comes back as a typed error there.
+
 JSON resolution has a compile-time default and runtime overrides: the default is
 read with `Application.compile_env(:llm_call, :json_library, ...)` and is Elixir
 `JSON`, so changing it recompiles the library, while a provider declaration, a

@@ -566,11 +566,15 @@ defmodule LlmCall do
   @doc "Encodes a canonical request into one protocol's wire request."
   @spec encode(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
-  def encode(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
+  def encode(codec, request, config \\ Config.new())
+
+  def encode(codec, %LlmCall.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_request, 2) do
       codec.encode_request(request, config)
     end
   end
+
+  def encode(_codec, request, _config), do: {:error, not_a_request(request, "%LlmCall.Request{}")}
 
   @doc "Decodes one provider response term into a canonical response."
   @spec decode_response(module(), LlmCall.wire_value(), Config.t()) ::
@@ -609,12 +613,17 @@ defmodule LlmCall do
   """
   @spec capabilities(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, LlmCall.Capabilities.t()} | {:error, Error.t()}
-  def capabilities(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
+  def capabilities(codec, request, config \\ Config.new())
+
+  def capabilities(codec, %LlmCall.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_request, 2),
          :ok <- require_callback(codec, :capabilities, 2) do
       {:ok, codec.capabilities(request, config)}
     end
   end
+
+  def capabilities(_codec, request, _config),
+    do: {:error, not_a_request(request, "%LlmCall.Request{}")}
 
   @doc "Starts a stream, or returns a typed error when the codec has no streaming."
   @spec init_stream(module(), LlmCall.Request.t(), Config.t()) ::
@@ -659,11 +668,16 @@ defmodule LlmCall do
   """
   @spec encode_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.EncodedRequest.t()} | {:error, Error.t()}
-  def encode_media(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
+  def encode_media(codec, request, config \\ Config.new())
+
+  def encode_media(codec, %LlmCall.Media.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_submit, 2) do
       codec.encode_submit(request, config)
     end
   end
+
+  def encode_media(_codec, request, _config),
+    do: {:error, not_a_request(request, "%LlmCall.Media.Request{}")}
 
   @doc "Decodes a media generation response, sync assets or an operation."
   @spec decode_media(module(), LlmCall.wire_value(), Config.t()) ::
@@ -706,12 +720,17 @@ defmodule LlmCall do
   """
   @spec media_capabilities(module(), LlmCall.Media.Request.t(), Config.t()) ::
           {:ok, LlmCall.Media.Capabilities.t()} | {:error, Error.t()}
-  def media_capabilities(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
+  def media_capabilities(codec, request, config \\ Config.new())
+
+  def media_capabilities(codec, %LlmCall.Media.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_submit, 2),
          :ok <- require_callback(codec, :capabilities, 2) do
       {:ok, codec.capabilities(request, config)}
     end
   end
+
+  def media_capabilities(_codec, request, _config),
+    do: {:error, not_a_request(request, "%LlmCall.Media.Request{}")}
 
   defp require_owner(codec, %StreamState{codec: codec}), do: :ok
 
@@ -721,6 +740,16 @@ defmodule LlmCall do
        kind: :validation,
        message: "stream state belongs to #{inspect(owner)}, not #{inspect(codec)}"
      }}
+  end
+
+  # The `@spec` promises a tagged error, so a wrong request shape is reported the
+  # same way a missing callback is: a caller that builds a request from data does
+  # not get a `FunctionClauseError` it cannot handle.
+  defp not_a_request(request, expected) do
+    %Error{
+      kind: :validation,
+      message: "expected #{expected}, got: #{inspect(request)}"
+    }
   end
 
   defp require_callback(codec, function, arity) do

@@ -41,6 +41,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   derived from the status in that case — `408`, `425`, `429`, `500`, `502`, `503`
   and `504` are retryable. When the body does decode, the codec's own verdict
   still stands.
+- `LlmCall.encode/3`, `capabilities/3`, `encode_media/3` and
+  `media_capabilities/3` raised `FunctionClauseError` for a request that was not
+  the expected struct, though their `@spec` promises a tagged error. They now
+  return a `:validation` error naming the expected type, like every other
+  dispatch function.
 - A stream whose payload is not JSON dropped both the payload and the decoder's
   reason, leaving only "stream payload is not JSON". A truncated frame, a gateway's
   plain-text body and a malformed chunk all read the same, and the stream could not
