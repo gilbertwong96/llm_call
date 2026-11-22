@@ -132,6 +132,38 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
            ]
   end
 
+  test "a tool_result must come first in the message that answers a call" do
+    call_turn = %Message{
+      role: :assistant,
+      content: [%LlmCall.ToolCall{id: "t1", name: "get_weather", arguments: %{}}]
+    }
+
+    opening = %Message{role: :user, content: [%Content.Text{text: "weather?"}]}
+    result = %ToolResult{call_id: "t1", content: "Sunny"}
+    text = %Content.Text{text: "thanks"}
+
+    # Result first, text after: accepted, and the text stays after it.
+    ok_messages = [opening, call_turn, %Message{role: :user, content: [result, text]}]
+
+    assert {:ok, encoded} =
+             Messages.encode_request(text_request(messages: ok_messages), %Config{})
+
+    assert encoded.body["messages"] |> Enum.at(2) |> Map.fetch!("content") == [
+             %{"type" => "tool_result", "tool_use_id" => "t1", "content" => "Sunny"},
+             %{"type" => "text", "text" => "thanks"}
+           ]
+
+    # Text before the result is what Anthropic rejects.
+    for content <- [[text, result], [text, result, %Content.Text{text: "again"}]] do
+      messages = [opening, call_turn, %Message{role: :user, content: content}]
+
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.encode_request(text_request(messages: messages), %Config{})
+
+      assert message =~ "requires every tool_result first"
+    end
+  end
+
   test "tools map to name/description/input_schema and tool_choice to the Anthropic union" do
     tools = [
       %ToolSpec{

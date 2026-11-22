@@ -41,6 +41,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   derived from the status in that case — `408`, `425`, `429`, `500`, `502`, `503`
   and `504` are retryable. When the body does decode, the codec's own verdict
   still stands.
+- The Anthropic codec put a `tool_result` block wherever the caller placed it,
+  including after text, which the Messages API rejects: results must come first in
+  the message that answers a call. That ordering is now a `:validation` error.
 - A `%LlmCall.ToolResult{}` that answers no tool call in the immediately preceding
   message is now a `:validation` error naming the id and index, instead of a
   request both OpenAI and Anthropic reject with a 400. A history with an
