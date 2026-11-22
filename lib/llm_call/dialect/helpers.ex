@@ -171,27 +171,7 @@ defmodule LlmCall.Dialect.Helpers do
     }
   end
 
-  # A gateway answers with HTML or plain text, which `Error.raw` does not carry
-  # because it is a map or nil. An excerpt in the message is what keeps that
-  # failure diagnosable without widening the public `raw` type.
-  @excerpt_limit 200
-
-  defp payload_excerpt(term) when is_binary(term) and term != "" do
-    trimmed = String.trim(term)
-
-    cond do
-      trimmed == "" ->
-        ""
-
-      String.length(trimmed) > @excerpt_limit ->
-        ": " <> String.slice(trimmed, 0, @excerpt_limit) <> "..."
-
-      true ->
-        ": " <> trimmed
-    end
-  end
-
-  defp payload_excerpt(_term), do: ""
+  defp payload_excerpt(term), do: LlmCall.Excerpt.of(term)
 
   @model_id_pattern ~r/\A[A-Za-z0-9._-]+\z/
 

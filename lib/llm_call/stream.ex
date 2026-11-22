@@ -110,10 +110,27 @@ defmodule LlmCall.Stream do
 
   defp decode_payload(state, payload) do
     case LlmCall.JSON.decode(state.client.config.json, payload) do
-      {:ok, term} -> decode_event(state, term)
-      {:error, _reason} -> raise HTTP.Error, error: invalid_response("stream payload is not JSON")
+      {:ok, term} ->
+        decode_event(state, term)
+
+      {:error, reason} ->
+        raise HTTP.Error,
+          error:
+            invalid_response(
+              "stream payload is not JSON" <>
+                LlmCall.Excerpt.of(payload) <> decoder_reason(reason)
+            )
     end
   end
+
+  # The decoder's own message says why (a truncated fragment, a trailing comma,
+  # an unexpected byte), which is what tells a caller whether the stream was cut
+  # or the peer answered with something that is not the protocol at all.
+  defp decoder_reason({:missing_json_decoder, module}),
+    do: " (#{inspect(module)} cannot decode; set config :llm_call, json_library: Mod)"
+
+  defp decoder_reason(%{__exception__: true} = reason), do: " (#{Exception.message(reason)})"
+  defp decoder_reason(reason), do: " (#{inspect(reason)})"
 
   # A framing failure is reported as the stream's own canonical error: a caller of
   # `stream/3` handles `LlmCall.HTTP.Error`, not the parser's internal exception.

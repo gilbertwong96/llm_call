@@ -335,8 +335,9 @@ defmodule LlmCall do
       {:error, {:missing_json_encoder, module}} ->
         {:error, invalid(json_module_error(module, "encode"), :validation)}
 
-      {:error, _reason} ->
-        {:error, invalid("request body is not JSON-encodable", :validation)}
+      {:error, reason} ->
+        {:error,
+         invalid("request body is not JSON-encodable" <> decoder_reason(reason), :validation)}
     end
   end
 
@@ -406,10 +407,17 @@ defmodule LlmCall do
       {:error, {:missing_json_decoder, module}} ->
         {:error, invalid(json_module_error(module, "decode"), :invalid_response)}
 
-      {:error, _reason} ->
-        {:error, invalid("response body is not JSON", :invalid_response)}
+      {:error, reason} ->
+        {:error,
+         invalid(
+           "response body is not JSON" <> LlmCall.Excerpt.of(raw) <> decoder_reason(reason),
+           :invalid_response
+         )}
     end
   end
+
+  defp decoder_reason(%{__exception__: true} = reason), do: " (#{Exception.message(reason)})"
+  defp decoder_reason(reason), do: " (#{inspect(reason)})"
 
   defp validate_headers(headers) do
     if HTTP.valid_headers?(headers) do

@@ -153,6 +153,38 @@ defmodule LlmCall.StreamTest do
     assert message =~ "closed"
   end
 
+  test "a payload that is not JSON names the payload and the decoder reason" do
+    # A truncated fragment is the realistic case: the stream was cut, or a gateway
+    # injected its own body. Neither is diagnosable from "is not JSON" alone.
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"text": ))},
+      {:data, sse("plain text")}
+    ])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{kind: :invalid_response, message: message} = HTTP.Error.error(exception)
+
+    assert message =~ "stream payload is not JSON"
+    assert message =~ ~s({"text": )
+    assert message =~ "("
+  end
+
+  test "an oversized payload is truncated in the message" do
+    long = String.duplicate("x", 500)
+    TestHTTP.put_events([{:status, 200}, {:data, sse(long)}])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{kind: :invalid_response, message: message} = HTTP.Error.error(exception)
+
+    assert message =~ "..."
+    assert String.length(message) < 400
+  end
+
   test "yields events in order and finishes the stream" do
     TestHTTP.put_events([
       {:status, 200},

@@ -41,21 +41,27 @@ defmodule LlmCall.JSONConfigErrorTest do
     assert message =~ "json_library"
   end
 
-  test "a body that is genuinely not encodable keeps the plain message" do
+  test "a body that is genuinely not encodable names the encoder's reason" do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: "{}"}})
 
     encoded = %LlmCall.EncodedRequest{method: :post, path: "/x", body: %{"bad" => {1, 2}}}
 
-    assert {:error, %Error{kind: :validation, message: "request body is not JSON-encodable"}} =
+    assert {:error, %Error{kind: :validation, message: message}} =
              LlmCall.execute(client(), encoded)
+
+    assert message =~ "request body is not JSON-encodable"
+    assert message =~ "("
   end
 
-  test "a response body that is not JSON keeps the plain message" do
+  test "a response body that is not JSON quotes the body" do
     TestHTTP.put_response({:ok, %{status: 200, headers: [], body: "<html>"}})
 
     encoded = %LlmCall.EncodedRequest{method: :get, path: "/asset"}
 
-    assert {:error, %Error{kind: :invalid_response, message: "response body is not JSON"}} =
+    assert {:error, %Error{kind: :invalid_response, message: message}} =
              LlmCall.execute(client(), encoded)
+
+    assert message =~ "response body is not JSON"
+    assert message =~ "<html>"
   end
 end
