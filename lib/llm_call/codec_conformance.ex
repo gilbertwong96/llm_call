@@ -584,7 +584,9 @@ defmodule LlmCall.Codec.Conformance do
   `reasoning.adaptive`, `reasoning.default_effort`, `parallel_tool_calls`,
   `streaming_tool_calls`, `prompt_cache`, and `stateful` are declarations only:
   the canonical IR has no request field that expresses them, so there is nothing
-  to check in either direction.
+  to check in either direction. `prompt_cache` and `stateful` are reporting
+  capabilities — accounting in `Usage`, server-side continuation through
+  `provider_options` — so no request can exercise them.
 
   The `budget_tokens` sample is derived from the request's `params.max_tokens`,
   because a protocol may couple the two (Anthropic requires

@@ -613,4 +613,42 @@ defmodule LlmCall.ClientTest do
     assert %Client{headers: [{"x-custom", "k"}]} = HeaderProvider.client(api_key: "k")
     assert_raise ArgumentError, ~r/api_key is required/, fn -> ApiKeyProvider.client([]) end
   end
+
+  describe "a non-2xx whose body is not an error envelope" do
+    test "a retryable status still reports retryable?: true" do
+      # A gateway answers a real 429 with HTML, so the provider's code is not
+      # available and the status is the only signal left.
+      for status <- [408, 429, 500, 502, 503, 504] do
+        TestHTTP.put_response({:ok, %{status: status, headers: [], body: "<html>nope</html>"}})
+
+        assert {:error, %Error{kind: :transport, status: ^status, retryable?: true}} =
+                 LlmCall.complete(client(), request())
+      end
+    end
+
+    test "a non-retryable status reports retryable?: false" do
+      for status <- [400, 401, 403, 404, 422] do
+        TestHTTP.put_response({:ok, %{status: status, headers: [], body: "<html>nope</html>"}})
+
+        assert {:error, %Error{kind: :transport, status: ^status, retryable?: false}} =
+                 LlmCall.complete(client(), request())
+      end
+    end
+
+    test "a provider envelope decides from its own code, not the status" do
+      # When the body decodes, the codec's verdict stands: a status the transport
+      # would call retryable does not turn a provider error into a retryable one.
+      TestHTTP.put_response(
+        {:ok,
+         %{
+           status: 503,
+           headers: [],
+           body: ~s({"error":{"message":"bad request","code":"invalid_request_error"}})
+         }}
+      )
+
+      assert {:error, %Error{kind: :provider, status: 503, retryable?: false}} =
+               LlmCall.complete(client(), request())
+    end
+  end
 end

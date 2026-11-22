@@ -13,8 +13,27 @@ defmodule LlmCall.Capabilities do
   They are **protocol-level**: `capabilities/2` takes the request for signature
   symmetry but does not inspect the model. A model-specific limit surfaces as a
   provider error, not a fabricated local guess.
+
+  ## Reporting versus controlling
+
+  `prompt_cache` says the protocol **reports** cache accounting: `Usage` carries
+  `cache_read_tokens` and `cache_write_tokens`. It does not say the canonical IR
+  can **place** a cache breakpoint, because it cannot; there is no request field
+  for one. Every reference codec reports the counters, so every one declares this
+  `true`.
+
+  The same distinction applies to `stateful`: it says the protocol can continue a
+  conversation server-side, which reaches a provider that offers it through
+  `provider_options` (`previous_response_id`, `store`), not through a canonical
+  field.
   """
 
+  @typedoc """
+  What a protocol supports.
+
+  `prompt_cache` is a reporting capability, not a request one: see the
+  "Reporting versus controlling" section.
+  """
   @type t :: %__MODULE__{
           tools: boolean(),
           builtin_tools: false | :passthrough | [String.t()],

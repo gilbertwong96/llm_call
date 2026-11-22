@@ -539,11 +539,18 @@ defmodule LlmCall do
      )}
   end
 
+  # A non-`2xx` whose body is not the provider's error envelope has no code to
+  # classify, so the HTTP status is the only signal. Without this a real 429 or
+  # 503 answered by a gateway as HTML or an empty body reported
+  # `retryable?: false`, and a caller that follows the hint stops retrying.
+  @retryable_statuses [408, 425, 429, 500, 502, 503, 504]
+
   defp transport_error(message, status, retry_after_ms) do
     %Error{
       kind: :transport,
       message: message,
       status: status,
+      retryable?: status in @retryable_statuses,
       retry_after_ms: retry_after_ms
     }
   end
