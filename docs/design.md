@@ -511,9 +511,9 @@ boolean) and `provider_options`.
   provider-specific schema struct. It must already be in the selected codec's
   dialect. The Gemini codec validates the OpenAPI subset and returns `:validation`
   for a lowercase `type`, `additionalProperties`, `$ref`/`$defs`, `prefixItems`,
-  `oneOf` or `const`. OpenAI's `strict: true` mismatch is not locally detectable
-  and remains a provider error. `nil` is valid for a built-in tool that has no
-  function schema.
+  `oneOf`, `const`, `allOf` or `not`. OpenAI's `strict: true` mismatch is not
+  locally detectable and remains a provider error. `nil` is valid for a built-in
+  tool that has no function schema.
 - `kind: :function` is the normal function-tool case.
 - `kind: :builtin` is a provider-hosted tool (web search, grounding, server
   tools). Its `name` is the **vendor's own identifier** (`web_search_20250305`,

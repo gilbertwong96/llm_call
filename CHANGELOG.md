@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+
+- The Gemini codec accepted `allOf` and `not` in tool `parameters` and in
+  `responseSchema`, though its OpenAPI subset cannot express either; both are now
+  `:validation` errors like `oneOf` and `const`.
+
 ## 0.1.1 - 2026-11-22
 
 ### Changed
