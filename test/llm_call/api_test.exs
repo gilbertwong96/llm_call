@@ -238,4 +238,29 @@ defmodule LlmCall.ApiTest do
     assert message =~ "decode_submit/2"
     assert LlmCall.TestHTTPServer.requests() == []
   end
+
+  describe "a wrong request shape is a tagged error, not a crash" do
+    test "encode/3 and capabilities/3" do
+      for fun <- [&LlmCall.encode/3, &LlmCall.capabilities/3] do
+        assert {:error, %Error{kind: :validation, message: message}} =
+                 fun.(Fake, %{"model" => "gpt-4o"}, %Config{})
+
+        assert message =~ "%LlmCall.Request{}"
+      end
+    end
+
+    test "encode_media/3 and media_capabilities/3" do
+      for fun <- [&LlmCall.encode_media/3, &LlmCall.media_capabilities/3] do
+        assert {:error, %Error{kind: :validation, message: message}} =
+                 fun.(LlmCall.Media.Dialect.OpenAI.Images, %{"model" => "m"}, %Config{})
+
+        assert message =~ "%LlmCall.Media.Request{}"
+      end
+    end
+
+    test "the arity-2 form still applies the default config" do
+      assert {:error, %Error{kind: :validation}} = LlmCall.encode(Fake, %{model: "x"})
+      assert {:error, %Error{kind: :validation}} = LlmCall.capabilities(Fake, %{model: "x"})
+    end
+  end
 end
