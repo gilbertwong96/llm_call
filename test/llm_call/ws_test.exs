@@ -132,6 +132,14 @@ defmodule LlmCall.WSTest do
              Mint.connect("https://example.test", [], [])
   end
 
+  test "rejects a URL that is not a string instead of raising" do
+    # `connect/3` promises a tagged error, and `URI.parse/1` only takes a binary;
+    # without the guard the crash happens inside a third-party function.
+    for url <- [nil, 42, :ws, %URI{scheme: "ws", host: "x.test"}] do
+      assert {:error, {:invalid_url, ^url}} = Mint.connect(url, [], [])
+    end
+  end
+
   defp next_message do
     receive do
       message -> message
