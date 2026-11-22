@@ -65,6 +65,28 @@ defmodule LlmCall.ContentValidationTest do
     end
   end
 
+  test "a tool name outside the protocol's published class is a validation error" do
+    # OpenAI Chat: `^[a-zA-Z0-9_-]{1,64}$`.
+    for name <- ["weather.get", "bad name!", "1abc def", String.duplicate("a", 65)] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               validate_tools([%LlmCall.ToolSpec{name: name}])
+
+      assert message =~ "tool name"
+    end
+
+    assert :ok == validate_tools([%LlmCall.ToolSpec{name: "get_weather"}])
+    assert :ok == validate_tools([%LlmCall.ToolSpec{name: "get-weather"}])
+  end
+
+  test "a tool name may only be declared once" do
+    duplicated = [%LlmCall.ToolSpec{name: "f"}, %LlmCall.ToolSpec{name: "f"}]
+
+    assert {:error, %Error{kind: :validation, message: message}} = validate_tools(duplicated)
+    assert message =~ ~s(tool name "f" is declared more than once)
+
+    assert :ok == validate_tools([%LlmCall.ToolSpec{name: "f"}, %LlmCall.ToolSpec{name: "g"}])
+  end
+
   test "tool results require a boolean is_error" do
     result = %ToolResult{call_id: "id", content: "ok", is_error: "yes"}
 

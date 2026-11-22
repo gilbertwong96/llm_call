@@ -26,9 +26,22 @@ defmodule LlmCall.Application do
   @spec default_children() :: [{Finch, keyword()}]
   def default_children, do: default_children(@pool)
 
-  @doc false
+  @doc """
+  Returns the children to start, or none when `pool` is already registered.
+
+  `http_opts: [name: pool]` is validated to be an atom, so this only ever sees
+  one. Registration is checked here because a `Finch` child that finds the name
+  taken returns `{:error, {:already_started, pid}}`, which would fail the whole
+  application start rather than yield to the existing pool. The check is not
+  atomic with Finch's own registration; a pool started in the same instant by
+  another supervision tree is the one case this cannot order.
+  """
   @spec default_children(atom()) :: [{Finch, keyword()}]
-  def default_children(pool) do
+  def default_children(pool) when is_atom(pool) and not is_nil(pool) do
     if Process.whereis(pool), do: [], else: [{Finch, name: pool}]
+  end
+
+  def default_children(pool) do
+    raise ArgumentError, "a Finch pool name must be an atom, got: #{inspect(pool)}"
   end
 end

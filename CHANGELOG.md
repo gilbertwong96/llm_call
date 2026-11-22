@@ -11,6 +11,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The Gemini codec accepted `allOf` and `not` in tool `parameters` and in
   `responseSchema`, though its OpenAPI subset cannot express either; both are now
   `:validation` errors like `oneOf` and `const`.
+- Two tool specs sharing a `name` are now a `:validation` error. The second entry
+  was unreachable, and a provider either rejects the request or picks one.
+- A provider error whose body is not JSON (a gateway's HTML or plain text) now
+  keeps an excerpt in `Error.message` instead of reporting only
+  "unrecognized error payload". `Error.raw` still carries maps only, so a
+  non-map body is visible in the message rather than in `raw`.
+- A function tool name is now checked against the target protocol's published
+  class: 64 characters of `[a-zA-Z0-9_-]` on OpenAI Chat, 128 on Anthropic, and
+  `[a-zA-Z_][a-zA-Z0-9_.:-]*` up to 128 on Gemini. OpenAI Responses publishes no
+  constraint and is left unchecked. A name outside the class was previously sent
+  and rejected by the provider.
+- `LlmCall.Application.default_children/1` raised an opaque `ArgumentError` for a
+  pool name that is not an atom; it now says the name must be an atom.
 
 ### Changed
 

@@ -47,6 +47,11 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   @gemini_schema_map_of_maps_keys ~w(properties patternProperties dependentSchemas definitions $defs)
   @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(thinkingbudget thinkinglevel)
+  # FunctionDeclaration.name: "Must start with a letter or an underscore. Must
+  # be a-z, A-Z, 0-9, or contain underscores, dots, colons and dashes, with a
+  # maximum length of 128."
+  @function_name_pattern ~r/\A[a-zA-Z_][a-zA-Z0-9_.:-]*\z/
+  @function_name_max 128
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
   @param_spec %{
     temperature: {:number, 0, 2},
@@ -411,7 +416,8 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     with :ok <-
            Helpers.validate_tool_spec(spec, @codec,
              options: true,
-             builtin_tools: @builtin_tools
+             builtin_tools: @builtin_tools,
+             name_pattern: {@function_name_pattern, @function_name_max, "Gemini"}
            ),
          :ok <- validate_tool_parameters(spec) do
       Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
