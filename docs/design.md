@@ -636,6 +636,18 @@ of parsing `message`; a non-transport error never sets it.
 response header (delta-seconds or IMF-fixdate) and sets it on the error; a codec
 leaves it `nil`. It is a hint, like `retryable?`; backoff policy stays outside.
 
+`retryable?` is a hint with two sources, and which one applies depends on whether
+the body decoded:
+
+- the provider envelope decoded: the codec's verdict stands, derived from its own
+  code or status field (`rate_limit_exceeded`, `overloaded_error`,
+  `RESOURCE_EXHAUSTED`, ...). A transport-level status does not override it.
+- the body did not decode (a gateway's HTML, an empty body, a proxy's plain
+  text): there is no code to classify, so the client derives the hint from the
+  HTTP status — `408`, `425`, `429`, `500`, `502`, `503` and `504` are
+  retryable. Without this a real `429` answered by a CDN reported
+  `retryable?: false`.
+
 `raw` is the provider payload the error was decoded from, and it follows
 `Config.capture_raw` like every other `raw`: it is `nil` unless the policy is
 `:response` or `:all`.
@@ -674,11 +686,21 @@ fabricated local guess.
 | `modalities` | list of `:text`, `:image`, `:video` | |
 | `image_input`, `file_input` | boolean | |
 | `reasoning` | `%LlmCall.Reasoning.Capabilities{}` | `supported`, `efforts`, `default_effort`, `budget_tokens`, `adaptive`, `summary` |
-| `streaming_tool_calls`, `prompt_cache`, `stateful`, `streaming` | boolean | |
+| `streaming_tool_calls`, `streaming` | boolean | |
+| `prompt_cache` | boolean | the protocol **reports** cache accounting in `Usage` |
+| `stateful` | boolean | a conversation can continue server-side through `provider_options` |
 
 `builtin_tools` declares provider-hosted tools: `false` rejects them,
 `:passthrough` forwards any name the caller supplies, and a list forwards only
 those names.
+
+`prompt_cache` and `stateful` are **reporting** capabilities, not request ones.
+`prompt_cache: true` says `Usage` carries `cache_read_tokens` and
+`cache_write_tokens`; it does not say the IR can place a cache breakpoint,
+because it cannot — there is no request field for one. `stateful: true` says the
+protocol offers server-side continuation, reached through `provider_options`
+(`previous_response_id`, `store`), not a canonical field. A caller that needs to
+control either reaches for `provider_options`, whose keys the codec validates.
 
 `validate_request/2` on a codec can reject unsupported combinations
 before a transport sends anything. No silent field dropping.

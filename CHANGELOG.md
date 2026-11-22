@@ -35,6 +35,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An SSE stream whose pending event grew without bound now raises
   `LlmCall.SSE.Error` at 1 MiB instead of consuming memory until the process dies.
   `LlmCall.Stream` reports it as an `:invalid_response` `LlmCall.HTTP.Error`.
+- A non-`2xx` whose body is not the provider's error envelope (a gateway's HTML,
+  an empty body) reported `retryable?: false` whatever the status was, so a real
+  `429` or `503` answered by a CDN told the caller not to retry. The hint is now
+  derived from the status in that case — `408`, `425`, `429`, `500`, `502`, `503`
+  and `504` are retryable. When the body does decode, the codec's own verdict
+  still stands.
+- `Capabilities.prompt_cache` and `Capabilities.stateful` claimed a request
+  capability they never had: the canonical IR has no field to place a cache
+  breakpoint or continue a response. They are now documented as reporting
+  capabilities — cache accounting in `Usage`, server-side continuation through
+  `provider_options` — which is what `true` always meant.
 
 ### Changed
 
