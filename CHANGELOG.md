@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-22
+
 ### Changed
 
 - Gemini tool `parameters` and `responseSchema` now reject schemas its OpenAPI
