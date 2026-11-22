@@ -40,6 +40,11 @@ defmodule LlmCall.HTTPTest do
                "https://api.example.test/openai/v1/chat"
     end
 
+    test "an empty query does not leave a trailing question mark" do
+      assert HTTP.build_url("https://api.example.test/openai", "/v1/chat", "") ==
+               "https://api.example.test/openai/v1/chat"
+    end
+
     test "keeps userinfo, port and scheme, and drops a fragment" do
       assert HTTP.build_url("https://user:pass@host:8443/openai#frag", "/v1/chat") ==
                "https://user:pass@host:8443/openai/v1/chat"

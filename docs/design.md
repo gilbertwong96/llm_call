@@ -1119,6 +1119,15 @@ There is no tee: reducing a `%LlmCall.Stream{}` twice issues the request twice.
 A caller that owns a transport does the same four steps itself before calling
 `decode_stream_event/3`.
 
+`LlmCall.SSE` keeps the server's `retry:` hint on the state as `retry_ms` instead
+of dropping it, so a caller that owns reconnection policy can read it; the
+library never reconnects a stream on its own. A pending event is capped at 1 MiB:
+a peer that never sends the blank line ending an event raises
+`LlmCall.SSE.Error` rather than growing the buffer without bound, and
+`LlmCall.Stream` reports that as an `:invalid_response` `LlmCall.HTTP.Error`. The
+frame is never truncated, because a truncated event would decode as a shorter
+payload that still looks valid.
+
 Codec responsibilities:
 
 - turn provider event terms into normalized events

@@ -219,10 +219,14 @@ defmodule LlmCall.HTTP do
     URI.to_string(%{
       base
       | path: join_path(base.path, path),
-        query: query,
+        query: empty_to_nil(query),
         fragment: nil
     })
   end
+
+  # An empty query string renders as a trailing `?`, which is not the same URL.
+  defp empty_to_nil(""), do: nil
+  defp empty_to_nil(query), do: query
 
   defp join_path(base_path, path) when base_path in [nil, ""], do: path
   defp join_path(base_path, path), do: String.trim_trailing(base_path, "/") <> path
