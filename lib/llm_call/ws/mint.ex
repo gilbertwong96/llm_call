@@ -283,7 +283,10 @@ defmodule LlmCall.WS.Mint do
     end
   end
 
-  defp parse_url(url) do
+  # `URI.parse/1` only accepts a binary, and the behaviour's `url()` type says one
+  # is expected; a caller passing anything else still gets the tagged error the
+  # callback promises rather than a crash inside a third-party function.
+  defp parse_url(url) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: scheme, host: host} = uri when scheme in ["ws", "wss"] and is_binary(host) ->
         {:ok, %{uri | port: uri.port || default_port(scheme)}, String.to_atom(scheme)}
@@ -294,6 +297,8 @@ defmodule LlmCall.WS.Mint do
   rescue
     URI.Error -> {:error, {:invalid_url, url}}
   end
+
+  defp parse_url(url), do: {:error, {:invalid_url, url}}
 
   defp default_port("ws"), do: 80
   defp default_port("wss"), do: 443

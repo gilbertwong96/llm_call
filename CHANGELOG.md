@@ -14,6 +14,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The default WebSocket transport raised `FunctionClauseError` for a URL that is
+  not a string, because `URI.parse/1` only accepts a binary. The `LlmCall.WS`
+  behaviour promises `{:ok, conn()} | {:error, error()}`, so a non-string URL is
+  now `{:error, {:invalid_url, url}}` like any other unusable URL.
 - The Gemini codec accepted `allOf` and `not` in tool `parameters` and in
   `responseSchema`, though its OpenAPI subset cannot express either; both are now
   `:validation` errors like `oneOf` and `const`.
