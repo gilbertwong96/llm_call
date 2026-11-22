@@ -258,6 +258,54 @@ defmodule LlmCall.ApiTest do
       end
     end
 
+    test "the dispatch functions that take a stream state" do
+      state = %LlmCall.StreamState{codec: Fake, data: %{}}
+
+      assert {:error, %Error{kind: :validation, message: message}} =
+               LlmCall.validate_request(Fake, %{model: "x"}, %Config{})
+
+      assert message =~ "%LlmCall.Request{}"
+
+      assert {:error, %Error{message: message}} = LlmCall.init_stream(Fake, %{model: "x"})
+      assert message =~ "%LlmCall.Request{}"
+
+      assert {:error, %Error{message: message}} = LlmCall.finish_stream(Fake, %{}, %Config{})
+      assert message =~ "%LlmCall.StreamState{}"
+
+      assert {:error, %Error{message: message}} =
+               LlmCall.decode_stream_event(Fake, %{}, %Config{}, %{})
+
+      assert message =~ "%LlmCall.StreamState{}"
+
+      # A real state still reaches the codec.
+      assert {:ok, _events, %LlmCall.StreamState{}} =
+               LlmCall.decode_stream_event(Fake, %{}, %Config{}, state)
+    end
+
+    test "the top-level calls name the argument that did not match" do
+      client = LlmCall.TestProvider.client(api_key: "k", base_url: "https://x.test")
+
+      request = %Request{
+        model: "fake-1",
+        messages: [%Message{role: :user, content: [%Content.Text{text: "hi"}]}]
+      }
+
+      assert {:error, %Error{kind: :validation, message: message}} =
+               LlmCall.complete(client, %{model: "x"})
+
+      assert message =~ "%LlmCall.Request{}"
+
+      assert {:error, %Error{message: message}} =
+               LlmCall.complete(Map.from_struct(client), request)
+
+      assert message =~ "%LlmCall.Client{}"
+
+      assert {:error, %Error{kind: :validation}} = LlmCall.stream(client, %{model: "x"})
+      assert {:error, %Error{kind: :validation}} = LlmCall.execute(client, %{})
+      assert {:error, %Error{kind: :validation}} = LlmCall.fetch(client, %{})
+      assert {:error, %Error{kind: :validation}} = LlmCall.poll(client, %{})
+    end
+
     test "the arity-2 form still applies the default config" do
       assert {:error, %Error{kind: :validation}} = LlmCall.encode(Fake, %{model: "x"})
       assert {:error, %Error{kind: :validation}} = LlmCall.capabilities(Fake, %{model: "x"})
