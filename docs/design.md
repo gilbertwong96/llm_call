@@ -109,7 +109,9 @@ A `ToolCall.describe/2` entry becomes a `%LlmCall.ToolSpec{}` with its
 
 `ToolCall.describe/2` returns a provider-neutral `name`/`description`/`parameters`
 per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
-`ToolCall.run/4` needs.
+`ToolCall.run/4` needs. `parameters` must already be in the selected codec's
+dialect: the Gemini codec validates its OpenAPI subset and returns `:validation`
+for constructs it cannot send.
 
 ### 2.4 Relationship to LangChain and ReqLLM
 
@@ -369,7 +371,8 @@ them:
 - The `name` in `output: {:json_schema, name, schema, strict?}` (Gemini): Gemini's
   `responseSchema` has no schema name. The name stays a caller-side label; the
   codec keeps the schema and drops the label. OpenAI emits it; Anthropic rejects
-  structured output entirely.
+  structured output entirely. Gemini validates `responseSchema` with the same
+  subset checks as tool `parameters`.
 - `Request.modalities` equal to `[:text]` (the default) — the protocol default, so
   it is omitted rather than written.
 
@@ -505,8 +508,12 @@ Examples:
 boolean) and `provider_options`.
 
 - `parameters` is a JSON Schema object (`map()`), not a JSON string or a
-  provider-specific schema struct. `nil` is valid for a built-in tool that has
-  no function schema.
+  provider-specific schema struct. It must already be in the selected codec's
+  dialect. The Gemini codec validates the OpenAPI subset and returns `:validation`
+  for a lowercase `type`, `additionalProperties`, `$ref`/`$defs`, `prefixItems`,
+  `oneOf` or `const`. OpenAI's `strict: true` mismatch is not locally detectable
+  and remains a provider error. `nil` is valid for a built-in tool that has no
+  function schema.
 - `kind: :function` is the normal function-tool case.
 - `kind: :builtin` is a provider-hosted tool (web search, grounding, server
   tools). Its `name` is the **vendor's own identifier** (`web_search_20250305`,

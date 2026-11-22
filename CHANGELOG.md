@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- Gemini tool `parameters` and `responseSchema` now reject schemas its OpenAPI
+  subset cannot express: a lowercase `type`, `additionalProperties`,
+  `$ref`/`$defs`, `prefixItems`, `oneOf` or `const` is a `:validation` error
+  instead of a provider request. `ToolSpec.parameters` is documented as
+  already-projected wire data.
+
 ## 0.1.0 - 2026-11-20
 
 ### Added

@@ -13,6 +13,11 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   Streaming changes the method in the path (`:streamGenerateContent`) and adds
   `alt=sse` to the query; the transport still owns SSE framing.
 
+  Tool `parameters` and `responseSchema` must already be in Gemini's OpenAPI
+  subset. The codec rejects a lowercase `type`, `additionalProperties`,
+  `$ref`/`$defs`, `prefixItems`, `oneOf` or `const` as a `:validation` error
+  rather than sending a request the provider would reject.
+
   `provider_options` accepts `:gemini` and its `:google` alias. The alias is
   collapsed per source before merging, so a request value wins over a config
   default even when the two use different names, and nested native objects are
@@ -35,6 +40,11 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
                                      responsemimetype responseschema thinkingconfig
                                      responsemodalities)
   @tool_reserved_keys ~w(name description parameters)
+  @gemini_schema_unsupported ~w(additionalProperties $ref $defs prefixItems oneOf const)
+  @gemini_schema_map_keys ~w(items not contains propertyNames if then else additionalProperties
+                             unevaluatedProperties unevaluatedItems contentSchema)
+  @gemini_schema_list_keys ~w(anyOf allOf oneOf prefixItems)
+  @gemini_schema_map_of_maps_keys ~w(properties patternProperties dependentSchemas definitions $defs)
   @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(thinkingbudget thinkinglevel)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
@@ -379,8 +389,9 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
 
   defp validate_output({:json_schema, name, schema, strict})
        when is_binary(name) and name != "" and is_map(schema) and
-              (is_boolean(strict) or is_nil(strict)) and strict != true,
-       do: :ok
+              (is_boolean(strict) or is_nil(strict)) and strict != true do
+    validate_gemini_schema(schema, "responseSchema")
+  end
 
   defp validate_output({:json_schema, _name, _schema, true}),
     do: Helpers.error(@codec, "strict json_schema is not supported")
@@ -393,10 +404,80 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
            Helpers.validate_tool_spec(spec, @codec,
              options: true,
              builtin_tools: @builtin_tools
-           ) do
+           ),
+         :ok <- validate_tool_parameters(spec) do
       Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
     end
   end
+
+  defp validate_tool_parameters(%ToolSpec{kind: :function, parameters: parameters})
+       when is_map(parameters) do
+    validate_gemini_schema(parameters, "tool parameters")
+  end
+
+  defp validate_tool_parameters(_spec), do: :ok
+
+  defp validate_gemini_schema(schema, label) when is_map(schema) do
+    with :ok <- validate_gemini_schema_keys(schema, label),
+         :ok <- validate_gemini_schema_type(schema, label) do
+      schema
+      |> Map.to_list()
+      |> Helpers.first_error(fn {key, value} ->
+        validate_gemini_schema_child(key, value, label)
+      end)
+    end
+  end
+
+  defp validate_gemini_schema(schema, label) when is_list(schema) do
+    Helpers.first_error(schema, &validate_gemini_schema(&1, label))
+  end
+
+  defp validate_gemini_schema(_schema, _label), do: :ok
+
+  defp validate_gemini_schema_keys(schema, label) do
+    Enum.find_value(@gemini_schema_unsupported, :ok, fn key ->
+      if Map.has_key?(schema, key) do
+        Helpers.error(@codec, "#{label}: Gemini cannot express `#{key}`")
+      end
+    end)
+  end
+
+  defp validate_gemini_schema_type(schema, label) do
+    case Map.fetch(schema, "type") do
+      :error ->
+        :ok
+
+      {:ok, type} when is_binary(type) ->
+        if type == String.upcase(type) do
+          :ok
+        else
+          Helpers.error(
+            @codec,
+            "#{label}: Gemini `type` must be uppercase, got: #{inspect(type)}"
+          )
+        end
+
+      {:ok, type} ->
+        Helpers.error(@codec, "#{label}: Gemini `type` must be uppercase, got: #{inspect(type)}")
+    end
+  end
+
+  defp validate_gemini_schema_child(key, value, label) when key in @gemini_schema_map_keys,
+    do: validate_gemini_schema(value, "#{label}.#{key}")
+
+  defp validate_gemini_schema_child(key, value, label) when key in @gemini_schema_list_keys,
+    do: validate_gemini_schema(value, "#{label}.#{key}")
+
+  defp validate_gemini_schema_child(key, value, label)
+       when key in @gemini_schema_map_of_maps_keys and is_map(value) do
+    value
+    |> Map.to_list()
+    |> Helpers.first_error(fn {name, schema} ->
+      validate_gemini_schema(schema, "#{label}.#{key}.#{name}")
+    end)
+  end
+
+  defp validate_gemini_schema_child(_key, _value, _label), do: :ok
 
   defp validate_tool_choice(:auto, _tools), do: :ok
   defp validate_tool_choice(:none, _tools), do: :ok

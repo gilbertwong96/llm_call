@@ -291,6 +291,11 @@ end
 Approvals, audits and timeouts stay in `tool_call`, and the follow-up request stays
 with you: the library does not run an agent loop.
 
+`ToolSpec.parameters` must already be in the selected codec's dialect. For Gemini,
+project it with `ToolCall.Schema.to_gemini/2`; the Gemini codec returns a
+`:validation` error for a lowercase `type`, `additionalProperties`, `$ref`/`$defs`,
+`prefixItems`, `oneOf` or `const` instead of sending it.
+
 What a decoded turn can be sent back as depends on the protocol: text and tool
 calls always, thinking blocks and `Content.Raw` only where the request shape
 allows it. `docs/design.md` §8.2 has the table, and
