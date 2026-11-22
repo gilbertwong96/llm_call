@@ -188,7 +188,11 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
       {%{"type" => "OBJECT", "$defs" => %{}}, "$defs"},
       {%{"type" => "OBJECT", "properties" => %{"x" => %{"prefixItems" => []}}}, "prefixItems"},
       {%{"type" => "OBJECT", "properties" => %{"x" => %{"oneOf" => []}}}, "oneOf"},
-      {%{"type" => "OBJECT", "properties" => %{"x" => %{"const" => 1}}}, "const"}
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"const" => 1}}}, "const"},
+      {%{"type" => "OBJECT", "allOf" => [%{"type" => "STRING"}]}, "allOf"},
+      {%{"type" => "OBJECT", "not" => %{"type" => "STRING"}}, "not"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"allOf" => []}}}, "allOf"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"not" => %{}}}}, "not"}
     ]
 
     for {schema, expected} <- cases do
@@ -227,7 +231,9 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
       {%{"type" => "OBJECT", "$defs" => %{}}, "$defs"},
       {%{"type" => "OBJECT", "properties" => %{"x" => %{"prefixItems" => []}}}, "prefixItems"},
       {%{"type" => "OBJECT", "properties" => %{"x" => %{"oneOf" => []}}}, "oneOf"},
-      {%{"type" => "OBJECT", "properties" => %{"x" => %{"const" => 1}}}, "const"}
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"const" => 1}}}, "const"},
+      {%{"type" => "OBJECT", "allOf" => [%{"type" => "STRING"}]}, "allOf"},
+      {%{"type" => "OBJECT", "not" => %{"type" => "STRING"}}, "not"}
     ]
 
     for {schema, expected} <- cases do

@@ -40,7 +40,7 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
                                      responsemimetype responseschema thinkingconfig
                                      responsemodalities)
   @tool_reserved_keys ~w(name description parameters)
-  @gemini_schema_unsupported ~w(additionalProperties $ref $defs prefixItems oneOf const)
+  @gemini_schema_unsupported ~w(additionalProperties $ref $defs prefixItems oneOf const allOf not)
   @gemini_schema_map_keys ~w(items not contains propertyNames if then else additionalProperties
                              unevaluatedProperties unevaluatedItems contentSchema)
   @gemini_schema_list_keys ~w(anyOf allOf oneOf prefixItems)

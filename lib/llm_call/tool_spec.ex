@@ -6,8 +6,8 @@ defmodule LlmCall.ToolSpec do
   in the selected codec's dialect. The Gemini codec validates its OpenAPI subset
   and returns a `:validation` error for constructs it cannot send, such as a
   lowercase `type`, `additionalProperties`, `$ref`/`$defs`, `prefixItems`,
-  `oneOf` or `const`. `kind: :builtin` is for provider-defined tools such as web
-  search or code interpreter, whose native definition lives in
+  `oneOf`, `const`, `allOf` or `not`. `kind: :builtin` is for provider-defined
+  tools such as web search or code interpreter, whose native definition lives in
   `provider_options`.
 
   `strict` is optional and codec-specific. OpenAI's requirement that a strict
