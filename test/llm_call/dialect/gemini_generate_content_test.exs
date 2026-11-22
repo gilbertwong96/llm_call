@@ -135,7 +135,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
       %ToolSpec{
         name: "get_weather",
         description: "Get weather",
-        parameters: %{"type" => "object"}
+        parameters: %{"type" => "OBJECT"}
       }
     ]
 
@@ -147,7 +147,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
                  %{
                    "name" => "get_weather",
                    "description" => "Get weather",
-                   "parameters" => %{"type" => "object"}
+                   "parameters" => %{"type" => "OBJECT"}
                  }
                ]
              }
@@ -180,6 +180,81 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
     refute Map.has_key?(encode(text_request(tools: tools)).body, "toolConfig")
   end
 
+  test "rejects tool schemas Gemini cannot express" do
+    cases = [
+      {%{"type" => "object"}, "must be uppercase"},
+      {%{"type" => "OBJECT", "additionalProperties" => false}, "additionalProperties"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"$ref" => "#/$defs/x"}}}, "$ref"},
+      {%{"type" => "OBJECT", "$defs" => %{}}, "$defs"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"prefixItems" => []}}}, "prefixItems"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"oneOf" => []}}}, "oneOf"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"const" => 1}}}, "const"}
+    ]
+
+    for {schema, expected} <- cases do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(tools: [%ToolSpec{name: "f", parameters: schema}]),
+                 %Config{}
+               )
+
+      assert message =~ expected
+    end
+  end
+
+  test "accepts already-projected tool schemas" do
+    schema = %{
+      "type" => "OBJECT",
+      "properties" => %{
+        "city" => %{"type" => "STRING"},
+        "type" => %{"type" => "STRING"}
+      },
+      "required" => ["city"]
+    }
+
+    assert :ok ==
+             GenerateContent.validate_request(
+               text_request(tools: [%ToolSpec{name: "f", parameters: schema}]),
+               %Config{}
+             )
+  end
+
+  test "rejects response schemas Gemini cannot express" do
+    cases = [
+      {%{"type" => "object"}, "must be uppercase"},
+      {%{"type" => "OBJECT", "additionalProperties" => false}, "additionalProperties"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"$ref" => "#/$defs/x"}}}, "$ref"},
+      {%{"type" => "OBJECT", "$defs" => %{}}, "$defs"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"prefixItems" => []}}}, "prefixItems"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"oneOf" => []}}}, "oneOf"},
+      {%{"type" => "OBJECT", "properties" => %{"x" => %{"const" => 1}}}, "const"}
+    ]
+
+    for {schema, expected} <- cases do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(output: {:json_schema, "result", schema, nil}),
+                 %Config{}
+               )
+
+      assert message =~ expected
+    end
+  end
+
+  test "accepts already-projected response schemas" do
+    schema = %{
+      "type" => "OBJECT",
+      "properties" => %{"city" => %{"type" => "STRING"}},
+      "required" => ["city"]
+    }
+
+    assert :ok ==
+             GenerateContent.validate_request(
+               text_request(output: {:json_schema, "result", schema, nil}),
+               %Config{}
+             )
+  end
+
   test "allowed tool names must be non-empty strings" do
     tools = [%ToolSpec{name: "get_weather"}]
 
@@ -199,7 +274,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
       encode(
         text_request(
           params: %{temperature: 0.2, top_p: 0.9, top_k: 40, max_tokens: 128, stop: ["END"]},
-          output: {:json_schema, "person", %{"type" => "object"}, nil}
+          output: {:json_schema, "person", %{"type" => "OBJECT"}, nil}
         )
       ).body
 
@@ -210,7 +285,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
              "maxOutputTokens" => 128,
              "stopSequences" => ["END"],
              "responseMimeType" => "application/json",
-             "responseSchema" => %{"type" => "object"}
+             "responseSchema" => %{"type" => "OBJECT"}
            }
 
     assert encode(text_request(output: :json_object)).body["generationConfig"] == %{
@@ -382,7 +457,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
 
   test "hosted tools pass through as their provider key" do
     tools = [
-      %ToolSpec{name: "f", parameters: %{"type" => "object"}},
+      %ToolSpec{name: "f", parameters: %{"type" => "OBJECT"}},
       %ToolSpec{kind: :builtin, name: "google_search"}
     ]
 
@@ -496,11 +571,11 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
   end
 
   test "the json_schema name is a caller-side label Gemini drops" do
-    body = encode(text_request(output: {:json_schema, "person", %{"type" => "object"}, nil})).body
+    body = encode(text_request(output: {:json_schema, "person", %{"type" => "OBJECT"}, nil})).body
 
     assert body["generationConfig"] == %{
              "responseMimeType" => "application/json",
-             "responseSchema" => %{"type" => "object"}
+             "responseSchema" => %{"type" => "OBJECT"}
            }
   end
 
@@ -524,7 +599,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
     tools = [
       %ToolSpec{
         name: "f",
-        parameters: %{"type" => "object"},
+        parameters: %{"type" => "OBJECT"},
         provider_options: %{"name" => "shadow"}
       }
     ]

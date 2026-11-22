@@ -622,7 +622,8 @@ defmodule LlmCall.Codec.Conformance do
   end
 
   defp check_tools(codec, request, config, %Capabilities{tools: true}) do
-    assert :ok == codec.validate_request(with_field(request, :tools, [minimal_tool()]), config),
+    assert :ok ==
+             codec.validate_request(with_field(request, :tools, [minimal_tool(codec)]), config),
            "#{inspect(codec)} declares tools: true but rejects a minimal function tool"
 
     :ok
@@ -631,7 +632,7 @@ defmodule LlmCall.Codec.Conformance do
   defp check_tools(codec, request, config, %Capabilities{tools: false}) do
     expect_rejection(
       codec,
-      with_field(request, :tools, [minimal_tool()]),
+      with_field(request, :tools, [minimal_tool(codec)]),
       config,
       "declares tools: false but accepts a function tool"
     )
@@ -687,7 +688,7 @@ defmodule LlmCall.Codec.Conformance do
 
   defp check_tool_choice(codec, request, config, %Capabilities{tool_choice: true}) do
     request =
-      request |> with_field(:tools, [minimal_tool()]) |> with_field(:tool_choice, :required)
+      request |> with_field(:tools, [minimal_tool(codec)]) |> with_field(:tool_choice, :required)
 
     assert :ok == codec.validate_request(request, config),
            "#{inspect(codec)} declares tool_choice: true but rejects tool_choice: :required"
@@ -697,7 +698,7 @@ defmodule LlmCall.Codec.Conformance do
 
   defp check_tool_choice(codec, request, config, %Capabilities{tool_choice: false}) do
     request =
-      request |> with_field(:tools, [minimal_tool()]) |> with_field(:tool_choice, :required)
+      request |> with_field(:tools, [minimal_tool(codec)]) |> with_field(:tool_choice, :required)
 
     expect_rejection(codec, request, config, "declares tool_choice: false but accepts :required")
   end
@@ -716,7 +717,7 @@ defmodule LlmCall.Codec.Conformance do
 
     expect_rejection(
       codec,
-      with_field(request, :output, json_schema()),
+      with_field(request, :output, json_schema(codec)),
       config,
       "declares structured_output: :none but accepts a json_schema output"
     )
@@ -728,14 +729,14 @@ defmodule LlmCall.Codec.Conformance do
 
     expect_rejection(
       codec,
-      with_field(request, :output, json_schema()),
+      with_field(request, :output, json_schema(codec)),
       config,
       "declares structured_output: :json_object but accepts a json_schema output"
     )
   end
 
   defp check_output(codec, request, config, :json_schema) do
-    for output <- [:json_object, json_schema()] do
+    for output <- [:json_object, json_schema(codec)] do
       assert :ok == codec.validate_request(with_field(request, :output, output), config),
              "#{inspect(codec)} declares structured_output: :json_schema but rejects #{inspect(output)}"
     end
@@ -1121,11 +1122,14 @@ defmodule LlmCall.Codec.Conformance do
     :ok
   end
 
-  defp minimal_tool, do: %ToolSpec{name: "f", parameters: %{"type" => "object"}}
+  defp minimal_tool(codec), do: %ToolSpec{name: "f", parameters: minimal_schema(codec)}
 
   defp builtin_tool(name), do: %ToolSpec{kind: :builtin, name: name}
 
-  defp json_schema, do: {:json_schema, "result", %{"type" => "object"}, nil}
+  defp json_schema(codec), do: {:json_schema, "result", minimal_schema(codec), nil}
+
+  defp minimal_schema(LlmCall.Dialect.Gemini.GenerateContent), do: %{"type" => "OBJECT"}
+  defp minimal_schema(_codec), do: %{"type" => "object"}
 
   defp with_field(request, field, value), do: Map.put(request, field, value)
 

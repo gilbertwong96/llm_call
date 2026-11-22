@@ -32,6 +32,10 @@ defmodule LlmCall.WritePathAuditTest do
     [struct(ToolSpec, if(strict?, do: Map.put(base, :strict, true), else: base))]
   end
 
+  defp gemini_tools do
+    [%ToolSpec{name: "f", description: "d", parameters: %{"type" => "OBJECT"}}]
+  end
+
   defp codecs do
     [
       %{
@@ -163,9 +167,9 @@ defmodule LlmCall.WritePathAuditTest do
           model: "gemini-2.5-pro",
           system: "sys",
           messages: message(),
-          tools: tools(),
+          tools: gemini_tools(),
           tool_choice: {:allowed, ["f"]},
-          output: {:json_schema, "s", %{"type" => "object"}, nil},
+          output: {:json_schema, "s", %{"type" => "OBJECT"}, nil},
           reasoning: %Reasoning{effort: :high},
           params: %{temperature: 0.2, top_p: 0.9, top_k: 5, max_tokens: 64},
           stream: true
