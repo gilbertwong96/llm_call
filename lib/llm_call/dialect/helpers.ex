@@ -20,6 +20,13 @@ defmodule LlmCall.Dialect.Helpers do
   A codec's own name is injected as `@codec` by the adapter macros; pass it to
   `error/2`, `reject/3`, and `validate_options/3`, so every validation message is
   prefixed with the codec that rejected the request.
+
+  ## Stability
+
+  Because an out-of-tree adapter is meant to call these functions, they are API:
+  a change here is a minor-version change, and a removal or a change to an error's
+  `kind` is a breaking one. A function documented `@doc false` is internal and may
+  change in a patch release; do not call those from a package.
   """
 
   alias LlmCall.{Config, Content, Error, Message, StreamEvent, ToolCall, ToolResult, ToolSpec}

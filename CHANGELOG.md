@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- `LlmCall.SSE` keeps the server's `retry:` hint on the state as `retry_ms`
+  instead of dropping it, so a caller that owns reconnection policy can read it.
+  The library still never reconnects a stream on its own.
+
 ### Fixed
 
 - The Gemini codec accepted `allOf` and `not` in tool `parameters` and in
@@ -24,6 +30,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and rejected by the provider.
 - `LlmCall.Application.default_children/1` raised an opaque `ArgumentError` for a
   pool name that is not an atom; it now says the name must be an atom.
+- `LlmCall.HTTP.build_url/3` no longer renders a trailing `?` when the query is an
+  empty string.
+- An SSE stream whose pending event grew without bound now raises
+  `LlmCall.SSE.Error` at 1 MiB instead of consuming memory until the process dies.
+  `LlmCall.Stream` reports it as an `:invalid_response` `LlmCall.HTTP.Error`.
 
 ### Changed
 

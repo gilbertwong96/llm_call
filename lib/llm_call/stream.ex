@@ -91,7 +91,7 @@ defmodule LlmCall.Stream do
   end
 
   defp handle_event({:data, chunk}, state) do
-    {payloads, sse} = SSE.parse(state.sse, chunk)
+    {payloads, sse} = safe_parse_sse(state.sse, chunk)
     state = %{state | sse: sse}
 
     state =
@@ -113,6 +113,21 @@ defmodule LlmCall.Stream do
       {:ok, term} -> decode_event(state, term)
       {:error, _reason} -> raise HTTP.Error, error: invalid_response("stream payload is not JSON")
     end
+  end
+
+  # A framing failure is reported as the stream's own canonical error: a caller of
+  # `stream/3` handles `LlmCall.HTTP.Error`, not the parser's internal exception.
+  defp safe_parse_sse(sse, chunk) do
+    case parse_sse(sse, chunk) do
+      {:ok, result} -> result
+      {:error, message} -> raise HTTP.Error, error: invalid_response(message)
+    end
+  end
+
+  defp parse_sse(sse, chunk) do
+    {:ok, SSE.parse(sse, chunk)}
+  rescue
+    error in LlmCall.SSE.Error -> {:error, Exception.message(error)}
   end
 
   defp decode_event(state, term) do
