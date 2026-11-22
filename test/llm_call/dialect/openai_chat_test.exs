@@ -117,6 +117,11 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
 
   test "tool results become role: tool messages placed before remaining user content" do
     messages = [
+      %Message{role: :user, content: [%Content.Text{text: "weather?"}]},
+      %Message{
+        role: :assistant,
+        content: [%LlmCall.ToolCall{id: "call_1", name: "get_weather", arguments: %{}}]
+      },
       %Message{
         role: :user,
         content: [
@@ -131,7 +136,7 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
       }
     ]
 
-    assert encode(text_request(messages: messages)).body["messages"] == [
+    assert encode(text_request(messages: messages)).body["messages"] |> Enum.drop(2) == [
              %{"role" => "tool", "tool_call_id" => "call_1", "content" => "Sunny"},
              %{"role" => "user", "content" => [%{"type" => "text", "text" => "thanks"}]}
            ]
@@ -139,13 +144,18 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
 
   test "tool result with string content keeps the string" do
     messages = [
+      %Message{role: :user, content: [%Content.Text{text: "run it"}]},
+      %Message{
+        role: :assistant,
+        content: [%LlmCall.ToolCall{id: "call_1", name: "explode", arguments: %{}}]
+      },
       %Message{
         role: :user,
         content: [%ToolResult{call_id: "call_1", content: "boom", is_error: true}]
       }
     ]
 
-    assert encode(text_request(messages: messages)).body["messages"] == [
+    assert encode(text_request(messages: messages)).body["messages"] |> Enum.drop(2) == [
              %{"role" => "tool", "tool_call_id" => "call_1", "content" => "boom"}
            ]
   end

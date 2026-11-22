@@ -41,6 +41,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   derived from the status in that case — `408`, `425`, `429`, `500`, `502`, `503`
   and `504` are retryable. When the body does decode, the codec's own verdict
   still stands.
+- A `%LlmCall.ToolResult{}` that answers no tool call in the immediately preceding
+  message is now a `:validation` error naming the id and index, instead of a
+  request both OpenAI and Anthropic reject with a 400. A history with an
+  unanswered tool call is still accepted, because a truncated turn is the
+  caller's decision.
 - `Capabilities.prompt_cache` and `Capabilities.stateful` claimed a request
   capability they never had: the canonical IR has no field to place a cache
   breakpoint or continue a response. They are now documented as reporting

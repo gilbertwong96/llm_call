@@ -16,6 +16,10 @@ defmodule LlmCall.ContentValidationTest do
     LlmCall.Dialect.OpenAI.Chat.validate_request(request(role, content), %Config{})
   end
 
+  defp validate_messages(messages) do
+    LlmCall.Dialect.Helpers.validate_messages(messages, :test_codec)
+  end
+
   defp validate_tools(tools) do
     request = %Request{
       model: "gpt-4o",
@@ -76,6 +80,68 @@ defmodule LlmCall.ContentValidationTest do
 
     assert :ok == validate_tools([%LlmCall.ToolSpec{name: "get_weather"}])
     assert :ok == validate_tools([%LlmCall.ToolSpec{name: "get-weather"}])
+  end
+
+  test "a tool result must answer a call in the preceding message" do
+    orphan = [
+      %LlmCall.Message{role: :user, content: [%Content.Text{text: "hi"}]},
+      %LlmCall.Message{
+        role: :user,
+        content: [%ToolResult{call_id: "call_1", name: "f", content: "r"}]
+      }
+    ]
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             validate_messages(orphan)
+
+    assert message =~ "tool result for \"call_1\""
+    assert message =~ "preceding message declares no tool call"
+
+    paired = [
+      %LlmCall.Message{role: :user, content: [%Content.Text{text: "hi"}]},
+      %LlmCall.Message{
+        role: :assistant,
+        content: [%LlmCall.ToolCall{id: "call_1", name: "f", arguments: %{}}]
+      },
+      %LlmCall.Message{
+        role: :user,
+        content: [%ToolResult{call_id: "call_1", name: "f", content: "r"}]
+      }
+    ]
+
+    assert :ok == validate_messages(paired)
+  end
+
+  test "an unanswered tool call is left to the protocol" do
+    # A truncated turn is the caller's decision: only the protocol can say
+    # whether it is recoverable, so the library does not reject it.
+    messages = [
+      %LlmCall.Message{role: :user, content: [%Content.Text{text: "hi"}]},
+      %LlmCall.Message{
+        role: :assistant,
+        content: [%LlmCall.ToolCall{id: "call_1", name: "f", arguments: %{}}]
+      }
+    ]
+
+    assert :ok == validate_messages(messages)
+  end
+
+  test "a tool result whose call_id is absent is not a pairing error" do
+    # Gemini identifies a call by name, so `call_id` is nil there; that shape is
+    # the codec's to validate, not the pairing rule's.
+    messages = [
+      %LlmCall.Message{role: :user, content: [%Content.Text{text: "hi"}]},
+      %LlmCall.Message{
+        role: :assistant,
+        content: [%LlmCall.ToolCall{id: nil, name: "f", arguments: %{}}]
+      },
+      %LlmCall.Message{
+        role: :user,
+        content: [%ToolResult{call_id: nil, name: "f", content: "r"}]
+      }
+    ]
+
+    assert :ok == validate_messages(messages)
   end
 
   test "a tool name may only be declared once" do

@@ -578,6 +578,19 @@ Adapters validate required identifiers:
 - Bedrock uses `toolUseId`.
 - Cohere uses `tool_call_id`.
 
+A result answers a call the model made, and both protocols reject a history where
+that link is missing: OpenAI with "messages with role 'tool' must be a response to
+a preceding message with 'tool_calls'", Anthropic with "unexpected `tool_use_id`
+found in `tool_result` blocks". `Helpers.validate_tool_result_pairing/2`
+therefore checks, for every codec, that a result's `call_id` names a tool call in
+the **immediately preceding** message; anything else is a `:validation` error that
+names the offending id and index. A result with no `call_id` is left to the codec,
+because a protocol like Gemini identifies a call by name.
+
+An assistant turn whose calls have **no** results is not rejected: a truncated
+turn is the caller's decision, and only the protocol can say whether it is
+recoverable.
+
 ### 8.7 Response
 
 `%LlmCall.Response{}` carries `id`, `model`, `content` (content parts),
