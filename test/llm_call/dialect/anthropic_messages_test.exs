@@ -116,10 +116,17 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
   end
 
   test "tool result with string content sends the string" do
-    messages = [%Message{role: :user, content: [%ToolResult{call_id: "t1", content: "Sunny"}]}]
+    messages = [
+      %Message{role: :user, content: [%Content.Text{text: "weather?"}]},
+      %Message{
+        role: :assistant,
+        content: [%LlmCall.ToolCall{id: "t1", name: "get_weather", arguments: %{}}]
+      },
+      %Message{role: :user, content: [%ToolResult{call_id: "t1", content: "Sunny"}]}
+    ]
 
     assert encode(text_request(messages: messages)).body["messages"]
-           |> hd()
+           |> Enum.at(2)
            |> Map.fetch!("content") == [
              %{"type" => "tool_result", "tool_use_id" => "t1", "content" => "Sunny"}
            ]

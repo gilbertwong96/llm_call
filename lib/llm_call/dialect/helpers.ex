@@ -312,26 +312,94 @@ defmodule LlmCall.Dialect.Helpers do
   def validate_messages([], codec), do: error(codec, "at least one message is required")
 
   def validate_messages(messages, codec) when is_list(messages) do
-    first_error(messages, fn
-      %Message{role: role, content: []} when role in [:user, :assistant] ->
-        error(codec, "message requires at least one content part")
+    with :ok <-
+           first_error(messages, fn
+             %Message{role: role, content: []} when role in [:user, :assistant] ->
+               error(codec, "message requires at least one content part")
 
-      %Message{role: role, content: content}
-      when role in [:user, :assistant] and is_list(content) ->
-        :ok
+             %Message{role: role, content: content}
+             when role in [:user, :assistant] and is_list(content) ->
+               :ok
 
-      %Message{role: role} when role in [:user, :assistant] ->
-        error(codec, "message content must be a list")
+             %Message{role: role} when role in [:user, :assistant] ->
+               error(codec, "message content must be a list")
 
-      %Message{} ->
-        error(codec, "message role must be :user or :assistant")
+             %Message{} ->
+               error(codec, "message role must be :user or :assistant")
 
-      _other ->
-        error(codec, "messages must be LlmCall.Message structs")
-    end)
+             _other ->
+               error(codec, "messages must be LlmCall.Message structs")
+           end) do
+      validate_tool_result_pairing(messages, codec)
+    end
   end
 
   def validate_messages(_messages, codec), do: error(codec, "messages must be a list")
+
+  @doc """
+  Validates that every tool result answers a tool call in the preceding turn.
+
+  A `%LlmCall.ToolResult{}` is a reply to a `%LlmCall.ToolCall{}` the model made,
+  and both OpenAI and Anthropic reject a history where the link is missing:
+  OpenAI with "messages with role 'tool' must be a response to a preceding message
+  with 'tool_calls'", Anthropic with "unexpected `tool_use_id` found in
+  `tool_result` blocks". The history is what a caller repairs, so the error names
+  the offending state instead of forwarding a provider message.
+
+  The rule is the one both protocols enforce: a result belongs to a call in the
+  immediately preceding message. A call with no result at all is left alone,
+  because a truncated turn is the caller's decision and only the protocol can say
+  whether it is recoverable.
+  """
+  @spec validate_tool_result_pairing([Message.t()], codec()) :: :ok | {:error, Error.t()}
+  def validate_tool_result_pairing(messages, codec) when is_list(messages) do
+    messages
+    |> Enum.with_index()
+    |> first_error(fn {%Message{} = message, index} ->
+      validate_message_tool_results(message, Enum.at(messages, index - 1), index, codec)
+    end)
+  end
+
+  def validate_tool_result_pairing(_messages, codec),
+    do: error(codec, "messages must be a list")
+
+  defp validate_message_tool_results(%Message{content: content}, previous, index, codec)
+       when is_list(content) do
+    case Enum.filter(content, &is_struct(&1, ToolResult)) do
+      [] ->
+        :ok
+
+      [result | _rest] = results ->
+        check_results(results, known_call_ids(previous), index, codec, result)
+    end
+  end
+
+  defp validate_message_tool_results(_message, _previous, _index, _codec), do: :ok
+
+  defp known_call_ids(%Message{role: :assistant, content: content}) when is_list(content) do
+    for %ToolCall{id: id} <- content, is_binary(id), do: id
+  end
+
+  defp known_call_ids(_previous), do: []
+
+  defp check_results(results, call_ids, index, codec, _first) do
+    Enum.find_value(results, :ok, fn %ToolResult{call_id: call_id} ->
+      cond do
+        not is_binary(call_id) ->
+          nil
+
+        call_id in call_ids ->
+          nil
+
+        true ->
+          error(
+            codec,
+            "messages[#{index}] has a tool result for #{inspect(call_id)}, " <>
+              "but the preceding message declares no tool call with that id"
+          )
+      end
+    end)
+  end
 
   @doc """
   Validates every content part in every message, applying the shared role rules
