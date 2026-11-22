@@ -64,7 +64,9 @@ defmodule LlmCall do
   """
   @spec complete(Client.t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Response.t()} | {:error, Error.t()}
-  def complete(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
+  def complete(client, request, opts \\ [])
+
+  def complete(%Client{} = client, %LlmCall.Request{} = request, opts) do
     with :ok <- validate_call_options(opts, @call_options),
          :ok <- validate_headers(opts[:headers]),
          :ok <- reject_streaming(request),
@@ -84,6 +86,11 @@ defmodule LlmCall do
     end
   end
 
+  def complete(client, request, _opts),
+    do:
+      {:error,
+       not_a_client_and_request(client, request, "%LlmCall.Client{}", "%LlmCall.Request{}")}
+
   @doc """
   Starts a streaming call.
 
@@ -102,7 +109,9 @@ defmodule LlmCall do
   """
   @spec stream(Client.t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Stream.t()} | {:error, Error.t()}
-  def stream(%Client{} = client, %LlmCall.Request{} = request, opts \\ []) do
+  def stream(client, request, opts \\ [])
+
+  def stream(%Client{} = client, %LlmCall.Request{} = request, opts) do
     request = %{request | stream: true}
 
     with :ok <- validate_call_options(opts, [:on_event | @call_options]),
@@ -127,6 +136,11 @@ defmodule LlmCall do
     end
   end
 
+  def stream(client, request, _opts),
+    do:
+      {:error,
+       not_a_client_and_request(client, request, "%LlmCall.Client{}", "%LlmCall.Request{}")}
+
   @doc """
   Submits a media generation request.
 
@@ -137,7 +151,9 @@ defmodule LlmCall do
   """
   @spec generate(Client.t(), LlmCall.Media.Request.t(), keyword()) ::
           {:ok, LlmCall.Media.Response.t()} | {:error, Error.t()}
-  def generate(%Client{} = client, %LlmCall.Media.Request{} = request, opts \\ []) do
+  def generate(client, request, opts \\ [])
+
+  def generate(%Client{} = client, %LlmCall.Media.Request{} = request, opts) do
     with :ok <- validate_call_options(opts, @call_options),
          :ok <- validate_headers(opts[:headers]),
          {:ok, codec} <- fetch_media_codec(client, opts),
@@ -155,6 +171,11 @@ defmodule LlmCall do
       |> check_decoded(LlmCall.Media.Response, "decode_submit/2")
     end
   end
+
+  def generate(client, request, _opts),
+    do:
+      {:error,
+       not_a_client_and_request(client, request, "%LlmCall.Client{}", "%LlmCall.Media.Request{}")}
 
   @doc """
   Advances a media operation.
@@ -203,6 +224,11 @@ defmodule LlmCall do
     end
   end
 
+  def poll(_client, operation_or_encoded, _opts),
+    do:
+      {:error,
+       not_a_request(operation_or_encoded, "%LlmCall.Operation{} or %LlmCall.EncodedRequest{}")}
+
   @doc """
   Performs a request the caller already encoded.
 
@@ -225,6 +251,9 @@ defmodule LlmCall do
         error
     end
   end
+
+  def execute(_client, encoded),
+    do: {:error, not_a_request(encoded, "%LlmCall.EncodedRequest{}")}
 
   @doc """
   Performs a request and returns the body bytes, without JSON decoding.
@@ -268,6 +297,9 @@ defmodule LlmCall do
         error
     end
   end
+
+  def fetch(_client, encoded),
+    do: {:error, not_a_request(encoded, "%LlmCall.EncodedRequest{}")}
 
   defp perform(%Client{} = client, %EncodedRequest{} = encoded, call_headers \\ []) do
     with {:ok, request} <- build_http_request(client, encoded, call_headers) do
@@ -597,12 +629,17 @@ defmodule LlmCall do
   @doc "Checks a request against the fields a codec can represent."
   @spec validate_request(module(), LlmCall.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
-  def validate_request(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
+  def validate_request(codec, request, config \\ Config.new())
+
+  def validate_request(codec, %LlmCall.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_request, 2),
          :ok <- require_callback(codec, :validate_request, 2) do
       codec.validate_request(request, config)
     end
   end
+
+  def validate_request(_codec, request, _config),
+    do: {:error, not_a_request(request, "%LlmCall.Request{}")}
 
   @doc """
   Describes what a completion codec supports.
@@ -628,11 +665,16 @@ defmodule LlmCall do
   @doc "Starts a stream, or returns a typed error when the codec has no streaming."
   @spec init_stream(module(), LlmCall.Request.t(), Config.t()) ::
           {:ok, StreamState.t()} | {:error, Error.t()}
-  def init_stream(codec, %LlmCall.Request{} = request, config \\ Config.new()) do
+  def init_stream(codec, request, config \\ Config.new())
+
+  def init_stream(codec, %LlmCall.Request{} = request, config) do
     with :ok <- require_callback(codec, :init_stream, 2) do
       codec.init_stream(request, config)
     end
   end
+
+  def init_stream(_codec, request, _config),
+    do: {:error, not_a_request(request, "%LlmCall.Request{}")}
 
   @doc "Decodes one provider stream event into zero or more normalized events."
   @spec decode_stream_event(module(), LlmCall.wire_value(), Config.t(), StreamState.t()) ::
@@ -646,6 +688,9 @@ defmodule LlmCall do
     end
   end
 
+  def decode_stream_event(_codec, _term, _config, state),
+    do: {:error, not_a_request(state, "%LlmCall.StreamState{}")}
+
   @doc """
   Flushes whatever the protocol does not emit itself when the stream ends.
 
@@ -654,12 +699,17 @@ defmodule LlmCall do
   """
   @spec finish_stream(module(), StreamState.t(), Config.t()) ::
           {:ok, [LlmCall.StreamEvent.t()], StreamState.t()} | {:error, Error.t()}
-  def finish_stream(codec, %StreamState{} = state, config \\ Config.new()) do
+  def finish_stream(codec, state, config \\ Config.new())
+
+  def finish_stream(codec, %StreamState{} = state, config) do
     with :ok <- require_owner(codec, state),
          :ok <- require_callback(codec, :finish_stream, 2) do
       codec.finish_stream(state, config)
     end
   end
+
+  def finish_stream(_codec, state, _config),
+    do: {:error, not_a_request(state, "%LlmCall.StreamState{}")}
 
   @doc """
   Encodes a media generation request, or starts a long-running job.
@@ -705,12 +755,17 @@ defmodule LlmCall do
   @doc "Checks a media request against the fields a codec can represent."
   @spec validate_media(module(), LlmCall.Media.Request.t(), Config.t()) ::
           :ok | {:error, Error.t()}
-  def validate_media(codec, %LlmCall.Media.Request{} = request, config \\ Config.new()) do
+  def validate_media(codec, request, config \\ Config.new())
+
+  def validate_media(codec, %LlmCall.Media.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_submit, 2),
          :ok <- require_callback(codec, :validate_request, 2) do
       codec.validate_request(request, config)
     end
   end
+
+  def validate_media(_codec, request, _config),
+    do: {:error, not_a_request(request, "%LlmCall.Media.Request{}")}
 
   @doc """
   Describes the media surface a codec declares.
@@ -750,6 +805,14 @@ defmodule LlmCall do
       kind: :validation,
       message: "expected #{expected}, got: #{inspect(request)}"
     }
+  end
+
+  # The top-level calls take a client and a request, so the error has to say which
+  # one did not match; naming the request for a bad client would be misleading.
+  defp not_a_client_and_request(client, request, client_type, request_type) do
+    if is_struct(client, Client),
+      do: not_a_request(request, request_type),
+      else: not_a_request(client, client_type)
   end
 
   defp require_callback(codec, function, arity) do

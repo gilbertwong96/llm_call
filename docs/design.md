@@ -1330,9 +1330,15 @@ return `{:ok, struct} | {:error, %LlmCall.Error{}}`.
 
 A request of the wrong shape is part of that contract, not a reason to raise: a
 caller that assembles a `%LlmCall.Request{}` from data gets a `:validation` error
-naming the expected struct, on every dispatch function. `decode_response/3`,
-`decode_error/3` and `decode_operation/3` take a wire term by design, so any term
-reaches the codec and comes back as a typed error there.
+naming the expected struct, on every dispatch function **and** on every top-level
+call. `decode_response/3`, `decode_error/3` and `decode_operation/3` take a wire
+term by design, so any term reaches the codec and comes back as a typed error
+there.
+
+A top-level call takes two structs, so the error names the one that did not
+match: a bad client reports `%LlmCall.Client{}`, a bad request reports
+`%LlmCall.Request{}`. Every function whose `@spec` promises
+`{:ok, _} | {:error, %LlmCall.Error{}}` keeps that promise for any argument.
 
 JSON resolution has a compile-time default and runtime overrides: the default is
 read with `Application.compile_env(:llm_call, :json_library, ...)` and is Elixir
