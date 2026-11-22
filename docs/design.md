@@ -668,6 +668,13 @@ the body decoded:
   retryable. Without this a real `429` answered by a CDN reported
   `retryable?: false`.
 
+A failure whose body cannot be decoded at all — a gateway's HTML, a truncated
+frame, a proxy's plain text — has nothing to put in `raw` or `code`, so the
+`message` quotes an excerpt of what arrived (`LlmCall.Excerpt`, trimmed and capped
+at 200 characters) together with the decoder's own reason. That covers the
+streaming payload path, the request-body encoder and the response-body decoder;
+without it every one of them read as a bare "is not JSON".
+
 `raw` is the provider payload the error was decoded from, and it follows
 `Config.capture_raw` like every other `raw`: it is `nil` unless the policy is
 `:response` or `:all`.

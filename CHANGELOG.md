@@ -41,6 +41,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   derived from the status in that case — `408`, `425`, `429`, `500`, `502`, `503`
   and `504` are retryable. When the body does decode, the codec's own verdict
   still stands.
+- A stream whose payload is not JSON dropped both the payload and the decoder's
+  reason, leaving only "stream payload is not JSON". A truncated frame, a gateway's
+  plain-text body and a malformed chunk all read the same, and the stream could not
+  be diagnosed from the error. The message now quotes the payload and carries the
+  decoder's reason. The same applies to a request or response body that fails to
+  encode or decode on the non-streaming path.
 - The Anthropic codec put a `tool_result` block wherever the caller placed it,
   including after text, which the Messages API rejects: results must come first in
   the message that answers a call. That ordering is now a `:validation` error.
