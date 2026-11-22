@@ -591,6 +591,13 @@ An assistant turn whose calls have **no** results is not rejected: a truncated
 turn is the caller's decision, and only the protocol can say whether it is
 recoverable.
 
+Anthropic adds a positional rule the other protocols do not have: in the user
+message that answers a call, every `tool_result` block must come **first**, before
+any text, so text after the results is fine and text before one is a 400. The
+Anthropic codec rejects the latter as a `:validation` error naming the message
+index; the other codecs carry results in their own envelope (OpenAI's `tool`
+message, Gemini's `functionResponse` part) and are unaffected.
+
 ### 8.7 Response
 
 `%LlmCall.Response{}` carries `id`, `model`, `content` (content parts),

@@ -394,8 +394,46 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
 
-  defp validate_parts(messages, json),
-    do: Helpers.validate_parts(messages, @codec, &validate_part_shape(&1, &2, json))
+  defp validate_parts(messages, json) do
+    with :ok <- Helpers.validate_parts(messages, @codec, &validate_part_shape(&1, &2, json)) do
+      validate_tool_result_position(messages)
+    end
+  end
+
+  # Anthropic requires `tool_result` blocks first in the user message that answers
+  # a call; text before them is a 400 ("Input tag 'text' found using 'type' does
+  # not match any of the expected tags"), and so is a text-only message placed
+  # before the results. Text after the results is fine.
+  defp validate_tool_result_position(messages) when is_list(messages) do
+    messages
+    |> Enum.with_index()
+    |> Helpers.first_error(fn {message, index} ->
+      check_tool_result_first(message, index)
+    end)
+  end
+
+  defp check_tool_result_first(%Message{role: :user, content: content}, index)
+       when is_list(content) do
+    results = Enum.count(content, &is_struct(&1, LlmCall.ToolResult))
+
+    if results == 0 do
+      :ok
+    else
+      leading = content |> Enum.take_while(&is_struct(&1, LlmCall.ToolResult)) |> length()
+
+      if leading == results do
+        :ok
+      else
+        Helpers.error(
+          @codec,
+          "messages[#{index}] puts a non-tool_result part before a tool_result; " <>
+            "Anthropic requires every tool_result first in the message"
+        )
+      end
+    end
+  end
+
+  defp check_tool_result_first(_message, _index), do: :ok
 
   defp validate_part_shape(_role, %Content.Text{}, _json), do: :ok
 
