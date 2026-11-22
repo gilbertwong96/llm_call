@@ -122,7 +122,10 @@ mix ci
 It compiles with warnings as errors, checks formatting, runs the suite,
 `credo --strict`, Dialyzer, SpecLint (with warnings as errors), ExDNA at a zero
 clone budget, and the Reach architecture policy. The vendored media adapters run
-the media conformance suite in the same `mix test`.
+the media conformance suite in the same `mix test`, and the four reference
+codecs run the core one: `test/llm_call/dialect/conformance_test.exs` is what
+proves the adapters this package ships satisfy the same contract it asks yours to
+satisfy.
 
 The client and streaming paths run against `LlmCall.TestHTTPServer`, and the
 WebSocket transport against `LlmCall.TestWSServer`; both bind `127.0.0.1` on an

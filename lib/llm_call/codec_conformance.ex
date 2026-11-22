@@ -585,6 +585,12 @@ defmodule LlmCall.Codec.Conformance do
   `streaming_tool_calls`, `prompt_cache`, and `stateful` are declarations only:
   the canonical IR has no request field that expresses them, so there is nothing
   to check in either direction.
+
+  The `budget_tokens` sample is derived from the request's `params.max_tokens`,
+  because a protocol may couple the two (Anthropic requires
+  `1024 <= budget_tokens < max_tokens`). A request whose `max_tokens` leaves no
+  legal budget skips that one check rather than reporting a failure the codec is
+  not responsible for: raise `max_tokens` above 1024 to exercise it.
   """
   @spec assert_capability_consistency(module(), LlmCall.Request.t(), Config.t()) :: :ok
   def assert_capability_consistency(codec, request, config) do
@@ -830,14 +836,20 @@ defmodule LlmCall.Codec.Conformance do
       )
     end
 
-    check_reasoning_flag(
-      codec,
-      request,
-      config,
-      capabilities.budget_tokens,
-      %Reasoning{budget_tokens: 1024},
-      "reasoning.budget_tokens"
-    )
+    case budget_sample(request) do
+      nil ->
+        :ok
+
+      budget ->
+        check_reasoning_flag(
+          codec,
+          request,
+          config,
+          capabilities.budget_tokens,
+          %Reasoning{budget_tokens: budget},
+          "reasoning.budget_tokens"
+        )
+    end
 
     check_reasoning_summary(codec, request, config, capabilities.summary)
   end
@@ -848,6 +860,32 @@ defmodule LlmCall.Codec.Conformance do
         "got: #{inspect(other)}"
     )
   end
+
+  # A protocol may couple `budget_tokens` to another field (Anthropic requires
+  # `1024 <= budget_tokens < params.max_tokens`), so a hardcoded sample can
+  # contradict the request the caller passed in. The sample is derived from that
+  # request instead: the smallest budget the contract allows. `nil` means the
+  # request leaves no legal budget at all, which is a gap in the base request
+  # rather than a codec defect, so the check is skipped.
+  @budget_floor 1024
+
+  defp budget_sample(%LlmCall.Request{params: params}) when is_map(params) do
+    case params[:max_tokens] do
+      max_tokens when is_integer(max_tokens) and max_tokens > @budget_floor + 1 ->
+        @budget_floor
+
+      max_tokens when is_integer(max_tokens) and max_tokens > 1 and max_tokens > @budget_floor ->
+        max_tokens - 1
+
+      max_tokens when is_integer(max_tokens) ->
+        nil
+
+      _absent ->
+        @budget_floor
+    end
+  end
+
+  defp budget_sample(_request), do: @budget_floor
 
   defp check_reasoning_flag(codec, request, config, true, reasoning, label) do
     assert :ok == codec.validate_request(with_field(request, :reasoning, reasoning), config),
