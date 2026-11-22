@@ -12,6 +12,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `responseSchema`, though its OpenAPI subset cannot express either; both are now
   `:validation` errors like `oneOf` and `const`.
 
+### Changed
+
+- A `params` value is now validated against the protocol, not only its key: a
+  `temperature` outside the documented range, a non-numeric `top_p`, a
+  `max_tokens` below 1, a `seed` that is not an integer, or a `stop` that is
+  empty, over the limit, or not a string, is a `:validation` error instead of a
+  value sent to the provider. The bounds differ per protocol (`temperature` is
+  `0..2` on OpenAI and Gemini, `0..1` on Anthropic) and are recorded in
+  `docs/design.md` §8.11.
+- A content part now validates its payload. A `{:base64, data}` source must be
+  base64, padding optional; a `media_type` must be a `type/subtype` such as
+  `image/png` rather than free text. Both were previously sent verbatim.
+
 ## 0.1.1 - 2026-11-22
 
 ### Changed

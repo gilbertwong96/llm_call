@@ -54,6 +54,11 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   }
   @builtin_tools :passthrough
   @param_keys [:max_tokens, :temperature, :top_p]
+  @param_spec %{
+    max_tokens: {:integer, 1, :infinity},
+    temperature: {:number, 0, 2},
+    top_p: {:number, 0, 1}
+  }
   @efforts [:none, :minimal, :low, :medium, :high, :xhigh, :max]
   @summaries [:auto, :concise, :detailed]
   @retryable_codes ~w(rate_limit_exceeded server_error overloaded_error timeout)
@@ -306,7 +311,8 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
 
   defp validate_model(model), do: Helpers.validate_model(model, @codec)
 
-  defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
+  defp validate_params(params),
+    do: Helpers.validate_params_with_spec(params, @param_keys, @param_spec, @codec)
 
   defp validate_output(output), do: Helpers.validate_output(output, @codec)
 

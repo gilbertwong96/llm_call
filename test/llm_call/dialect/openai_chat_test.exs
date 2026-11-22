@@ -216,6 +216,28 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
     refute Map.has_key?(encode(text_request()).body, "response_format")
   end
 
+  test "a param value outside the documented range is a validation error" do
+    cases = [
+      {%{temperature: 2.1}, "between 0 and 2"},
+      {%{temperature: -0.1}, "between 0 and 2"},
+      {%{temperature: "hot"}, "must be a number"},
+      {%{top_p: 1.5}, "between 0 and 1"},
+      {%{max_tokens: 0}, "at least 1"},
+      {%{max_tokens: -5}, "at least 1"},
+      {%{seed: "seven"}, "must be an integer"},
+      {%{stop: ""}, "stop"},
+      {%{stop: ["a", "b", "c", "d", "e"]}, "stop"},
+      {%{stop: 123}, "stop"}
+    ]
+
+    for {params, expected} <- cases do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Chat.validate_request(text_request(params: params), %Config{})
+
+      assert message =~ expected
+    end
+  end
+
   test "reasoning effort maps to reasoning_effort and unsupported axes are rejected" do
     assert encode(text_request(reasoning: %Reasoning{effort: :high})).body["reasoning_effort"] ==
              "high"

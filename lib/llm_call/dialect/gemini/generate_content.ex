@@ -48,6 +48,13 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(thinkingbudget thinkinglevel)
   @param_keys [:temperature, :top_p, :top_k, :max_tokens, :stop]
+  @param_spec %{
+    temperature: {:number, 0, 2},
+    top_p: {:number, 0, 1},
+    top_k: {:integer, 0, :infinity},
+    max_tokens: {:integer, 1, :infinity},
+    stop: {:stop, 4}
+  }
   @efforts [nil, :none, :low, :high]
   @retryable_statuses ~w(RESOURCE_EXHAUSTED UNAVAILABLE INTERNAL DEADLINE_EXCEEDED)
 
@@ -339,7 +346,8 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
 
   defp validate_messages(messages), do: Helpers.validate_messages(messages, @codec)
 
-  defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
+  defp validate_params(params),
+    do: Helpers.validate_params_with_spec(params, @param_keys, @param_spec, @codec)
 
   defp validate_reasoning(nil), do: :ok
 

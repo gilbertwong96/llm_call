@@ -340,8 +340,10 @@ defmodule LlmCall.Dialect.Helpers do
   end
 
   defp validate_part_values(%Content.Image{source: source, media_type: media_type}, codec) do
-    with :ok <- validate_source(source, "image", codec) do
-      validate_optional_string(media_type, "image media_type", codec)
+    with :ok <- validate_source(source, "image", codec),
+         :ok <- validate_optional_string(media_type, "image media_type", codec),
+         :ok <- validate_media_type(media_type, "image media_type", codec) do
+      validate_base64_source(source, "image", codec)
     end
   end
 
@@ -350,14 +352,19 @@ defmodule LlmCall.Dialect.Helpers do
          codec
        ) do
     with :ok <- validate_source(source, "file", codec),
-         :ok <- validate_optional_string(media_type, "file media_type", codec) do
-      validate_optional_string(filename, "file filename", codec)
+         :ok <- validate_optional_string(media_type, "file media_type", codec),
+         :ok <- validate_media_type(media_type, "file media_type", codec) do
+      with :ok <- validate_optional_string(filename, "file filename", codec) do
+        validate_base64_source(source, "file", codec)
+      end
     end
   end
 
   defp validate_part_values(%Content.Video{source: source, media_type: media_type}, codec) do
-    with :ok <- validate_source(source, "video", codec) do
-      validate_optional_string(media_type, "video media_type", codec)
+    with :ok <- validate_source(source, "video", codec),
+         :ok <- validate_optional_string(media_type, "video media_type", codec),
+         :ok <- validate_media_type(media_type, "video media_type", codec) do
+      validate_base64_source(source, "video", codec)
     end
   end
 
@@ -418,6 +425,37 @@ defmodule LlmCall.Dialect.Helpers do
 
   defp validate_arguments_map(_arguments, codec),
     do: error(codec, "tool call arguments must be a map")
+
+  @media_type_pattern ~r{\A[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*\z}i
+
+  defp validate_media_type(media_type, label, codec)
+       when is_binary(media_type) and media_type != "" do
+    if Regex.match?(@media_type_pattern, media_type) do
+      :ok
+    else
+      error(
+        codec,
+        "#{label} #{inspect(media_type)} is not a media type; use `type/subtype`, such as \"image/png\""
+      )
+    end
+  end
+
+  defp validate_media_type(_media_type, _label, _codec), do: :ok
+
+  @base64_alphabet ~r|\A[A-Za-z0-9+/]+={0,2}\z|
+
+  defp validate_base64_source({:base64, data}, label, codec) when is_binary(data) do
+    if base64?(data), do: :ok, else: error(codec, "#{label} base64 data is not valid base64")
+  end
+
+  defp validate_base64_source(_source, _label, _codec), do: :ok
+
+  # Padding may be omitted, which is what the canonical examples use: the
+  # alphabet plus a body length that leaves no single trailing character.
+  defp base64?(data) do
+    unencoded? = Regex.match?(@base64_alphabet, data) and rem(String.length(data), 4) != 1
+    unencoded? or match?({:ok, _decoded}, Base.decode64(data))
+  end
 
   @spec validate_source(term(), String.t(), codec()) :: :ok | {:error, Error.t()}
   defp validate_source(source, _label, _codec) when is_binary(source) and source != "", do: :ok
@@ -978,6 +1016,113 @@ defmodule LlmCall.Dialect.Helpers do
 
   defp validate_builtin_allowed(_spec, codec, _other),
     do: error(codec, "builtin tools are not supported")
+
+  @doc """
+  Validates `params` against a per-key spec, the common codec entry point.
+
+  Combines the key whitelist and the per-key value shape so a codec declares one
+  `@param_spec` instead of repeating a two-step wrapper.
+  """
+  @spec validate_params_with_spec(term(), [atom()], %{atom() => param_spec()}, codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_params_with_spec(params, allowed_keys, spec, codec) when is_map(params),
+    do: validate_param_values(params, allowed_keys, spec, codec)
+
+  def validate_params_with_spec(_params, _allowed_keys, _spec, codec),
+    do: error(codec, "params must be a map")
+
+  @doc """
+  Validates that `params` only contains supported keys and that each value is
+  acceptable to the protocol.
+
+  `spec` maps each allowed key to its accepted shape:
+
+    * `{:number, min, max}` - an integer or float within the inclusive bounds;
+    * `{:integer, min, max}` - an integer within the inclusive bounds;
+    * `{:stop, max}` - a string, or a list of at most `max` non-empty strings;
+    * `:any` - any non-nil value.
+
+  A key absent from `spec` is not checked beyond membership in `allowed_keys`.
+  """
+  @typedoc "Accepted shape for one `params` key."
+  @type param_spec ::
+          :any
+          | :number
+          | :integer
+          | {:number, number(), number() | :infinity}
+          | {:integer, integer() | :neg_infinity, integer() | :infinity}
+          | {:stop, pos_integer() | :infinity}
+
+  @spec validate_param_values(map(), [atom()], %{atom() => param_spec()}, codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_param_values(params, allowed_keys, spec, codec) do
+    with :ok <- validate_param_keys(params, allowed_keys, codec) do
+      params
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> first_error(fn {key, value} -> validate_param_value(key, value, spec, codec) end)
+    end
+  end
+
+  defp validate_param_value(key, value, spec, codec) do
+    case Map.fetch(spec, key) do
+      {:ok, shape} -> validate_param_shape(key, value, shape, codec)
+      :error -> :ok
+    end
+  end
+
+  defp validate_param_shape(_key, value, :number, _codec) when is_number(value), do: :ok
+
+  defp validate_param_shape(key, _value, :number, codec),
+    do: error(codec, "params #{key} must be a number")
+
+  defp validate_param_shape(_key, value, :integer, _codec) when is_integer(value), do: :ok
+
+  defp validate_param_shape(key, _value, :integer, codec),
+    do: error(codec, "params #{key} must be an integer")
+
+  defp validate_param_shape(_key, value, {:number, min, max}, _codec)
+       when is_number(value) and value >= min and (max == :infinity or value <= max),
+       do: :ok
+
+  defp validate_param_shape(key, _value, {:number, min, max}, codec),
+    do: error(codec, "params #{key} must be a number #{range(min, max)}")
+
+  defp validate_param_shape(_key, value, {:integer, min, max}, _codec)
+       when is_integer(value) and (min == :neg_infinity or value >= min) and
+              (max == :infinity or value <= max),
+       do: :ok
+
+  defp validate_param_shape(key, _value, {:integer, min, max}, codec),
+    do: error(codec, "params #{key} must be an integer #{range(min, max)}")
+
+  defp validate_param_shape(key, value, {:stop, max}, codec) do
+    limit = if max == :infinity, do: nil, else: max
+
+    if stop?(value, limit),
+      do: :ok,
+      else: error(codec, stop_message(key, limit))
+  end
+
+  defp validate_param_shape(_key, _value, :any, _codec), do: :ok
+
+  defp stop?(stop, _limit) when is_binary(stop), do: stop != ""
+
+  defp stop?(stops, limit) when is_list(stops) do
+    stops != [] and (is_nil(limit) or length(stops) <= limit) and
+      Enum.all?(stops, &(is_binary(&1) and &1 != ""))
+  end
+
+  defp stop?(_value, _limit), do: false
+
+  defp stop_message(key, nil),
+    do: "params #{key} must be a non-empty string or a list of non-empty strings"
+
+  defp stop_message(key, max),
+    do: "params #{key} must be a non-empty string or a list of 1..#{max} strings"
+
+  defp range(min, :infinity), do: "of at least #{min}"
+  defp range(:neg_infinity, max), do: "of at most #{max}"
+  defp range(min, max), do: "between #{min} and #{max}"
 
   @doc """
   Validates that a `params` map only contains supported keys.
