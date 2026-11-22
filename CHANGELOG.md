@@ -27,6 +27,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `LlmCall.Codec.Conformance.assert_capability_consistency/3` no longer reports a
+  reasoning budget as rejected by a codec that correctly requires it to be below
+  `params.max_tokens`. The sample now tracks the request, so the suite can be run
+  against Anthropic, which it previously could not.
 - A `params` value is now validated against the protocol, not only its key: a
   `temperature` outside the documented range, a non-numeric `top_p`, a
   `max_tokens` below 1, a `seed` that is not an integer, or a `stop` that is

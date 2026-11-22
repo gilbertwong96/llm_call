@@ -222,6 +222,141 @@ defmodule LlmCall.Fixtures.OpenAIResponses do
     %{"type" => "error", "code" => "server_error", "message" => "boom"}
   end
 
+  @doc """
+  The event sequence a text stream produces.
+
+  Responses names each step (`response.created`, `response.output_item.added`,
+  `response.content_part.added`, `response.output_text.delta`, then the `done`
+  counterparts) instead of sending deltas alone, so the fixture carries the whole
+  envelope the decoder expects.
+  """
+  def text_stream do
+    [
+      %{"type" => "response.created", "response" => %{"id" => "resp_1", "model" => "gpt-4.1"}},
+      %{"type" => "response.in_progress"},
+      %{
+        "type" => "response.output_item.added",
+        "output_index" => 0,
+        "item" => %{"type" => "message", "id" => "msg_1", "role" => "assistant", "content" => []}
+      },
+      %{
+        "type" => "response.content_part.added",
+        "output_index" => 0,
+        "item_id" => "msg_1",
+        "content_index" => 0,
+        "part" => %{"type" => "output_text", "text" => ""}
+      },
+      %{
+        "type" => "response.output_text.delta",
+        "output_index" => 0,
+        "item_id" => "msg_1",
+        "content_index" => 0,
+        "delta" => "Hel"
+      },
+      %{
+        "type" => "response.output_text.delta",
+        "output_index" => 0,
+        "item_id" => "msg_1",
+        "content_index" => 0,
+        "delta" => "lo"
+      },
+      %{
+        "type" => "response.output_text.done",
+        "output_index" => 0,
+        "item_id" => "msg_1",
+        "content_index" => 0,
+        "text" => "Hello"
+      },
+      %{
+        "type" => "response.content_part.done",
+        "output_index" => 0,
+        "item_id" => "msg_1",
+        "content_index" => 0,
+        "part" => %{"type" => "output_text", "text" => "Hello"}
+      },
+      %{
+        "type" => "response.output_item.done",
+        "output_index" => 0,
+        "item" => message_item("msg_1", [%{"type" => "output_text", "text" => "Hello"}])
+      },
+      %{
+        "type" => "response.completed",
+        "response" => %{
+          "id" => "resp_1",
+          "model" => "gpt-4.1",
+          "status" => "completed",
+          "output" => [message_item("msg_1", [%{"type" => "output_text", "text" => "Hello"}])],
+          "usage" => usage()
+        }
+      }
+    ]
+  end
+
+  @doc "The event sequence a function-call stream produces."
+  def tool_call_stream do
+    [
+      %{"type" => "response.created", "response" => %{"id" => "resp_2", "model" => "gpt-4.1"}},
+      %{
+        "type" => "response.output_item.added",
+        "output_index" => 0,
+        "item" => %{
+          "type" => "function_call",
+          "id" => "fc_1",
+          "call_id" => "call_1",
+          "name" => "get_weather",
+          "arguments" => ""
+        }
+      },
+      %{
+        "type" => "response.function_call_arguments.delta",
+        "output_index" => 0,
+        "item_id" => "fc_1",
+        "delta" => ~s({"city":)
+      },
+      %{
+        "type" => "response.function_call_arguments.delta",
+        "output_index" => 0,
+        "item_id" => "fc_1",
+        "delta" => ~s("Oslo"})
+      },
+      %{
+        "type" => "response.function_call_arguments.done",
+        "output_index" => 0,
+        "item_id" => "fc_1",
+        "arguments" => ~s({"city":"Oslo"})
+      },
+      %{
+        "type" => "response.output_item.done",
+        "output_index" => 0,
+        "item" => %{
+          "type" => "function_call",
+          "id" => "fc_1",
+          "call_id" => "call_1",
+          "name" => "get_weather",
+          "arguments" => ~s({"city":"Oslo"})
+        }
+      },
+      %{
+        "type" => "response.completed",
+        "response" => %{
+          "id" => "resp_2",
+          "model" => "gpt-4.1",
+          "status" => "completed",
+          "output" => [
+            %{
+              "type" => "function_call",
+              "id" => "fc_1",
+              "call_id" => "call_1",
+              "name" => "get_weather",
+              "arguments" => ~s({"city":"Oslo"})
+            }
+          ],
+          "usage" => usage()
+        }
+      }
+    ]
+  end
+
   def message_item(id, content) do
     %{
       "type" => "message",
