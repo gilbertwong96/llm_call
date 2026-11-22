@@ -311,7 +311,13 @@ Fields:
   it belongs in the provider request.
 - `messages` — user/assistant turns. Tool results are content parts, not a
   mandatory `:tool` role.
-- `tools` — optional neutral tool specifications.
+- `tools` — optional neutral tool specifications. A function tool's `name` must
+  be unique within the list; each protocol identifies a tool by name, so a second
+  entry under one name is a `:validation` error. The name must also match the
+  selected protocol's published class: OpenAI Chat allows `[a-zA-Z0-9_-]` up to 64
+  characters, Anthropic the same class up to 128, Gemini the same plus `.` and `:`
+  with a leading letter or underscore, and OpenAI Responses publishes no
+  constraint. See [§8.12](#812-tool-names).
 - `tool_choice` — `:auto | :none | :required | {:tool, name} | {:allowed, [name]}`.
 - `output` — `:text | :json_object | {:json_schema, name, schema, strict?}`. This
   describes the text format only.
@@ -575,7 +581,7 @@ Adapters validate required identifiers:
 ### 8.7 Response
 
 `%LlmCall.Response{}` carries `id`, `model`, `content` (content parts),
-`stop_reason` (a member of the union in §8.12), `usage` and `raw`.
+`stop_reason` (a member of the union in §8.13), `usage` and `raw`.
 
 `content` is a list of content parts, not provider-specific `choices` or output
 items. `raw` is a `map() | nil` provider snapshot, populated only when
@@ -696,7 +702,28 @@ A `nil` value means "provider default" and skips the value check entirely. A
 `max_tokens` upper bound is model-level, not protocol-level, so it is not checked;
 the model reports that as a provider error ([§2.2](#22-what-this-is-not)).
 
-### 8.12 Canonical type specifications
+### 8.12 Tool names
+
+A function tool is identified by `name` alone, so the name is validated twice: it
+must be unique in the list (§8.1), and it must match the target protocol's
+published class. The classes are per protocol because they genuinely differ:
+
+| Protocol | Pattern | Max |
+| --- | --- | --- |
+| OpenAI Chat | `^[a-zA-Z0-9_-]+$` | 64 |
+| OpenAI Responses | no published constraint | - |
+| Anthropic Messages | `^[a-zA-Z0-9_-]+$` | 128 |
+| Gemini `FunctionDeclaration` | `^[a-zA-Z_][a-zA-Z0-9_.:-]*$` | 128 |
+
+Only Gemini admits `.` and `:` and requires a leading letter or underscore, so a
+namespaced name such as `weather.get` is valid there and a `:validation` error on
+OpenAI or Anthropic. A name that is legal everywhere within the 64-character
+ceiling is `[a-zA-Z0-9_-]{1,64}`.
+
+Responses publishes no pattern or length, so it forwards any name; inventing a
+constraint it does not document would reject requests the provider accepts.
+
+### 8.13 Canonical type specifications
 
 Each canonical module's `@type t` is the authoritative shape, and ExDoc renders it
 next to the module. What a shape cannot state is recorded here: which unions are

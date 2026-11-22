@@ -26,6 +26,87 @@ defmodule LlmCall.Dialect.HelpersTest do
     assert Helpers.code(%{"weird" => true}) == nil
   end
 
+  test "validate_unique_tool_names/2 rejects a repeated function name" do
+    tools = fn names -> Enum.map(names, &%LlmCall.ToolSpec{name: &1}) end
+
+    assert :ok == Helpers.validate_unique_tool_names(tools.(["a", "b"]), :codec)
+
+    assert {:error, %{kind: :validation, message: message}} =
+             Helpers.validate_unique_tool_names(tools.(["a", "a"]), :codec)
+
+    assert message =~ ~s(tool name "a" is declared more than once)
+
+    # A builtin tool and a function tool may not share a name either.
+    assert {:error, %{message: message}} =
+             Helpers.validate_unique_tool_names(
+               [
+                 %LlmCall.ToolSpec{name: "search"},
+                 %LlmCall.ToolSpec{kind: :builtin, name: "search"}
+               ],
+               :codec
+             )
+
+    assert message =~ "more than once"
+  end
+
+  test "validate_tool_name/3 enforces the protocol class it is given" do
+    openai = {~r/\A[a-zA-Z0-9_-]+\z/, 64, "OpenAI Chat"}
+
+    assert :ok == Helpers.validate_tool_name("get_weather", :codec, openai)
+    assert :ok == Helpers.validate_tool_name("get-weather", :codec, openai)
+
+    assert {:error, %{kind: :validation, message: message}} =
+             Helpers.validate_tool_name("weather.get", :codec, openai)
+
+    assert message =~ "must match"
+
+    assert {:error, %{message: message}} =
+             Helpers.validate_tool_name(String.duplicate("a", 65), :codec, openai)
+
+    assert message =~ "exceeds"
+
+    # `:any` means the protocol publishes no constraint.
+    assert :ok == Helpers.validate_tool_name("weather.get", :codec, :any)
+    assert :ok == Helpers.validate_tool_name(String.duplicate("a", 200), :codec, :any)
+  end
+
+  test "decode_provider_error/5 keeps a non-map payload diagnosable" do
+    html = "<html>502 Bad Gateway</html>"
+
+    error = Helpers.decode_provider_error(html, %LlmCall.Config{}, :codec, ["code"], [])
+
+    assert error.kind == :invalid_response
+    assert error.message =~ "unrecognized error payload"
+    assert error.message =~ html
+    assert is_nil(error.raw)
+
+    # A JSON payload still goes to `raw`, and nothing is appended to the message.
+    map_error =
+      Helpers.decode_provider_error(%{"a" => 1}, %LlmCall.Config{}, :codec, ["code"], [])
+
+    assert is_nil(map_error.raw)
+    assert map_error.message == "codec: unrecognized error payload"
+
+    captured =
+      Helpers.decode_provider_error(
+        %{"a" => 1},
+        %LlmCall.Config{capture_raw: :all},
+        :codec,
+        ["code"],
+        []
+      )
+
+    assert captured.raw == %{"a" => 1}
+  end
+
+  test "decode_provider_error/5 truncates a long payload excerpt" do
+    error =
+      Helpers.decode_provider_error(String.duplicate("x", 500), %LlmCall.Config{}, :codec, [], [])
+
+    assert error.message =~ "..."
+    assert String.length(error.message) < 300
+  end
+
   describe "validate_param_values/4" do
     @spec_map %{
       temperature: {:number, 0, 2},

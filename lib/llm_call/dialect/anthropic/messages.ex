@@ -34,6 +34,9 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   @tool_reserved_keys ~w(name description input_schema)
   @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(type budget_tokens)
+  # Define tools: `^[a-zA-Z0-9_-]{1,128}$`.
+  @function_name_pattern ~r/\A[a-zA-Z0-9_-]+\z/
+  @function_name_max 128
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
   @param_spec %{
     temperature: {:number, 0, 1},
@@ -362,7 +365,8 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
     with :ok <-
            Helpers.validate_tool_spec(spec, @codec,
              options: true,
-             builtin_tools: @builtin_tools
+             builtin_tools: @builtin_tools,
+             name_pattern: {@function_name_pattern, @function_name_max, "Anthropic"}
            ) do
       Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
     end

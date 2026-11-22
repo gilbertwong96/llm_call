@@ -159,10 +159,32 @@ defmodule LlmCall.Dialect.Helpers do
   def decode_provider_error(term, %Config{} = config, codec, _code_keys, _retryable_codes) do
     %Error{
       kind: :invalid_response,
-      message: "#{codec}: unrecognized error payload",
+      message: "#{codec}: unrecognized error payload#{payload_excerpt(term)}",
       raw: capture_response(config, term)
     }
   end
+
+  # A gateway answers with HTML or plain text, which `Error.raw` does not carry
+  # because it is a map or nil. An excerpt in the message is what keeps that
+  # failure diagnosable without widening the public `raw` type.
+  @excerpt_limit 200
+
+  defp payload_excerpt(term) when is_binary(term) and term != "" do
+    trimmed = String.trim(term)
+
+    cond do
+      trimmed == "" ->
+        ""
+
+      String.length(trimmed) > @excerpt_limit ->
+        ": " <> String.slice(trimmed, 0, @excerpt_limit) <> "..."
+
+      true ->
+        ": " <> trimmed
+    end
+  end
+
+  defp payload_excerpt(_term), do: ""
 
   @model_id_pattern ~r/\A[A-Za-z0-9._-]+\z/
 
@@ -499,15 +521,40 @@ defmodule LlmCall.Dialect.Helpers do
           (term(), [ToolSpec.t()] -> :ok | {:error, Error.t()})
         ) ::
           :ok | {:error, Error.t()}
-  def validate_tools(tools, tool_choice, _codec, spec_validator, choice_validator)
+  def validate_tools(tools, tool_choice, codec, spec_validator, choice_validator)
       when is_list(tools) do
-    with :ok <- first_error(tools, spec_validator) do
+    with :ok <- first_error(tools, spec_validator),
+         :ok <- validate_unique_tool_names(tools, codec) do
       choice_validator.(tool_choice, tools)
     end
   end
 
   def validate_tools(_tools, _tool_choice, codec, _spec_validator, _choice_validator),
     do: error(codec, "tools must be a list")
+
+  @doc """
+  Validates that no tool name is declared twice.
+
+  Each protocol identifies a tool by name, so two entries under one name either
+  make the second unreachable or make the provider reject the request.
+  """
+  @spec validate_unique_tool_names([ToolSpec.t()], codec()) :: :ok | {:error, Error.t()}
+  def validate_unique_tool_names(tools, codec) when is_list(tools) do
+    tools
+    |> Enum.map(fn %ToolSpec{name: name} -> name end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_name, count} -> count > 1 end)
+    |> case do
+      [] ->
+        :ok
+
+      [{name, _count} | _rest] ->
+        error(codec, "tool name #{inspect(name)} is declared more than once")
+    end
+  end
+
+  def validate_unique_tool_names(_tools, codec), do: error(codec, "tools must be a list")
 
   @doc """
   Validates the types of known native provider options.
@@ -964,13 +1011,40 @@ defmodule LlmCall.Dialect.Helpers do
         do: validate_options(spec.provider_options, codec, "tool provider_options"),
         else: :ok
 
-    with :ok <- strict do
+    with :ok <- validate_tool_name(name, codec, Keyword.get(opts, :name_pattern, :any)),
+         :ok <- strict do
       options
     end
   end
 
   defp do_validate_tool_spec(%ToolSpec{}, codec, _opts),
     do: error(codec, "function tool requires a name")
+
+  @doc """
+  Validates a function tool name against a protocol's published class.
+
+  `pattern` is `:any` when the protocol publishes no constraint, otherwise a
+  `{regex, max_length, label}` tuple transcribed from its documentation.
+  """
+  @spec validate_tool_name(String.t(), codec(), :any | {Regex.t(), pos_integer(), String.t()}) ::
+          :ok | {:error, Error.t()}
+  def validate_tool_name(_name, _codec, :any), do: :ok
+
+  def validate_tool_name(name, codec, {pattern, max_length, label}) do
+    cond do
+      String.length(name) > max_length ->
+        error(codec, "tool name #{inspect(name)} exceeds #{label}'s #{max_length} characters")
+
+      not Regex.match?(pattern, name) ->
+        error(
+          codec,
+          "tool name #{inspect(name)} must match #{label}'s #{inspect(pattern.source)}"
+        )
+
+      true ->
+        :ok
+    end
+  end
 
   # Struct types describe well-formed values; validation still protects callers
   # that constructed the struct manually.

@@ -24,4 +24,14 @@ defmodule LlmCall.ApplicationTest do
     assert is_pid(pid)
     Agent.stop(server)
   end
+
+  test "a pool name that is not an atom is a clear error" do
+    assert_raise ArgumentError, ~r/must be an atom/, fn ->
+      Application.default_children({:via, Registry, {LlmCall.Registry, :pool}})
+    end
+
+    assert_raise ArgumentError, ~r/must be an atom/, fn ->
+      Application.default_children(nil)
+    end
+  end
 end

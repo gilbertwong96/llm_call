@@ -28,6 +28,10 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   @stream_reserved_keys ~w(include_usage)
   @tool_reserved_keys ~w(name description parameters strict)
   @builtin_tools false
+  # FunctionDefinition.name: "Must be a-z, A-Z, 0-9, or contain underscores and
+  # dashes, with a maximum length of 64."
+  @function_name_pattern ~r/\A[a-zA-Z0-9_-]+\z/
+  @function_name_max 64
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
   @param_spec %{
     temperature: {:number, 0, 2},
@@ -317,7 +321,12 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   defp validate_effort(effort), do: Helpers.validate_effort(effort, @efforts, @codec)
 
   defp validate_tool_spec(spec) do
-    with :ok <- Helpers.validate_tool_spec(spec, @codec, strict: true, options: true) do
+    with :ok <-
+           Helpers.validate_tool_spec(spec, @codec,
+             strict: true,
+             options: true,
+             name_pattern: {@function_name_pattern, @function_name_max, "OpenAI Chat"}
+           ) do
       Helpers.validate_option_keys(spec.provider_options, @tool_reserved_keys, @codec)
     end
   end
