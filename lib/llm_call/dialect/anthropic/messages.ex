@@ -35,6 +35,13 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   @builtin_tools :passthrough
   @reasoning_reserved_keys ~w(type budget_tokens)
   @param_keys [:max_tokens, :temperature, :top_p, :top_k, :stop]
+  @param_spec %{
+    temperature: {:number, 0, 1},
+    top_p: {:number, 0, 1},
+    top_k: {:integer, 0, :infinity},
+    max_tokens: {:integer, 1, :infinity},
+    stop: {:stop, :infinity}
+  }
   @min_budget_tokens 1024
   @retryable_types ~w(overloaded_error rate_limit_error api_error timeout_error)
 
@@ -250,7 +257,7 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   defp validate_messages(messages), do: Helpers.validate_messages(messages, @codec)
 
   defp validate_params(params) when is_map(params) do
-    with :ok <- Helpers.validate_params(params, @param_keys, @codec) do
+    with :ok <- Helpers.validate_param_values(params, @param_keys, @param_spec, @codec) do
       validate_max_tokens(params[:max_tokens])
     end
   end

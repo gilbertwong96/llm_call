@@ -322,7 +322,10 @@ Fields:
 - `reasoning` — optional `%LlmCall.Reasoning{}`; controls thinking/reasoning
   effort or budget where the protocol supports it. Provider-specific controls
   remain in `reasoning.provider_options`.
-- `params` — common sampling/length controls.
+- `params` — common sampling/length controls. Both the key and the value are
+  validated per protocol: a range or type the codec knows the provider rejects
+  is a `:validation` error, never a value that reaches the wire. See
+  [§8.11](#811-params-values).
 - `provider_options` — explicit escape hatch for provider-specific options.
 - `stream` — whether the caller wants streaming events.
 
@@ -441,6 +444,12 @@ Initial canonical content types:
 
 `ToolCall` and `ToolResult` are the shared canonical structs defined below; there
 are no duplicate `Content.ToolCall` or `Content.ToolResult` wrappers.
+
+A media part validates its own payload, not only its shape: a `{:base64, data}`
+source must be base64 (padding may be omitted, as the canonical examples spell
+it), and a `media_type` must be a `type/subtype` rather than free text. A codec
+with no wire field for a part still reports the payload problem first, because
+payload validation runs before the per-codec shape check.
 
 `Raw` is an escape hatch for provider-specific blocks that the codec does not
 understand. It must be preserved in canonical responses and rendered back when
@@ -566,7 +575,7 @@ Adapters validate required identifiers:
 ### 8.7 Response
 
 `%LlmCall.Response{}` carries `id`, `model`, `content` (content parts),
-`stop_reason` (a member of the union in §8.11), `usage` and `raw`.
+`stop_reason` (a member of the union in §8.12), `usage` and `raw`.
 
 `content` is a list of content parts, not provider-specific `choices` or output
 items. `raw` is a `map() | nil` provider snapshot, populated only when
@@ -668,7 +677,26 @@ those names.
 `validate_request/2` on a codec can reject unsupported combinations
 before a transport sends anything. No silent field dropping.
 
-### 8.11 Canonical type specifications
+### 8.11 `params` values
+
+A `params` key is checked twice: the key must be one the protocol accepts, and
+the value must be one it can send. The second half is per protocol, because the
+same key has different bounds:
+
+| Key | OpenAI Chat / Responses | Anthropic | Gemini |
+| --- | --- | --- | --- |
+| `temperature` | number `0..2` | number `0..1` | number `0..2` |
+| `top_p` | number `0..1` | number `0..1` | number `0..1` |
+| `top_k` | not accepted | integer `>= 0` | integer `>= 0` |
+| `max_tokens` | integer `>= 1` | integer `>= 1`, required | integer `>= 1` |
+| `stop` | string or up to 4 strings | string or string list | string or up to 4 strings |
+| `seed` | integer | not accepted | not accepted |
+
+A `nil` value means "provider default" and skips the value check entirely. A
+`max_tokens` upper bound is model-level, not protocol-level, so it is not checked;
+the model reports that as a provider error ([§2.2](#22-what-this-is-not)).
+
+### 8.12 Canonical type specifications
 
 Each canonical module's `@type t` is the authoritative shape, and ExDoc renders it
 next to the module. What a shape cannot state is recorded here: which unions are

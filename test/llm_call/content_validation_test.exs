@@ -70,4 +70,57 @@ defmodule LlmCall.ContentValidationTest do
 
     assert {:error, %Error{kind: :validation}} = validate([result])
   end
+
+  describe "media parts" do
+    test "base64 data must actually be base64" do
+      for data <- ["!!!garbage!!!", "A", "a b c", "===="] do
+        assert {:error, %Error{kind: :validation, message: message}} =
+                 validate([
+                   %Content.Image{source: {:base64, data}, media_type: "image/png"}
+                 ])
+
+        assert message =~ "base64"
+      end
+    end
+
+    test "base64 with and without padding is accepted" do
+      # Padded and unpadded spellings of the same payload, which the canonical
+      # examples use interchangeably.
+      for data <- ["aGk=", "AAA", "aGVsbG8=", "AA=="] do
+        assert :ok == validate([%Content.Image{source: {:base64, data}, media_type: "image/png"}])
+      end
+    end
+
+    test "media_type must be a type/subtype, not free text" do
+      for media_type <- ["nonsense", "image", "image/", "/png", "image png"] do
+        assert {:error, %Error{kind: :validation, message: message}} =
+                 validate([
+                   %Content.Image{source: {:base64, "aGk="}, media_type: media_type}
+                 ])
+
+        assert message =~ "is not a media type"
+      end
+    end
+
+    test "a well-formed media_type with parameters or charset syntax is accepted" do
+      for media_type <- ["image/png", "application/pdf", "video/mp4", "image/svg+xml"] do
+        assert :ok ==
+                 validate([%Content.Image{source: {:base64, "aGk="}, media_type: media_type}])
+      end
+    end
+
+    test "a url source does not need a media_type" do
+      assert :ok == validate([%Content.Image{source: {:url, "https://example.com/a.png"}}])
+      assert :ok == validate([%Content.Image{source: "https://example.com/a.png"}])
+    end
+
+    test "video base64 data is validated even before the codec rejects the part" do
+      # `validate_part_values/2` runs before the per-codec shape check, so an
+      # unsupported video part still reports the base64 problem first.
+      assert {:error, %Error{kind: :validation, message: message}} =
+               validate([%Content.Video{source: {:base64, "!!"}, media_type: "video/mp4"}])
+
+      assert message =~ "base64"
+    end
+  end
 end

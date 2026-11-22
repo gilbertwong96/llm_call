@@ -29,6 +29,13 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   @tool_reserved_keys ~w(name description parameters strict)
   @builtin_tools false
   @param_keys [:temperature, :top_p, :max_tokens, :stop, :seed]
+  @param_spec %{
+    temperature: {:number, 0, 2},
+    top_p: {:number, 0, 1},
+    max_tokens: {:integer, 1, :infinity},
+    stop: {:stop, 4},
+    seed: :integer
+  }
   @efforts [:none, :minimal, :low, :medium, :high, :xhigh, :max]
   @retryable_codes ~w(rate_limit_exceeded rate_limit_error server_error overloaded_error timeout)
   @known_message_keys ["role", "content", "tool_calls", "reasoning_content", "refusal"]
@@ -272,7 +279,8 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
 
   defp validate_messages(messages), do: Helpers.validate_messages(messages, @codec)
 
-  defp validate_params(params), do: Helpers.validate_params(params, @param_keys, @codec)
+  defp validate_params(params),
+    do: Helpers.validate_params_with_spec(params, @param_keys, @param_spec, @codec)
 
   defp validate_output(output), do: Helpers.validate_output(output, @codec)
 
