@@ -128,7 +128,11 @@ mix ci
 
 It compiles with warnings as errors, checks formatting, runs the suite,
 `credo --strict`, Dialyzer, SpecLint (with warnings as errors), ExDNA at a zero
-clone budget, and the Reach architecture policy. The vendored media adapters run
+clone budget, and the Reach architecture policy. The suite also checks the published
+Markdown: every `elixir` fence in `README.md`, `examples/README.md`, `docs/design.md`
+and this file is parsed, and each expression block is compiled inside a function body
+so an unused binding or a name bound nowhere fails the build. Nothing in a fence is
+executed. The vendored media adapters run
 the media conformance suite in the same `mix test`, and the four reference
 codecs run the core one: `test/llm_call/dialect/conformance_test.exs` is what
 proves the adapters this package ships satisfy the same contract it asks yours to
