@@ -31,7 +31,7 @@ LlmCall.Response.text(response)
 `codecs:` is a named map, because one endpoint can serve several request shapes:
 
 ```elixir
-{:ok, %LlmCall.Media.Response{} = media} =
+{:ok, %LlmCall.Media.Response{} = _media} =
   LlmCall.generate(client, %LlmCall.Media.Request{modality: :image, model: "gpt-image-1", prompt: "a cat"}, codec: :images)
 ```
 

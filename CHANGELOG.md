@@ -25,9 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `LlmCall.HTTP.request/2` and `stream/4` no longer let a transport failure escape:
-  a Finch exception or exit returns `{:error, {:exception, message}}`, which
-  `LlmCall.Error.from_transport/1` maps to `reason: :exception`. This covers the
-  `RuntimeError` Finch raises when it cannot check a connection out of the pool.
+  a Finch exception or exit returns `{:error, {:exception, message}}`, reported as
+  `reason: :exception` on `%LlmCall.Error{}`. This covers the `RuntimeError` Finch
+  raises when it cannot check a connection out of the pool.
 - Tool-argument fragments are kept as iodata and joined once, replacing an append
   that was quadratic for large arguments.
 - `docs/design.md` records two field drops that were happening silently:
