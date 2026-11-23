@@ -51,6 +51,7 @@ defmodule LlmCall.MixProject do
       {:finch, "~> 0.25"},
       {:mint, "~> 1.4"},
       {:mint_web_socket, "~> 1.0"},
+      {:tool_call, "~> 0.4"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
