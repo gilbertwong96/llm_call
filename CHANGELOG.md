@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Breaking changes
+
+- `Helpers.validate_params/3` is removed. It validated the key names of `params`
+  but not their values, so `temperature: "hot"` and `max_tokens: -5` passed, and
+  its shorter name made it the obvious choice over the spec-driven validator for
+  an out-of-tree adapter. Use `Helpers.validate_params_with_spec/4` with a
+  `@param_spec`; `Helpers.validate_param_keys/3` and
+  `Helpers.validate_param_values/4` remain as the two halves it composes.
+
 ### Added
 
 - `LlmCall.SSE` keeps the server's `retry:` hint on the state as `retry_ms`
