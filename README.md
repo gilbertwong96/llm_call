@@ -77,13 +77,14 @@ media_request = %LlmCall.Media.Request{
   prompt: "a cat, watercolor"
 }
 
+openai = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
+
 {:ok, %LlmCall.Media.Response{assets: _assets}} =
-  LlmCall.generate(client, media_request, codec: :images)
+  LlmCall.generate(openai, media_request, codec: :images)
 ```
 
-`client` must be a provider that declares `:images` — the OpenAI one above does.
-A chat codec cannot serve a media request, and the error names the codecs the
-client does declare.
+The client must be a provider that declares `:images`; the OpenAI one does, and a
+chat-only client returns an error naming the codecs it does declare.
 
 Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
 `{module, function}`. The key is always passed in; nothing reads the environment.
@@ -173,16 +174,21 @@ Tool-call fragments are assembled into complete calls by a pure helper, which ne
 runs them:
 
 ```elixir
-assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
+def assemble(events) do
+  assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 
-{_assembler, _calls} =
-  Enum.reduce(events, {assembler, []}, fn event, {acc, calls} ->
-    {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
-    {acc, calls ++ new_calls}
-  end)
+  {_assembler, calls} =
+    Enum.reduce(events, {assembler, []}, fn event, {acc, calls} ->
+      {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
+      {acc, calls ++ new_calls}
+    end)
+
+  calls
+end
 ```
 
-The second element holds every tool call that completed, in completion order.
+`events` is the stream's events in order (`Enum.to_list/1`), and the return value
+holds every tool call that completed.
 
 ## Media generation
 
@@ -221,7 +227,7 @@ media = %LlmCall.Media.Request{
 }
 
 {:ok, %LlmCall.Media.Response{assets: _assets}} =
-  LlmCall.generate(client, media, codec: :images)
+  LlmCall.generate(openai, media, codec: :images)
 ```
 
 Asynchronous video returns an `%LlmCall.Operation{}` whose `next` is the request
@@ -387,8 +393,8 @@ The library does not promise provider coverage. An adapter outside this reposito
 is a module that `use`s `LlmCall.Dialect.Adapter` and supplies `@path`, `@headers`,
 a private `body/2`, and the protocol's own `validate_request/2`. A media adapter
 `use`s `LlmCall.Media.Dialect.Adapter` instead and implements `encode_submit/2`,
-`decode_submit/2`, `decode_operation/2` plus the validators the macro documents —
-it injects `validate_request/2` and has no `body/2`. Share validation through
+`decode_submit/2` and `decode_error/2`, plus `decode_operation/2` when the codec is
+asynchronous — the macro injects `validate_request/2` and there is no `body/2`. Share validation through
 `LlmCall.Dialect.Helpers` instead of reimplementing it. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 OpenAI-compatible endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI
@@ -403,7 +409,9 @@ callers that already own a transport:
 ```elixir
 {:ok, _encoded} = LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request)
 # the struct carries `method`, `path` and `body`; `body` is already a map
-{:ok, _response} = LlmCall.decode_response(LlmCall.Dialect.Anthropic.Messages, payload)
+
+body = %{"id" => "msg_1", "type" => "message", "content" => []}
+{:ok, _response} = LlmCall.decode_response(LlmCall.Dialect.Anthropic.Messages, body)
 ```
 
 ## Design
