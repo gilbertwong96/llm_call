@@ -35,6 +35,43 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
 
   # §8.2: Anthropic's `input` is an object, so a fragment that did not decode cannot
   # be written. The documented behaviour is `%{}`, not a rejected replay.
+  test "images and files in an assistant turn are refused locally" do
+    for part <- [
+          %Content.Image{source: {:url, "https://example.test/a.png"}},
+          %Content.File{source: {:base64, "AA=="}, media_type: "application/pdf"}
+        ] do
+      request =
+        text_request(messages: [%Message{role: :assistant, content: [part]}])
+
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.validate_request(request, %Config{})
+
+      assert message =~ "belong to user messages"
+    end
+  end
+
+  test "an empty text block nested in a tool_result is refused" do
+    request =
+      text_request(
+        messages: [
+          %Message{role: :user, content: [%Content.Text{text: "hi"}]},
+          %Message{
+            role: :assistant,
+            content: [%ToolCall{id: "c1", name: "f", arguments: %{}}]
+          },
+          %Message{
+            role: :user,
+            content: [%ToolResult{call_id: "c1", content: [%Content.Text{text: "  "}]}]
+          }
+        ]
+      )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(request, %Config{})
+
+    assert message =~ "non-whitespace"
+  end
+
   test "a replay whose arguments did not decode renders as an empty input" do
     call = %ToolCall{
       id: "call_1",
