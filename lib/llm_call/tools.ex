@@ -27,7 +27,8 @@ defmodule LlmCall.Tools do
   `{module, opts}`, contributes one spec per tool, in the module's declaration
   order, with the schema projected for `codec`'s protocol. `opts` may carry
   `strict: boolean()`: `true` is OpenAI's strict schema, `false` is treated as
-  absent, and every other codec rejects `true`. Errors are named after `codec`,
+  absent, and every other codec rejects `true`. Any other option, or a value
+  that is not a keyword list, is rejected. Errors are named after `codec`,
   so a caller sees which protocol refused the request; an entry that is none of
   the accepted forms, a module that does not `use ToolCall`, and a schema the
   codec cannot express are `:validation` errors rather than raises.
@@ -61,7 +62,8 @@ defmodule LlmCall.Tools do
   defp expand_tool(%ToolSpec{} = spec, _codec), do: {:ok, [spec]}
 
   defp expand_tool({module, opts}, codec) when is_atom(module) and is_list(opts) do
-    with {:ok, strict} <- strict_option(opts, codec) do
+    with :ok <- validate_tool_opts(opts, codec),
+         {:ok, strict} <- strict_option(opts, codec) do
       specs_for(module, strict, codec)
     end
   end
@@ -74,6 +76,22 @@ defmodule LlmCall.Tools do
       "tool entry must be a LlmCall.ToolSpec, a module, or a {module, opts} pair, " <>
         "got: #{inspect(entry)}"
     )
+  end
+
+  defp validate_tool_opts(opts, codec) do
+    cond do
+      not Keyword.keyword?(opts) ->
+        Helpers.error(codec.info().name, "tool opts must be a keyword list")
+
+      (unknown = Keyword.keys(opts) -- [:strict]) != [] ->
+        Helpers.error(
+          codec.info().name,
+          "unknown tool option #{inspect(hd(unknown))}; accepted: [:strict]"
+        )
+
+      true ->
+        :ok
+    end
   end
 
   defp strict_option(opts, codec) do
