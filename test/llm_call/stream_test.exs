@@ -290,6 +290,16 @@ defmodule LlmCall.StreamTest do
     assert message == "HTTP 500: body is not a JSON object"
   end
 
+  test "a non-2xx body past the cap reports truncation instead of invalid JSON" do
+    TestHTTP.put_events([{:status, 500}, {:data, String.duplicate("x", 70_000)}])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+
+    assert %Error{kind: :transport, message: message} = HTTP.Error.error(exception)
+    assert message =~ "truncated"
+  end
+
   test "a 401 raises with the decoded provider error and status" do
     TestHTTP.put_events([
       {:status, 401},

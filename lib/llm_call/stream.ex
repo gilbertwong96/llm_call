@@ -86,8 +86,7 @@ defmodule LlmCall.Stream do
   defp handle_event({:headers, headers}, state), do: {:cont, %{state | headers: headers}}
 
   # The error envelope is a short JSON object; a 5xx answered by a large HTML page
-  # should not be buffered in the caller's process. The cap is far above any
-  # provider's error body, so the message it yields is unaffected.
+  # should not be buffered in the caller's process.
   @max_error_body 64 * 1024
 
   defp handle_event({:data, chunk}, %{status: status} = state)
@@ -246,6 +245,14 @@ defmodule LlmCall.Stream do
   defp untag({:cont, acc}), do: acc
   defp untag({:halt, acc}), do: acc
 
+  # A capped body is truncated by construction, so it can never decode. Say that
+  # rather than reporting a body the provider never sent.
+  defp error_body_message(status, body) when byte_size(body) >= @max_error_body do
+    "HTTP #{status}: error body exceeded #{@max_error_body} bytes and was truncated"
+  end
+
+  defp error_body_message(status, _body), do: "HTTP #{status}: body is not a JSON object"
+
   defp finish(%{halted?: true} = state), do: {:halted, untag(state.downstream)}
 
   defp finish(%{status: status} = state) when is_integer(status) and status not in 200..299 do
@@ -255,7 +262,7 @@ defmodule LlmCall.Stream do
           stream_error(state.codec.decode_error(payload, state.client.config))
 
         _other ->
-          %Error{kind: :transport, message: "HTTP #{status}: body is not a JSON object"}
+          %Error{kind: :transport, message: error_body_message(status, state.error_body)}
       end
 
     retry_after = HTTP.retry_after_ms(state.headers)
