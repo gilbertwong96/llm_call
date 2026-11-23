@@ -193,7 +193,7 @@ defmodule LlmCall.Codec.Conformance do
   all has no rule to pin.
 
   The parts are `:text`, `:thinking`, `:thinking_without_signature`, `:tool_call`, and
-  `:raw`. What each codec answers is the table in `docs/design.md` §8.2.
+  `:raw`. What each codec answers is the table in `docs/design.md` §8.3.
   """
   @spec assert_replays(module(), LlmCall.Request.t(), keyword()) :: :ok
   def assert_replays(codec, request, expectations) do
@@ -980,9 +980,17 @@ defmodule LlmCall.Codec.Conformance do
            "#{label} reported invalid_json but decoded arguments anyway"
   end
 
-  defp assert_arguments_error(%ToolCall{arguments_error: {:too_large, bytes}}, _label)
+  defp assert_arguments_error(
+         %ToolCall{arguments: nil, arguments_error: {:too_large, bytes}},
+         _label
+       )
        when is_integer(bytes) and bytes > 0,
        do: :ok
+
+  defp assert_arguments_error(%ToolCall{arguments_error: {:too_large, bytes}}, label)
+       when is_integer(bytes) and bytes > 0 do
+    flunk("#{label} reported too_large but decoded arguments anyway")
+  end
 
   defp assert_arguments_error(%ToolCall{arguments_error: other}, label) do
     flunk(

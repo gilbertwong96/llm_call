@@ -1020,6 +1020,16 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     end
   end
 
+  # A thought part carrying only a signature is the block's `thinking` marker; the
+  # non-streaming decoder renders it as `Content.Thinking{text: "", signature:}`, and
+  # the README's `merge/2` fold expects a Thinking delta rather than Raw.
+  defp part_events(%{"thoughtSignature" => signature}, term, config, data)
+       when is_binary(signature) do
+    thinking = %StreamDelta.Thinking{text: "", signature: signature}
+
+    {[Helpers.event(:thinking_delta, nil, thinking, term, config)], data}
+  end
+
   # §8.3: a field the codec does not know must reach the caller as `Raw`, never as
   # silence. The non-streaming decoder wraps the same part in `Content.Raw`.
   defp part_events(part, term, config, data) when is_map(part) do

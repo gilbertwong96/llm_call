@@ -657,8 +657,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
       ) do
     index = Helpers.index(term["output_index"])
 
-    delta = %StreamDelta.ToolCall{arguments: term["delta"], index: index}
-    {:ok, [Helpers.event(:tool_call_delta, index, delta, term, config)], state}
+    case term["delta"] do
+      text when is_binary(text) ->
+        delta = %StreamDelta.ToolCall{arguments: text, index: index}
+        {:ok, [Helpers.event(:tool_call_delta, index, delta, term, config)], state}
+
+      other ->
+        {:error, invalid_response("function arguments delta is not a string: #{inspect(other)}")}
+    end
   end
 
   def decode_stream_event(
@@ -713,11 +719,24 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
         %Config{} = config,
         %StreamState{} = state
       ) do
-    delta = %StreamDelta.Thinking{text: term["delta"], signature: nil}
+    case term["delta"] do
+      text when is_binary(text) ->
+        delta = %StreamDelta.Thinking{text: text, signature: nil}
 
-    {:ok,
-     [Helpers.event(:thinking_delta, Helpers.index(term["output_index"]), delta, term, config)],
-     state}
+        {:ok,
+         [
+           Helpers.event(
+             :thinking_delta,
+             Helpers.index(term["output_index"]),
+             delta,
+             term,
+             config
+           )
+         ], state}
+
+      other ->
+        {:error, invalid_response("reasoning delta is not a string: #{inspect(other)}")}
+    end
   end
 
   def decode_stream_event(

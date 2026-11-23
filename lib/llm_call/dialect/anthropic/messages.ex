@@ -510,7 +510,7 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   # one, so the non-empty rule applies to it too; `Helpers` only checks the type.
   defp validate_tool_result_content([_ | _] = content) do
     with :ok <- Helpers.validate_tool_result_content(content, @codec) do
-      first_error(content, fn
+      Helpers.first_error(content, fn
         %Content.Text{text: text} -> validate_text_block(text, "tool_result")
         _part -> :ok
       end)
@@ -519,15 +519,6 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
-
-  defp first_error(parts, fun) do
-    Enum.reduce_while(parts, :ok, fn part, :ok ->
-      case fun.(part) do
-        :ok -> {:cont, :ok}
-        {:error, %Error{}} = error -> {:halt, error}
-      end
-    end)
-  end
 
   # Anthropic rejects a text block with `messages: text content blocks must be
   # non-empty` and one holding only whitespace with `... must contain
