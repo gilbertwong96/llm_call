@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-23
+
 ### Breaking changes
 
 - `Helpers.validate_params/3` is removed. It validated the key names of `params`
@@ -20,6 +22,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `LlmCall.SSE` keeps the server's `retry:` hint on the state as `retry_ms`
   instead of dropping it, so a caller that owns reconnection policy can read it.
   The library still never reconnects a stream on its own.
+
+### Changed
+
+- Gemini tool `parameters` and `responseSchema` now reject schemas its OpenAPI
+  subset cannot express: a lowercase `type`, `additionalProperties`,
+  `$ref`/`$defs`, `prefixItems`, `oneOf` or `const` is a `:validation` error
+  instead of a provider request. `ToolSpec.parameters` is documented as
+  already-projected wire data.
+
+- `Error.retryable?` is now the union of the codec's verdict and the HTTP status
+  (`LlmCall.Error.retryable_status?/1`: `408`, `425`, `429`, `500`, `502`, `503`,
+  `504`). Before, a `429` whose body named a code the codec did not list reported
+  `retryable?: false`, while the same `429` with an unparseable body reported
+  `true` — better evidence gave the worse answer, and a provider that introduced a
+  new rate-limit code silently stopped retries.
+- `LlmCall.Codec.Conformance.assert_capability_consistency/3` no longer reports a
+  reasoning budget as rejected by a codec that correctly requires it to be below
+  `params.max_tokens`. The sample now tracks the request, so the suite can be run
+  against Anthropic, which it previously could not.
+- A `params` value is now validated against the protocol, not only its key: a
+  `temperature` outside the documented range, a non-numeric `top_p`, a
+  `max_tokens` below 1, a `seed` that is not an integer, or a `stop` that is
+  empty, over the limit, or not a string, is a `:validation` error instead of a
+  value sent to the provider. The bounds differ per protocol (`temperature` is
+  `0..2` on OpenAI and Gemini, `0..1` on Anthropic) and are recorded in
+  `docs/design.md` §8.11.
+- A content part now validates its payload. A `{:base64, data}` source must be
+  base64, padding optional; a `media_type` must be a `type/subtype` such as
+  `image/png` rather than free text. Both were previously sent verbatim.
 
 ### Fixed
 
@@ -100,39 +131,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   breakpoint or continue a response. They are now documented as reporting
   capabilities — cache accounting in `Usage`, server-side continuation through
   `provider_options` — which is what `true` always meant.
-
-### Changed
-
-- `Error.retryable?` is now the union of the codec's verdict and the HTTP status
-  (`LlmCall.Error.retryable_status?/1`: `408`, `425`, `429`, `500`, `502`, `503`,
-  `504`). Before, a `429` whose body named a code the codec did not list reported
-  `retryable?: false`, while the same `429` with an unparseable body reported
-  `true` — better evidence gave the worse answer, and a provider that introduced a
-  new rate-limit code silently stopped retries.
-- `LlmCall.Codec.Conformance.assert_capability_consistency/3` no longer reports a
-  reasoning budget as rejected by a codec that correctly requires it to be below
-  `params.max_tokens`. The sample now tracks the request, so the suite can be run
-  against Anthropic, which it previously could not.
-- A `params` value is now validated against the protocol, not only its key: a
-  `temperature` outside the documented range, a non-numeric `top_p`, a
-  `max_tokens` below 1, a `seed` that is not an integer, or a `stop` that is
-  empty, over the limit, or not a string, is a `:validation` error instead of a
-  value sent to the provider. The bounds differ per protocol (`temperature` is
-  `0..2` on OpenAI and Gemini, `0..1` on Anthropic) and are recorded in
-  `docs/design.md` §8.11.
-- A content part now validates its payload. A `{:base64, data}` source must be
-  base64, padding optional; a `media_type` must be a `type/subtype` such as
-  `image/png` rather than free text. Both were previously sent verbatim.
-
-## 0.1.1 - 2026-11-22
-
-### Changed
-
-- Gemini tool `parameters` and `responseSchema` now reject schemas its OpenAPI
-  subset cannot express: a lowercase `type`, `additionalProperties`,
-  `$ref`/`$defs`, `prefixItems`, `oneOf` or `const` is a `:validation` error
-  instead of a provider request. `ToolSpec.parameters` is documented as
-  already-projected wire data.
 
 ## 0.1.0 - 2026-11-20
 
