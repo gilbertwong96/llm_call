@@ -6,8 +6,8 @@ defmodule LlmCall.Tools do
   the caller's loop, and `ToolCall.run/4` is one implementation of it.
 
   Modules are an input form, not a canonical type: `expand/2` turns a module or
-  a `{module, opts}` pair into `LlmCall.ToolSpec` structs, and each request entry
-  point calls it before a codec runs.
+  a `{module, opts}` pair into `LlmCall.ToolSpec` structs, and
+  `normalize_request/2` applies that to a whole request before any codec call.
   """
 
   alias LlmCall.Dialect.Helpers
@@ -32,6 +32,22 @@ defmodule LlmCall.Tools do
   end
 
   def expand(_tools, codec), do: Helpers.error(codec.info().name, "tools must be a list")
+
+  @doc """
+  Normalizes a request's `tools` into `LlmCall.ToolSpec` structs.
+
+  The request-level companion to `expand/2`: any code path that hands a
+  `%LlmCall.Request{}` to a codec calls this first, so the codec sees only
+  specs. Other fields pass through unchanged and an expansion error is returned
+  as-is.
+  """
+  @spec normalize_request(LlmCall.Request.t(), module()) ::
+          {:ok, LlmCall.Request.t()} | {:error, Error.t()}
+  def normalize_request(%LlmCall.Request{} = request, codec) do
+    with {:ok, specs} <- expand(request.tools, codec) do
+      {:ok, %{request | tools: specs}}
+    end
+  end
 
   defp expand_tool(%ToolSpec{} = spec), do: [spec]
 

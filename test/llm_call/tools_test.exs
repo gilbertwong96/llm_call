@@ -34,6 +34,22 @@ defmodule LlmCall.ToolsTest do
     assert Enum.map(specs, & &1.name) == ["hand", "forecast", "conditions"]
   end
 
+  test "normalize_request/2 expands the request tools" do
+    request = %LlmCall.Request{model: "test-1", messages: [user_message()], tools: [Weather]}
+
+    assert {:ok, %LlmCall.Request{} = normalized} = Tools.normalize_request(request, Messages)
+    assert Enum.map(normalized.tools, & &1.name) == ["forecast", "conditions"]
+    assert normalized.model == request.model
+    assert normalized.messages == request.messages
+  end
+
+  test "normalize_request/2 passes the expansion error through" do
+    request = %LlmCall.Request{model: "test-1", tools: Weather}
+
+    assert {:error, %Error{kind: :validation, message: "neutral: tools must be a list"}} =
+             Tools.normalize_request(request, NeutralCodec)
+  end
+
   test "rejects a non-list" do
     assert {:error, %Error{kind: :validation, message: message}} =
              Tools.expand(Weather, NeutralCodec)
@@ -100,5 +116,17 @@ defmodule LlmCall.ToolsTest do
     }
 
     assert {:ok, %LlmCall.Stream{}} = LlmCall.stream(client, request)
+  end
+
+  test "init_stream/3 expands module tools before the codec" do
+    request = %LlmCall.Request{
+      model: "claude-sonnet-4",
+      params: %{max_tokens: 1024},
+      messages: [user_message()],
+      tools: [Weather]
+    }
+
+    assert {:ok, %LlmCall.StreamState{}} =
+             LlmCall.init_stream(LlmCall.Dialect.Anthropic.Messages, request, %LlmCall.Config{})
   end
 end

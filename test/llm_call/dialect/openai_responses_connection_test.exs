@@ -191,6 +191,20 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
     assert is_list(create["input"])
   end
 
+  test "create/3 accepts tool_call modules" do
+    {:ok, connection} = start()
+
+    request = %{request() | tools: [LlmCall.ToolFixtures.Weather]}
+
+    assert {:ok, stream} = Connection.create(connection, request, stream_id: "tools")
+    assert [_ | _] = Enum.to_list(stream)
+
+    create = await_event("response.create")
+    assert Enum.map(create["tools"], & &1["name"]) == ["forecast", "conditions"]
+
+    Connection.close(connection)
+  end
+
   test "a stream_id is generated when omitted" do
     {:ok, connection} = start()
 
