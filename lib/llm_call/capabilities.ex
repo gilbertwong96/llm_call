@@ -7,8 +7,10 @@ defmodule LlmCall.Capabilities do
 
   `builtin_tools` declares provider-hosted tools (web search, grounding, server
   tools): `false` rejects them, `:passthrough` forwards any name the caller
-  supplies, and a list forwards only those names. The library never interprets a
-  hosted tool's name; it is the provider's own identifier.
+  supplies, and a list forwards only those names. The library does not validate a hosted
+  tool against a local schema; the identifier stays the provider's. A codec still
+  maps it into its own tool shape — Anthropic sends the name as `type` and derives a
+  callable `name` from a `_YYYYMMDD` suffix — so "verbatim" is not a promise.
 
   They are **protocol-level**: `capabilities/2` takes the request for signature
   symmetry but does not inspect the model. A model-specific limit surfaces as a
@@ -19,8 +21,9 @@ defmodule LlmCall.Capabilities do
   `prompt_cache` says the protocol **reports** cache accounting: `Usage` carries
   `cache_read_tokens` and `cache_write_tokens`. It does not say the canonical IR
   can **place** a cache breakpoint, because it cannot; there is no request field
-  for one. Every reference codec reports the counters, so every one declares this
-  `true`.
+  for one. All four reference codecs report the read counter; OpenAI Chat,
+  OpenAI Responses and Anthropic also report writes, and Gemini does not, so
+  `cache_write_tokens` stays `nil` there. Every one declares this `true`.
 
   The same distinction applies to `stateful`: it says the protocol can continue a
   conversation server-side, which reaches a provider that offers it through

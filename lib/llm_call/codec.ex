@@ -4,7 +4,9 @@ defmodule LlmCall.Codec do
 
   A codec turns a canonical request into one protocol's wire request, and one
   provider's response terms into canonical responses and stream events. It does
-  no IO: transports parse framing and decode JSON, codecs only map terms.
+  no IO: transports parse framing and move bytes, while a codec maps terms and uses
+  `Config.json` only for wire fields that are themselves JSON strings (tool-call
+  arguments).
 
   Streaming callbacks are optional so a non-streaming codec need not implement
   dummy functions; `LlmCall` returns a typed error when a caller asks a codec

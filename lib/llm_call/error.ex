@@ -6,9 +6,15 @@ defmodule LlmCall.Error do
   codec's verdict on the provider's own code or status field, and the HTTP status
   (`retryable_status?/1`). The client takes the union, because a provider that
   introduces a new code — or a proxy that answers with its own body — must not
-  turn a `429` into "do not retry". `kind` says who produced the error: a codec
-  produces `:validation`, `:invalid_response` or `:provider`; the client adds
-  `:transport` for a failure that never reached a provider.
+  turn a `429` into "do not retry". `kind` says where the error came from. A codec
+  produces `:validation`, `:invalid_response` or `:provider`, and the client
+  produces the same kinds for its own failures — an unencodable body or an
+  undeclared codec name is `:validation`, a `2xx` body that is not JSON is
+  `:invalid_response`. `:transport` is a failure below the protocol: no response at
+  all, a response that never completed, or a non-`2xx` status. `execute/2`,
+  `fetch/2` and a non-`2xx` stream therefore report `:transport` for a response the
+  provider *did* send, so `status` is set there and the codec still decoded the
+  body when it could.
 
   `retry_after_ms` is the parsed `Retry-After` header, when the transport saw
   one; it is a hint, not a retry policy.
