@@ -1030,12 +1030,15 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     {[Helpers.event(:thinking_delta, nil, thinking, term, config)], data}
   end
 
-  # §8.3: a field the codec does not know must reach the caller as `Raw`, never as
-  # silence. The non-streaming decoder wraps the same part in `Content.Raw`.
+  # §8.1 and §12: a field the codec does not know must reach the caller as `Raw`,
+  # never as silence. The non-streaming decoder wraps the same part in `Content.Raw`.
   defp part_events(part, term, config, data) when is_map(part) do
     {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: part}, term, config)], data}
   end
 
+  # An empty `text` part carries nothing canonical in a stream, so it reaches the
+  # caller as `Raw` rather than as an empty delta; the non-streaming decoder keeps it
+  # as `Content.Text` because it is decoding a whole response, not a delta.
   defp part_events(_part, _term, _config, data), do: {[], data}
 
   defp encoded_arguments(args, json) do
