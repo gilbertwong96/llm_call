@@ -665,7 +665,8 @@ envelope (OpenAI's `tool` message, Gemini's `functionResponse` part) and are
 unaffected.
 
 **Text.** A text block must be non-empty and contain a non-whitespace character,
-and the same holds for a `system` prompt. Anthropic rejects the two cases with
+and the same holds for a `system` prompt and for a text block nested inside a
+`tool_result` — the API applies the rule to the block type wherever it appears. Anthropic rejects the two cases with
 `messages: text content blocks must be non-empty` and `... must contain
 non-whitespace text`; the codec reproduces both as `:validation` errors. This is a
 live path rather than a hypothetical one: a response can carry an empty text block
@@ -1766,9 +1767,9 @@ they are not.
 Phase M1, synchronous image:
 
 - `LlmCall.Media.Dialect.OpenAI.Images` — `POST /v1/images/generations`, body
-  `{model, prompt, n?, size?}`. `response_format: "b64_json"` is sent only for
-  `dall-e-*` models: `gpt-image-1` rejects the key and returns base64 anyway, and
-  `provider_options.openai` may override the value. `references`,
+  `{model, prompt, n?, size?}`. `response_format` is never sent by the codec: the
+  API always answers with base64, `gpt-image-1` rejects the key, and a caller that
+  needs it can add it through `provider_options.openai`. `references`,
   `aspect_ratio`, `duration_s`, `negative_prompt`, and `seed` are validation
   errors. Response `data[]`: `b64_json` -> `{:base64, data}`, `url` -> `{:url, url}`.
   `revised_prompt` is the first non-nil value; the rest stay in `raw`.

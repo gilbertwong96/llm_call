@@ -22,6 +22,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `LlmCall.ToolCall.arguments_error` type, and `raw_arguments` keeps the prefix
   that fit.
 
+### Fixed
+
+- Gemini streaming no longer reports `stop_reason: :tool_calls` when no call was
+  emitted, and an unmappable stream part now arrives as `StreamDelta.Raw` instead
+  of nothing. A thought part carrying only a signature arrives as
+  `StreamDelta.Thinking`, which is what the README's fold expects.
+- `poll/3` returns a typed validation error when an operation's `next` is neither
+  `nil` nor an `%EncodedRequest{}`, instead of raising `CaseClauseError`.
+- The OpenAI Responses codec rejects a text, reasoning or tool-argument delta whose
+  payload is not a string, rather than emitting a delta that breaks the documented
+  fold.
+- The Anthropic codec refuses image and document blocks in an assistant turn, and
+  applies the non-empty text rule to text blocks nested in a `tool_result`.
+- A non-2xx response body is capped at 64 KiB; past the cap the error says the body
+  was truncated rather than reporting that the provider sent invalid JSON.
+- Gemini's Imagen codec reports an empty `predictions` array as a `:provider`
+  error — everything was filtered — instead of `:invalid_response`.
+- A failed MiniMax or Seedance job keeps the codec's own `retryable?` verdict, and
+  Seedance normalizes a numeric submit id instead of refusing it.
+
 ### Changed
 
 - `LlmCall.HTTP.request/2` and `stream/4` no longer let a transport failure escape:
