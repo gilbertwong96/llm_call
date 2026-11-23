@@ -63,7 +63,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
 
   use GenServer
 
-  alias LlmCall.{Client, Error, HTTP}
+  alias LlmCall.{Client, Error, HTTP, Tools}
   alias LlmCall.Dialect.OpenAI.Responses
   alias LlmCall.WS
 
@@ -325,6 +325,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
     with :ok <- validate_stream_id(stream_id),
          :ok <- validate_lane_count(state),
          false <- Map.has_key?(state.lanes, stream_id),
+         {:ok, request} <- Tools.normalize_request(request, Responses),
          {:ok, encoded} <- Responses.encode_request(request, state.client.config),
          {:ok, stream_state} <- Responses.init_stream(request, state.client.config),
          {:ok, json} <- encode(state, create_event(encoded.body, stream_id)),
