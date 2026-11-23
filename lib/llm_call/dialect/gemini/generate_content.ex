@@ -968,7 +968,7 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
         {part_events, data} = parts_events(parts, term, config, data)
 
         {finish_events, data} =
-          finish_events(candidate["finishReason"], parts, term, config, data)
+          finish_events(candidate["finishReason"], term, config, data)
 
         {part_events ++ finish_events, data}
 
@@ -1020,6 +1020,12 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     end
   end
 
+  # §8.3: a field the codec does not know must reach the caller as `Raw`, never as
+  # silence. The non-streaming decoder wraps the same part in `Content.Raw`.
+  defp part_events(part, term, config, data) when is_map(part) do
+    {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: part}, term, config)], data}
+  end
+
   defp part_events(_part, _term, _config, data), do: {[], data}
 
   defp encoded_arguments(args, json) do
@@ -1029,13 +1035,15 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     end
   end
 
-  defp finish_events(nil, _parts, _term, _config, data), do: {[], data}
+  defp finish_events(nil, _term, _config, data), do: {[], data}
 
-  defp finish_events(reason, parts, term, config, data) do
+  defp finish_events(reason, term, config, data) do
     stop =
       cond do
         reason != "STOP" -> response_stop_reason(reason, [])
-        Enum.any?(parts, &is_map_key(&1, "functionCall")) -> :tool_calls
+        # Only a call this codec actually emitted counts. A `functionCall` whose
+        # value is not a map never produced one, so claiming :tool_calls would leave
+        # an agent loop waiting for a call that never arrives.
         data.next_tool_index > 0 -> :tool_calls
         true -> :end_turn
       end
