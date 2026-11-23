@@ -1,5 +1,10 @@
 # LlmCall
 
+[![CI](https://github.com/gilbertwong96/llm_call/actions/workflows/ci.yml/badge.svg)](https://github.com/gilbertwong96/llm_call/actions/workflows/ci.yml)
+[![Elixir](https://img.shields.io/badge/elixir-1.18+-purple.svg)](https://elixir-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Hex.pm](https://img.shields.io/hexpm/v/llm_call.svg)](https://hex.pm/packages/llm_call)
+
 A call-oriented SDK for LLM APIs: a canonical IR, dialect codecs, and a one-call
 client on Finch whose JSON layer you can replace.
 
