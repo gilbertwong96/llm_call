@@ -15,10 +15,13 @@ defmodule LlmCall.ToolCall do
 
   `raw_arguments` always carries the payload itself, so this field only says
   what went wrong: `{:invalid_json, reason}` when the payload is not decodable
-  JSON (or not an object), and `:no_json_decoder` when
-  `LlmCall.StreamAssembler` was built without a `json_decoder:`.
+  JSON (or not an object), `:no_json_decoder` when `LlmCall.StreamAssembler` was
+  built without a `json_decoder:`, and `{:too_large, bytes}` when the assembled
+  fragment passed the assembler's `max_argument_bytes` cap — in that case
+  `raw_arguments` holds only the prefix that fit.
   """
-  @type arguments_error :: nil | {:invalid_json, String.t()} | :no_json_decoder
+  @type arguments_error ::
+          nil | {:invalid_json, String.t()} | {:too_large, pos_integer()} | :no_json_decoder
 
   @type t :: %__MODULE__{
           id: String.t() | nil,
