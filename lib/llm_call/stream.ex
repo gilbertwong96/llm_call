@@ -85,9 +85,14 @@ defmodule LlmCall.Stream do
   defp handle_event({:status, status}, state), do: {:cont, %{state | status: status}}
   defp handle_event({:headers, headers}, state), do: {:cont, %{state | headers: headers}}
 
+  # The error envelope is a short JSON object; a 5xx answered by a large HTML page
+  # should not be buffered in the caller's process. The cap is far above any
+  # provider's error body, so the message it yields is unaffected.
+  @max_error_body 64 * 1024
+
   defp handle_event({:data, chunk}, %{status: status} = state)
        when is_integer(status) and status not in 200..299 do
-    {:cont, %{state | error_body: state.error_body <> chunk}}
+    {:cont, %{state | error_body: append_error_body(state.error_body, chunk)}}
   end
 
   defp handle_event({:data, chunk}, state) do
@@ -134,6 +139,13 @@ defmodule LlmCall.Stream do
 
   # A framing failure is reported as the stream's own canonical error: a caller of
   # `stream/3` handles `LlmCall.HTTP.Error`, not the parser's internal exception.
+  defp append_error_body(body, _chunk) when byte_size(body) >= @max_error_body, do: body
+
+  defp append_error_body(body, chunk) do
+    room = @max_error_body - byte_size(body)
+    body <> binary_part(chunk, 0, min(byte_size(chunk), room))
+  end
+
   defp safe_parse_sse(sse, chunk) do
     case parse_sse(sse, chunk) do
       {:ok, result} -> result
