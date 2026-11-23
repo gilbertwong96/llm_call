@@ -16,6 +16,19 @@ defmodule LlmCall.ContentValidationTest do
     LlmCall.Dialect.OpenAI.Chat.validate_request(request(role, content), %Config{})
   end
 
+  # Encodes an assistant turn carrying these tool calls, the replay path.
+  defp validate_replay(tool_calls) do
+    request = %Request{
+      model: "gpt-4o",
+      messages: [
+        %Message{role: :user, content: [%Content.Text{text: "hi"}]},
+        %Message{role: :assistant, content: tool_calls}
+      ]
+    }
+
+    LlmCall.Dialect.OpenAI.Chat.validate_request(request, %Config{})
+  end
+
   defp validate_messages(messages) do
     LlmCall.Dialect.Helpers.validate_messages(messages, :test_codec)
   end
@@ -57,6 +70,29 @@ defmodule LlmCall.ContentValidationTest do
     call = %ToolCall{id: "id", name: "f", arguments: %{"ok" => true}, raw_arguments: "not json"}
 
     assert {:error, %Error{kind: :validation}} = validate(:assistant, [call])
+  end
+
+  test "a tool call the decoder could not parse is still replayable" do
+    # §8.2 pins ToolCall as replayable in every codec. A model does not always
+    # generate valid JSON, and the repair is to send the assistant turn back with
+    # a tool result saying so — so the fragment must survive the encoder.
+    malformed = %LlmCall.ToolCall{
+      id: "call_1",
+      name: "get_weather",
+      raw_arguments: ~s({"city":),
+      arguments_error: {:invalid_json, "tool arguments are not valid JSON"}
+    }
+
+    assert :ok == validate_replay([malformed])
+
+    # A hand-written fragment with no decoder verdict is still rejected: the
+    # caller is asserting it is valid, and it is not.
+    hand_written = %LlmCall.ToolCall{id: "call_1", name: "f", raw_arguments: ~s({"city":)}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             validate_replay([hand_written])
+
+    assert message =~ "must decode to an object"
   end
 
   test "tool specs validate kind, parameters, and strict" do

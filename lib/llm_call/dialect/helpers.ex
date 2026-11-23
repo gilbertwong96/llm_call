@@ -678,9 +678,19 @@ defmodule LlmCall.Dialect.Helpers do
   to an object. A malformed fragment is an error, never `%{}`. A map that the
   configured JSON module cannot encode is an error too, because the codec has to
   emit it as a string.
+
+  A call the decoder produced with an `arguments_error` is the exception: the
+  payload is already known not to decode, and `encode_call_arguments/3` sends
+  `raw_arguments` verbatim, so the fragment must stay replayable. A model does not
+  always generate valid JSON, and the caller's repair is to send that assistant
+  turn back with a tool result saying so; refusing it would close the loop.
   """
   @spec validate_tool_call_arguments(ToolCall.t(), codec(), module()) ::
           :ok | {:error, Error.t()}
+  def validate_tool_call_arguments(%ToolCall{arguments_error: error}, _codec, _json)
+      when not is_nil(error),
+      do: :ok
+
   def validate_tool_call_arguments(%ToolCall{raw_arguments: raw}, codec, json)
       when is_binary(raw) do
     case LlmCall.JSON.decode(json, raw) do

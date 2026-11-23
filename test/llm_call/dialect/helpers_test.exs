@@ -192,6 +192,63 @@ defmodule LlmCall.Dialect.HelpersTest do
     end
   end
 
+  describe "validate_tool_call_arguments/3" do
+    @codec2 :test_codec
+
+    test "a fragment with a decoder verdict is replayable, whatever it holds" do
+      for error <- [{:invalid_json, "not valid JSON"}, :no_json_decoder],
+          raw <- [~s({"city":), "[1,2]", "not json at all"] do
+        call = %LlmCall.ToolCall{id: "c", name: "f", raw_arguments: raw, arguments_error: error}
+        assert :ok == Helpers.validate_tool_call_arguments(call, @codec2, JSON)
+      end
+    end
+
+    test "a fragment without a verdict must decode to an object" do
+      assert :ok ==
+               Helpers.validate_tool_call_arguments(
+                 %LlmCall.ToolCall{id: "c", name: "f", raw_arguments: ~s({"a":1})},
+                 @codec2,
+                 JSON
+               )
+
+      for raw <- [~s({"a":), "[1,2]", "null"] do
+        assert {:error, %{message: message}} =
+                 Helpers.validate_tool_call_arguments(
+                   %LlmCall.ToolCall{id: "c", name: "f", raw_arguments: raw},
+                   @codec2,
+                   JSON
+                 )
+
+        assert message =~ "must decode to an object"
+      end
+    end
+
+    test "a map is validated by encodability and nil is accepted" do
+      assert :ok ==
+               Helpers.validate_tool_call_arguments(
+                 %LlmCall.ToolCall{id: "c", name: "f", arguments: %{"a" => 1}},
+                 @codec2,
+                 JSON
+               )
+
+      assert :ok ==
+               Helpers.validate_tool_call_arguments(
+                 %LlmCall.ToolCall{id: "c", name: "f"},
+                 @codec2,
+                 JSON
+               )
+
+      assert {:error, %{message: message}} =
+               Helpers.validate_tool_call_arguments(
+                 %LlmCall.ToolCall{id: "c", name: "f", raw_arguments: 123},
+                 @codec2,
+                 JSON
+               )
+
+      assert message =~ "must be a string"
+    end
+  end
+
   describe "tool_choice cross-references the declared tools" do
     @tools [
       %LlmCall.ToolSpec{name: "get_weather"},

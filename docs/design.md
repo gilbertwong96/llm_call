@@ -495,6 +495,15 @@ API only requires a signature where a tool call follows the thought.
 already contains the discriminator, so `type` stays a caller-side label. A block
 built by hand must therefore carry the discriminator inside `data`.
 
+A `ToolCall` whose `arguments_error` is set is replayable too, and that is the
+only case where `raw_arguments` may be something other than a JSON object. A model
+does not always generate valid JSON; the decoder keeps the fragment and records
+why it did not decode, and `encode_call_arguments/3` sends `raw_arguments`
+verbatim. The caller's repair is to send that assistant turn back with a tool
+result saying the arguments were invalid, so refusing the replay would close the
+loop. A fragment with **no** `arguments_error` is the caller's own claim that it
+parses, and is still required to decode to an object.
+
 `LlmCall.Codec.Conformance.assert_replays/3` pins this table per codec.
 
 ### 8.3.1 Reasoning
