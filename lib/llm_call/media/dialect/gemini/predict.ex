@@ -91,6 +91,13 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
     end
   end
 
+  # Without `includeRaiReason` the provider omits filtered images altogether, so an
+  # empty array means everything was blocked — a `:provider` outcome, as the
+  # `raiFilteredReason` branch below already reports.
+  def decode_submit(%{"predictions" => []}, %Config{}) do
+    {:error, %Error{kind: :provider, message: "gemini_predict: all predictions were filtered"}}
+  end
+
   def decode_submit(_term, _config) do
     {:error, invalid_response("response has no predictions")}
   end

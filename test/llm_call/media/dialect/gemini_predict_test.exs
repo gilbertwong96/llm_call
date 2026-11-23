@@ -243,8 +243,12 @@ defmodule LlmCall.Media.Dialect.GeminiPredictTest do
     assert {:error, %Error{kind: :invalid_response}} =
              Predict.decode_submit(%{"nope" => 1}, %Config{})
 
-    assert {:error, %Error{kind: :invalid_response}} =
+    # The moduledoc and §23.6 agree that an empty array means the provider filtered
+    # everything: a caller-handleable :provider outcome, not a codec fault.
+    assert {:error, %Error{kind: :provider, message: message}} =
              Predict.decode_submit(%{"predictions" => []}, %Config{})
+
+    assert message =~ "filtered"
 
     assert {:error, %Error{kind: :invalid_response}} =
              Predict.decode_submit(%{"predictions" => [%{"mimeType" => "image/png"}]}, %Config{})

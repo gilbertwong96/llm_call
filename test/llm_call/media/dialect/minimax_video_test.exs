@@ -194,6 +194,17 @@ defmodule LlmCall.Media.Dialect.MiniMaxVideoTest do
     assert :ok = LlmCall.Media.Conformance.assert_operation(done)
   end
 
+  test "a terminal failure keeps the codec's retryable verdict" do
+    payload = %{
+      "task_id" => "t1",
+      "status" => "Fail",
+      "base_resp" => %{"status_code" => 1001, "status_msg" => "timeout"}
+    }
+
+    assert {:ok, %Operation{status: :failed, error: %Error{code: "1001", retryable?: true}}} =
+             Video.decode_operation(payload, %Config{})
+  end
+
   test "Fail and a non-zero base_resp are provider errors" do
     assert {:ok,
             %Operation{

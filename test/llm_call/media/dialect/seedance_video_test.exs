@@ -109,6 +109,11 @@ defmodule LlmCall.Media.Dialect.SeedanceVideoTest do
     end
   end
 
+  test "a numeric submit id is normalized into a pollable string" do
+    assert {:ok, %MediaResponse{operation: %Operation{id: "123"}}} =
+             Video.decode_submit(%{"id" => 123}, %Config{})
+  end
+
   test "a status payload without a task id is an invalid response" do
     assert {:error, %Error{kind: :invalid_response}} =
              Video.decode_operation(%{"status" => "running"}, %Config{})

@@ -80,19 +80,27 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
   @impl true
   @spec decode_submit(LlmCall.wire_value(), Config.t()) ::
           {:ok, Response.t()} | {:error, Error.t()}
-  def decode_submit(%{"id" => id} = payload, %Config{} = config)
-      when is_binary(id) and id != "" do
-    {:ok,
-     %Response{
-       assets: [],
-       operation: %Operation{
-         id: id,
-         status: :queued,
-         next: poll_request(id),
-         next_kind: :poll
-       },
-       raw: Helpers.capture_response(config, payload)
-     }}
+  # A numeric id is normalized rather than refused: `fetch_id/1` and MiniMax's submit
+  # path both go through `Helpers.id/1`, and a submit that cannot produce a pollable
+  # id cannot be resumed.
+  def decode_submit(%{"id" => raw_id} = payload, %Config{} = config) do
+    case Helpers.id(raw_id) do
+      id when is_binary(id) and id != "" ->
+        {:ok,
+         %Response{
+           assets: [],
+           operation: %Operation{
+             id: id,
+             status: :queued,
+             next: poll_request(id),
+             next_kind: :poll
+           },
+           raw: Helpers.capture_response(config, payload)
+         }}
+
+      _no_id ->
+        {:error, invalid_response("submit response has no task id")}
+    end
   end
 
   def decode_submit(_term, _config) do
@@ -188,6 +196,7 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
 
   defp failed_operation(payload, terminal, config) do
     error = if is_map(payload["error"]), do: payload["error"], else: %{}
+    code = Helpers.code(error["code"]) || terminal
 
     %Operation{
       id: Helpers.id(payload["id"]),
@@ -195,7 +204,8 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
       error: %Error{
         kind: :provider,
         message: error["message"] || "task #{terminal}",
-        code: Helpers.code(error["code"]) || terminal,
+        code: code,
+        retryable?: Helpers.retryable?(code, @retryable_codes),
         raw: Helpers.capture_response(config, payload)
       },
       raw: Helpers.capture_response(config, payload)
