@@ -25,12 +25,16 @@ defmodule LlmCall.Tools do
 
   A `%LlmCall.ToolSpec{}` passes through unchanged; a module, or
   `{module, opts}`, contributes one spec per tool, in the module's declaration
-  order, with the schema projected for `codec`'s protocol. Errors are named after
-  `codec`, so a caller sees which protocol refused the request.
+  order, with the schema projected for `codec`'s protocol. `opts` may carry
+  `strict: true`, which OpenAI renders as its strict schema; every other codec
+  rejects it. Errors are named after `codec`, so a caller sees which protocol
+  refused the request.
   """
   @spec expand([input()], module()) :: {:ok, [ToolSpec.t()]} | {:error, Error.t()}
   def expand(tools, codec) when is_list(tools) do
-    {:ok, Enum.flat_map(tools, &expand_tool(&1, codec))}
+    with {:ok, expanded} <- Helpers.map_ok(tools, &expand_tool(&1, codec)) do
+      {:ok, Enum.concat(expanded)}
+    end
   end
 
   def expand(_tools, codec), do: Helpers.error(codec.info().name, "tools must be a list")
@@ -52,40 +56,64 @@ defmodule LlmCall.Tools do
     end
   end
 
-  defp expand_tool(%ToolSpec{} = spec, _codec), do: [spec]
+  defp expand_tool(%ToolSpec{} = spec, _codec), do: {:ok, [spec]}
 
-  defp expand_tool({module, opts}, codec) when is_atom(module) and is_list(opts),
-    do: descriptors(module, opts, projection(codec.info().protocol))
+  defp expand_tool({module, opts}, codec) when is_atom(module) and is_list(opts) do
+    with {:ok, strict} <- strict_option(opts, codec) do
+      {:ok, descriptors(module, strict, projection(codec.info().protocol))}
+    end
+  end
 
   defp expand_tool(module, codec) when is_atom(module),
-    do: descriptors(module, [], projection(codec.info().protocol))
+    do: {:ok, descriptors(module, nil, projection(codec.info().protocol))}
+
+  defp strict_option(opts, codec) do
+    case Keyword.get(opts, :strict) do
+      nil ->
+        {:ok, nil}
+
+      false ->
+        {:ok, nil}
+
+      true ->
+        {:ok, true}
+
+      other ->
+        Helpers.error(codec.info().name, "tool strict must be a boolean, got: #{inspect(other)}")
+    end
+  end
 
   @spec projection(atom()) :: :openai | :gemini | :neutral
   defp projection(:gemini_generate_content), do: :gemini
   defp projection(protocol) when protocol in [:openai_chat, :openai_responses], do: :openai
   defp projection(_protocol), do: :neutral
 
-  defp descriptors(module, opts, :neutral) do
-    for entry <- ToolCall.describe(module, opts) do
-      to_spec(entry.name, entry.description, entry.parameters)
+  defp descriptors(module, strict, :neutral) do
+    for entry <- ToolCall.describe(module, strict: strict) do
+      to_spec(entry.name, entry.description, entry.parameters, strict)
     end
   end
 
-  defp descriptors(module, _opts, :gemini) do
+  defp descriptors(module, strict, :gemini) do
     for entry <- ToolCall.emit(module, :gemini) do
-      to_spec(entry["name"], entry["description"], entry["parameters"])
+      to_spec(entry["name"], entry["description"], entry["parameters"], strict)
     end
   end
 
-  defp descriptors(module, _opts, :openai) do
+  defp descriptors(module, strict, :openai) do
     # LlmCall renders OpenAI's `strict` inside `function`, so the sibling
     # `strict` ToolCall.emit/3 adds is dropped here.
-    Enum.map(ToolCall.emit(module, :openai), fn %{"function" => function} ->
-      to_spec(function["name"], function["description"], function["parameters"])
+    Enum.map(ToolCall.emit(module, :openai, strict: strict), fn %{"function" => function} ->
+      to_spec(function["name"], function["description"], function["parameters"], strict)
     end)
   end
 
-  defp to_spec(name, description, parameters) do
-    %ToolSpec{name: name, description: description, parameters: parameters}
+  defp to_spec(name, description, parameters, strict) do
+    %ToolSpec{
+      name: name,
+      description: description,
+      parameters: parameters,
+      strict: strict
+    }
   end
 end
