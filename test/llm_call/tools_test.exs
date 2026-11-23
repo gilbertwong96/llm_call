@@ -34,6 +34,37 @@ defmodule LlmCall.ToolsTest do
     assert Enum.map(specs, & &1.name) == ["hand", "forecast", "conditions"]
   end
 
+  test "Gemini gets uppercase types from tool_call's own projection" do
+    request = %LlmCall.Request{
+      model: "gemini-2.5-pro",
+      messages: [user_message()],
+      tools: [Weather]
+    }
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             LlmCall.encode(LlmCall.Dialect.Gemini.GenerateContent, request, %LlmCall.Config{})
+
+    [tool | _] = body["tools"]
+    [declaration | _] = tool["functionDeclarations"]
+    assert declaration["parameters"]["type"] == "OBJECT"
+  end
+
+  test "OpenAI takes the function map and leaves strict to ToolSpec" do
+    request = %LlmCall.Request{model: "gpt-4o", messages: [user_message()], tools: [Weather]}
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, %LlmCall.Config{})
+
+    [tool | _] = body["tools"]
+    assert tool["function"]["name"] == "forecast"
+    refute Map.has_key?(tool["function"], "strict")
+  end
+
+  test "an unknown protocol falls back to provider-neutral schemas" do
+    assert {:ok, specs} = Tools.expand([Weather], NeutralCodec)
+    assert [%ToolSpec{parameters: %{"type" => "object"}} | _] = specs
+  end
+
   test "normalize_request/2 expands the request tools" do
     request = %LlmCall.Request{model: "test-1", messages: [user_message()], tools: [Weather]}
 

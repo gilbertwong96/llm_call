@@ -6,8 +6,10 @@ defmodule LlmCall.Tools do
   the caller's loop, and `ToolCall.run/4` is one implementation of it.
 
   Modules are an input form, not a canonical type: `expand/2` turns a module or
-  a `{module, opts}` pair into `LlmCall.ToolSpec` structs, and
-  `normalize_request/2` applies that to a whole request before any codec call.
+  a `{module, opts}` pair into `LlmCall.ToolSpec` structs with the schema
+  projected for the codec's protocol, and `normalize_request/2` applies that to a
+  whole request before the codec at every public request entry point except
+  `capabilities/3`, which reads no tools.
   """
 
   alias LlmCall.Dialect.Helpers
@@ -22,13 +24,13 @@ defmodule LlmCall.Tools do
   Expands `tools` into one spec per tool.
 
   A `%LlmCall.ToolSpec{}` passes through unchanged; a module, or
-  `{module, opts}`, contributes one spec per tool `ToolCall.describe/2` returns,
-  in the module's declaration order. Errors are named after `codec`, so a caller
-  sees which protocol refused the request.
+  `{module, opts}`, contributes one spec per tool, in the module's declaration
+  order, with the schema projected for `codec`'s protocol. Errors are named after
+  `codec`, so a caller sees which protocol refused the request.
   """
   @spec expand([input()], module()) :: {:ok, [ToolSpec.t()]} | {:error, Error.t()}
-  def expand(tools, _codec) when is_list(tools) do
-    {:ok, Enum.flat_map(tools, &expand_tool/1)}
+  def expand(tools, codec) when is_list(tools) do
+    {:ok, Enum.flat_map(tools, &expand_tool(&1, codec))}
   end
 
   def expand(_tools, codec), do: Helpers.error(codec.info().name, "tools must be a list")
@@ -36,10 +38,11 @@ defmodule LlmCall.Tools do
   @doc """
   Normalizes a request's `tools` into `LlmCall.ToolSpec` structs.
 
-  The request-level companion to `expand/2`: any code path that hands a
-  `%LlmCall.Request{}` to a codec calls this first, so the codec sees only
-  specs. Other fields pass through unchanged and an expansion error is returned
-  as-is.
+  The request-level companion to `expand/2`: `complete/3`, `stream/3`, `encode/3`,
+  `validate_request/3` and `init_stream/3` call this before the codec, so the
+  codec sees only specs; `capabilities/3` is the one public request entry point
+  that does not, because it reads no tools. Other fields pass through unchanged
+  and an expansion error is returned as-is.
   """
   @spec normalize_request(LlmCall.Request.t(), module()) ::
           {:ok, LlmCall.Request.t()} | {:error, Error.t()}
@@ -49,16 +52,40 @@ defmodule LlmCall.Tools do
     end
   end
 
-  defp expand_tool(%ToolSpec{} = spec), do: [spec]
+  defp expand_tool(%ToolSpec{} = spec, _codec), do: [spec]
 
-  defp expand_tool({module, opts}) when is_atom(module) and is_list(opts),
-    do: descriptors(module, opts)
+  defp expand_tool({module, opts}, codec) when is_atom(module) and is_list(opts),
+    do: descriptors(module, opts, projection(codec.info().protocol))
 
-  defp expand_tool(module) when is_atom(module), do: descriptors(module, [])
+  defp expand_tool(module, codec) when is_atom(module),
+    do: descriptors(module, [], projection(codec.info().protocol))
 
-  defp descriptors(module, opts) do
+  @spec projection(atom()) :: :openai | :gemini | :neutral
+  defp projection(:gemini_generate_content), do: :gemini
+  defp projection(protocol) when protocol in [:openai_chat, :openai_responses], do: :openai
+  defp projection(_protocol), do: :neutral
+
+  defp descriptors(module, opts, :neutral) do
     for entry <- ToolCall.describe(module, opts) do
-      %ToolSpec{name: entry.name, description: entry.description, parameters: entry.parameters}
+      to_spec(entry.name, entry.description, entry.parameters)
     end
+  end
+
+  defp descriptors(module, _opts, :gemini) do
+    for entry <- ToolCall.emit(module, :gemini) do
+      to_spec(entry["name"], entry["description"], entry["parameters"])
+    end
+  end
+
+  defp descriptors(module, _opts, :openai) do
+    # LlmCall renders OpenAI's `strict` inside `function`, so the sibling
+    # `strict` ToolCall.emit/3 adds is dropped here.
+    Enum.map(ToolCall.emit(module, :openai), fn %{"function" => function} ->
+      to_spec(function["name"], function["description"], function["parameters"])
+    end)
+  end
+
+  defp to_spec(name, description, parameters) do
+    %ToolSpec{name: name, description: description, parameters: parameters}
   end
 end
