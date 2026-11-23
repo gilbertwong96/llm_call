@@ -198,12 +198,62 @@ defmodule LlmCall.StreamAssemblerTest do
     assert call.arguments_error == nil
   end
 
+  test "two index-less calls do not merge into one" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(nil, "call_a", "alpha"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(nil, ~s({"n":1})))
+    {:ok, assembler, [first]} = StreamAssembler.feed(assembler, stop(nil))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(nil, "call_b", "beta"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(nil, ~s({"n":2})))
+    {:ok, _assembler, [second]} = StreamAssembler.feed(assembler, stop(nil))
+
+    # The first call completed above, with its own identity and payload.
+    assert first.id == "call_a"
+    assert first.arguments == %{"n" => 1}
+
+    # The second keeps its own identity and payload instead of merging into the first.
+    assert second.id == "call_b"
+    assert second.name == "beta"
+    assert second.arguments == %{"n" => 2}
+    assert second.index == nil
+  end
+
+  test "a provider that repeats a start keeps the identity it already sent" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, "call_1", "get_weather"))
+    # A repeated start often carries only the field the provider repeats.
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, nil, "get_weather"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, ~s({"city":"Oslo"})))
+    {:ok, _assembler, [call]} = StreamAssembler.feed(assembler, stop(0))
+
+    assert call.arguments == %{"city" => "Oslo"}
+  end
+
+  test "a call delivered whole on its stop event keeps its arguments" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1)
+
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, "call_1", "get_weather"))
+
+    {:ok, _assembler, [call]} =
+      StreamAssembler.feed(assembler, %StreamEvent{
+        type: :tool_call_stop,
+        index: 0,
+        delta: %StreamDelta.ToolCall{index: 0, arguments: ~s({"city":"Oslo"})}
+      })
+
+    assert call.arguments == %{"city" => "Oslo"}
+  end
+
   test "a delta for an unseen index without start data still assembles" do
     assembler = StreamAssembler.new(json_decoder: &decoder/1)
     {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(nil, ~s({"a":1})))
     {:ok, _assembler, [call]} = StreamAssembler.finish(assembler)
 
-    assert call.index == 0
+    # An index-less call reports nil: 0 is a real index, and reusing it would merge
+    # this call with a provider's first one.
+    assert call.index == nil
     assert call.arguments == %{"a" => 1}
   end
 
@@ -224,7 +274,7 @@ defmodule LlmCall.StreamAssemblerTest do
     {:ok, assembler, []} = StreamAssembler.feed(assembler, delta("0", ~s({"a":1})))
     {:ok, _assembler, [call]} = StreamAssembler.feed(assembler, stop("0"))
 
-    assert call.index == 0
+    assert call.index == nil
     assert call.id == "call_1"
     assert call.arguments == %{"a" => 1}
   end
@@ -235,7 +285,7 @@ defmodule LlmCall.StreamAssemblerTest do
     {:ok, assembler, []} = StreamAssembler.feed(assembler, start(-1, "call_1", "f"))
     {:ok, _assembler, [call]} = StreamAssembler.finish(assembler)
 
-    assert call.index == 0
+    assert call.index == nil
     assert call.id == "call_1"
   end
 

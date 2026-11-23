@@ -34,8 +34,10 @@ defmodule LlmCall.Stream do
   `LlmCall.stream/3` accepts `on_event: fun` with `fun :: (StreamEvent.t() -> any())`.
   It runs for every event before the reducer sees it, including events flushed by
   `finish_stream/2`. The return value is ignored: it observes, it cannot filter or
-  replace events, and it is not called after the reducer halts. If it raises, the
-  exception propagates and the reducer does not see that event.
+  replace events, and it is not called after the reducer halts. If it raises, an
+  `ArgumentError` or `RuntimeError` is reported as a `LlmCall.HTTP.Error` with
+  `kind: :transport` and `reason: :exception`, because the hook runs inside the
+  transport's own protection; any other exception propagates.
   """
 
   alias LlmCall.{Error, HTTP, SSE}
@@ -67,6 +69,7 @@ defmodule LlmCall.Stream do
       status: nil,
       headers: [],
       error_body: "",
+      error_body_full?: false,
       done?: false,
       halted?: false
     }
@@ -91,7 +94,15 @@ defmodule LlmCall.Stream do
 
   defp handle_event({:data, chunk}, %{status: status} = state)
        when is_integer(status) and status not in 200..299 do
-    {:cont, %{state | error_body: append_error_body(state.error_body, chunk)}}
+    state = %{state | error_body: append_error_body(state.error_body, chunk)}
+
+    # Nothing past the cap can change the outcome, so stop reading rather than
+    # waiting for a trickling or endless error body to finish. The outcome is
+    # identical either way — the halt bounds how long the caller waits for it, which
+    # the test server cannot express (it always terminates the body).
+    if byte_size(state.error_body) >= @max_error_body,
+      do: {:halt, %{state | error_body_full?: true}},
+      else: {:cont, state}
   end
 
   defp handle_event({:data, chunk}, state) do
@@ -253,29 +264,14 @@ defmodule LlmCall.Stream do
 
   defp error_body_message(status, _body), do: "HTTP #{status}: body is not a JSON object"
 
+  # The cap halted the read, but the response is still a non-2xx whose error the
+  # caller needs, so it is built before the caller-halt case.
+  defp finish(%{error_body_full?: true} = state), do: raise_http_error(state)
+
   defp finish(%{halted?: true} = state), do: {:halted, untag(state.downstream)}
 
   defp finish(%{status: status} = state) when is_integer(status) and status not in 200..299 do
-    error =
-      case LlmCall.JSON.decode(state.client.config.json, state.error_body) do
-        {:ok, %{} = payload} ->
-          stream_error(state.codec.decode_error(payload, state.client.config))
-
-        _other ->
-          %Error{kind: :transport, message: error_body_message(status, state.error_body)}
-      end
-
-    retry_after = HTTP.retry_after_ms(state.headers)
-
-    # Same union as the non-streaming path: a code the codec does not list is not
-    # evidence against retrying, so the status is a second signal.
-    raise HTTP.Error,
-      error: %{
-        error
-        | status: status,
-          retry_after_ms: retry_after,
-          retryable?: error.retryable? or LlmCall.Error.retryable_status?(status)
-      }
+    raise_http_error(state)
   end
 
   defp finish(%{done?: true} = state), do: {:done, untag(state.downstream)}
@@ -306,6 +302,29 @@ defmodule LlmCall.Stream do
     if state.halted?,
       do: {:halted, untag(state.downstream)},
       else: {:done, untag(state.downstream)}
+  end
+
+  defp raise_http_error(%{status: status} = state) do
+    error =
+      case LlmCall.JSON.decode(state.client.config.json, state.error_body) do
+        {:ok, %{} = payload} ->
+          stream_error(state.codec.decode_error(payload, state.client.config))
+
+        _other ->
+          %Error{kind: :transport, message: error_body_message(status, state.error_body)}
+      end
+
+    retry_after = HTTP.retry_after_ms(state.headers)
+
+    # Same union as the non-streaming path: a code the codec does not list is not
+    # evidence against retrying, so the status is a second signal.
+    raise HTTP.Error,
+      error: %{
+        error
+        | status: status,
+          retry_after_ms: retry_after,
+          retryable?: error.retryable? or LlmCall.Error.retryable_status?(status)
+      }
   end
 
   defp stream_error(%Error{} = error), do: error
