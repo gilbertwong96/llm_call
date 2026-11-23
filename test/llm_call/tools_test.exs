@@ -148,6 +148,20 @@ defmodule LlmCall.ToolsTest do
     assert message =~ "tool strict must be a boolean"
   end
 
+  test "a misspelled tool option is a validation error naming the key" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Tools.expand([{Weather, strikt: true}], NeutralCodec)
+
+    assert message =~ ":strikt"
+  end
+
+  test "tool opts must be a keyword list" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Tools.expand([{Weather, ["x"]}], NeutralCodec)
+
+    assert message =~ "tool opts must be a keyword list"
+  end
+
   test "a malformed entry is a validation error, not a FunctionClauseError" do
     for bad <- [123, "forecast", {Weather, :bad_opts}, Enum] do
       assert {:error, %Error{kind: :validation, message: message}} =
