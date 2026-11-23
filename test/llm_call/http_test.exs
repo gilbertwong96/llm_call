@@ -114,6 +114,18 @@ defmodule LlmCall.HTTPTest do
                )
     end
 
+    test "an exit whose reason is an exception and stacktrace is reported" do
+      name = multi_pool()
+      exiter = fn _entries, _state -> exit({%RuntimeError{message: "gone"}, []}) end
+      request = Request.post(TestHTTP.url() <> "/v1/x", [], "{}", 5_000)
+
+      assert {:error, {:exception, message}} =
+               HTTP.request(request, name: name, pool_strategy: {exiter, nil})
+
+      assert message =~ "transport exited"
+      assert message =~ "gone"
+    end
+
     test "a strategy fun that exits is reported, not propagated" do
       name = multi_pool()
       exiter = fn _entries, _state -> exit(:strategy_gone) end

@@ -977,10 +977,14 @@ defmodule LlmCall.Codec.Conformance do
            "#{label} reported invalid_json but decoded arguments anyway"
   end
 
+  defp assert_arguments_error(%ToolCall{arguments_error: {:too_large, bytes}}, _label)
+       when is_integer(bytes) and bytes > 0,
+       do: :ok
+
   defp assert_arguments_error(%ToolCall{arguments_error: other}, label) do
     flunk(
       "#{label} ToolCall.arguments_error must be nil, :no_json_decoder, " <>
-        "or {:invalid_json, reason}, got: #{inspect(other)}"
+        "{:invalid_json, reason}, or {:too_large, bytes}, got: #{inspect(other)}"
     )
   end
 

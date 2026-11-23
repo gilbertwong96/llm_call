@@ -32,6 +32,31 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
     )
   end
 
+  # §8.2: Chat's `arguments` is a string, so the fragment travels verbatim even
+  # when it did not decode. The repair loop depends on the model seeing its own
+  # text back.
+  test "a replay whose arguments did not decode is sent verbatim" do
+    call = %LlmCall.ToolCall{
+      id: "call_1",
+      name: "get_weather",
+      raw_arguments: ~s({"city":),
+      arguments_error: {:invalid_json, "tool arguments are not valid JSON"}
+    }
+
+    body =
+      text_request(
+        messages: [
+          %LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]},
+          %LlmCall.Message{role: :assistant, content: [call]}
+        ]
+      )
+      |> encode()
+      |> Map.fetch!(:body)
+
+    [tool_call] = body["messages"] |> Enum.at(1) |> Map.fetch!("tool_calls")
+    assert tool_call["function"]["arguments"] == ~s|{"city":|
+  end
+
   test "info/0 declares the protocol and IR version" do
     assert %LlmCall.Codec.Info{name: :openai_chat, protocol: :openai_chat, ir_version: 1} =
              Chat.info()

@@ -117,7 +117,7 @@ defmodule LlmCall.StreamAssembler do
     %{entry | fragments: [fragment | entry.fragments], size: entry.size + byte_size(fragment)}
   end
 
-  defp add_fragment(_entry, _fragment, room) when room <= 0, do: %{new_entry() | overflow: true}
+  defp add_fragment(entry, _fragment, room) when room <= 0, do: %{entry | overflow: true}
 
   defp add_fragment(entry, fragment, room) do
     %{entry | fragments: [binary_part(fragment, 0, room) | entry.fragments], overflow: true}
