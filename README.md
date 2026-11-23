@@ -162,8 +162,8 @@ runs them:
 ```elixir
 assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 
-{:ok, assembler, calls} =
-  Enum.reduce(events, {:ok, assembler, []}, fn event, {:ok, acc, calls} ->
+{_assembler, calls} =
+  Enum.reduce(events, {assembler, []}, fn event, {acc, calls} ->
     {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
     {acc, calls ++ new_calls}
   end)

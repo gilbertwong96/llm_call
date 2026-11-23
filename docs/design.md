@@ -415,6 +415,12 @@ them:
   subset checks as tool `parameters`.
 - `Request.modalities` equal to `[:text]` (the default) — the protocol default, so
   it is omitted rather than written.
+- `ToolResult.is_error` on OpenAI Chat and Responses — neither protocol has an
+  error flag on a tool result: the wire is `role: "tool"` or
+  `function_call_output`, carrying text only. The text the caller wrote is sent and
+  the flag is not. Anthropic carries it as `is_error`, Gemini as an `error` key, so
+  the same history reads differently across families; a caller that needs the model
+  to see a failure must say so in the text on those two codecs.
 
 Everything else is a rejection: an unsupported content variant
 (`Content.Video` in a chat request), `ToolSpec.strict` on Anthropic or Gemini,
@@ -525,6 +531,14 @@ verbatim. The caller's repair is to send that assistant turn back with a tool
 result saying the arguments were invalid, so refusing the replay would close the
 loop. A fragment with **no** `arguments_error` is the caller's own claim that it
 parses, and is still required to decode to an object.
+
+Verbatim means verbatim where the wire field is a string: OpenAI Chat's
+`function.arguments` and Responses' `arguments`. Anthropic's `input` and Gemini's
+`args` are JSON *objects*, so a fragment that did not decode cannot be written
+there; those two codecs send `%{}` and the repair loop continues without the model
+seeing its own bad text. Both behaviours are pinned in
+`test/llm_call/content_validation_test.exs` and
+`test/llm_call/dialect/openai_chat_test.exs`.
 
 `LlmCall.Codec.Conformance.assert_replays/3` pins this table per codec.
 

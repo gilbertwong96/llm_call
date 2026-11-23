@@ -33,6 +33,30 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     )
   end
 
+  # §8.2: Anthropic's `input` is an object, so a fragment that did not decode cannot
+  # be written. The documented behaviour is `%{}`, not a rejected replay.
+  test "a replay whose arguments did not decode renders as an empty input" do
+    call = %ToolCall{
+      id: "call_1",
+      name: "get_weather",
+      raw_arguments: ~s({"city":),
+      arguments_error: {:invalid_json, "tool arguments are not valid JSON"}
+    }
+
+    body =
+      text_request(
+        messages: [
+          %Message{role: :user, content: [%Content.Text{text: "hi"}]},
+          %Message{role: :assistant, content: [call]}
+        ]
+      )
+      |> encode()
+      |> Map.fetch!(:body)
+
+    assert [%{"type" => "tool_use", "id" => "call_1", "input" => %{}}] =
+             body["messages"] |> Enum.at(1) |> Map.fetch!("content")
+  end
+
   test "info/0 carries the Anthropic API version" do
     assert %LlmCall.Codec.Info{
              name: :anthropic_messages,
