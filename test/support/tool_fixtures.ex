@@ -37,6 +37,25 @@ defmodule LlmCall.ToolFixtures.Weather do
   def detailed(city, units \\ "metric"), do: {:ok, %{city: city, units: units}}
 end
 
+defmodule LlmCall.ToolFixtures.WeatherAlias do
+  @moduledoc """
+  A second `ToolCall` module declaring `forecast/1`, so a request carrying both
+  this module and `LlmCall.ToolFixtures.Weather` expands to two specs under one
+  tool name.
+  """
+
+  use ToolCall
+
+  @doc """
+  Forecast for a city, from another service.
+
+  ## Parameters
+    * `city` - city name
+  """
+  @spec forecast(city :: String.t()) :: {:ok, %{city: String.t()}}
+  def forecast(city), do: {:ok, %{city: city}}
+end
+
 defmodule LlmCall.ToolFixtures.Recursive do
   @moduledoc """
   A `ToolCall` module whose parameter refers to itself, so Gemini's `parameters`

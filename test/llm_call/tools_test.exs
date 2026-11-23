@@ -2,15 +2,24 @@ defmodule LlmCall.ToolsTest.NeutralCodec do
   def info, do: %LlmCall.Codec.Info{name: :neutral, protocol: :made_up, ir_version: 1}
 end
 
+defmodule LlmCall.ToolsTest.OpenAIProvider do
+  @moduledoc false
+
+  use LlmCall.Provider,
+    base_url: "http://127.0.0.1:1",
+    auth: :none,
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
+end
+
 defmodule LlmCall.ToolsTest do
   use ExUnit.Case, async: true
 
   alias LlmCall.Dialect.Anthropic.Messages
   alias LlmCall.Error
-  alias LlmCall.ToolFixtures.Weather
+  alias LlmCall.ToolFixtures.{Weather, WeatherAlias}
   alias LlmCall.Tools
   alias LlmCall.ToolSpec
-  alias LlmCall.ToolsTest.NeutralCodec
+  alias LlmCall.ToolsTest.{NeutralCodec, OpenAIProvider}
 
   defp user_message do
     %LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]}
@@ -294,5 +303,43 @@ defmodule LlmCall.ToolsTest do
 
     assert {:ok, %LlmCall.StreamState{}} =
              LlmCall.init_stream(LlmCall.Dialect.Anthropic.Messages, request, %LlmCall.Config{})
+  end
+
+  test "complete/3 expands module tools before the codec" do
+    alias LlmCall.TestHTTPServer, as: TestHTTP
+
+    TestHTTP.start()
+    on_exit(&TestHTTP.stop/0)
+
+    TestHTTP.put_response(
+      {:ok, %{status: 200, headers: [], body: ~s({"choices":[{"message":{"content":"ok"}}]})}}
+    )
+
+    client = OpenAIProvider.client(base_url: TestHTTP.url(), api_key: "k")
+
+    request = %LlmCall.Request{model: "gpt-4o", messages: [user_message()], tools: [Weather]}
+
+    assert {:ok, %LlmCall.Response{}} = LlmCall.complete(client, request)
+    assert [sent] = TestHTTP.requests()
+    assert sent.body =~ ~s("forecast")
+  end
+
+  test "validate_request/3 expands module tools before the codec" do
+    request = %LlmCall.Request{model: "gpt-4o", messages: [user_message()], tools: [Weather]}
+
+    assert :ok = LlmCall.validate_request(LlmCall.Dialect.OpenAI.Chat, request)
+  end
+
+  test "two modules declaring the same tool name are rejected after expansion" do
+    request = %LlmCall.Request{
+      model: "gpt-4o",
+      messages: [user_message()],
+      tools: [Weather, WeatherAlias]
+    }
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, %LlmCall.Config{})
+
+    assert message =~ ~s(tool name "forecast" is declared more than once)
   end
 end
