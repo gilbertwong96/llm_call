@@ -5,9 +5,9 @@ defmodule LlmCall.Tools do
   This module builds what a request sends; it never runs a tool. Running one is
   the caller's loop, and `ToolCall.run/4` is one implementation of it.
 
-  Modules are an input form, not a canonical type: `LlmCall.Request.tools` holds
-  only `LlmCall.ToolSpec` structs, so a module or a `{module, opts}` pair is
-  expanded through `ToolCall.describe/2` before a codec sees it.
+  Modules are an input form, not a canonical type: `expand/2` turns a module or
+  a `{module, opts}` pair into `LlmCall.ToolSpec` structs, and each request entry
+  point calls it before a codec runs.
   """
 
   alias LlmCall.Dialect.Helpers

@@ -28,6 +28,15 @@ defmodule LlmCall.Request do
 
   @type modalities :: [LlmCall.modality()]
 
+  @typedoc """
+  A tool entry: a canonical spec, a `ToolCall` module, or `{module, opts}`.
+
+  A module expands to one `LlmCall.ToolSpec` per declared tool when the request
+  is encoded, with the schema projected for the codec's protocol. Callers that
+  already hold specs pass them unchanged.
+  """
+  @type tool_entry :: LlmCall.ToolSpec.t() | module() | {module(), keyword()}
+
   @type params :: %{
           optional(atom()) => nil | boolean() | number() | String.t() | [String.t()]
         }
@@ -36,7 +45,7 @@ defmodule LlmCall.Request do
           model: String.t(),
           system: system(),
           messages: [LlmCall.Message.t()],
-          tools: [LlmCall.ToolSpec.t()],
+          tools: [tool_entry()],
           tool_choice: tool_choice(),
           output: output(),
           modalities: modalities(),
