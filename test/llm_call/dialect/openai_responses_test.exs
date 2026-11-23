@@ -46,6 +46,21 @@ defmodule LlmCall.Dialect.OpenAIResponsesTest do
     events
   end
 
+  test "a reasoning or argument delta whose payload is not a string is rejected" do
+    {:ok, state} = Responses.init_stream(text_request(), %Config{})
+
+    for type <- [
+          "response.reasoning_summary_text.delta",
+          "response.reasoning_text.delta",
+          "response.function_call_arguments.delta"
+        ] do
+      assert {:error, %LlmCall.Error{kind: :invalid_response, message: message}} =
+               Responses.decode_stream_event(%{"type" => type, "delta" => nil}, %Config{}, state)
+
+      assert message =~ "is not a string"
+    end
+  end
+
   test "a text delta whose payload is not a string is an invalid response" do
     {:ok, state} = Responses.init_stream(text_request(), %Config{})
 

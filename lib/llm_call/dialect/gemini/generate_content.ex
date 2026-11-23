@@ -40,6 +40,9 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
                                      responsemimetype responseschema thinkingconfig
                                      responsemodalities)
   @tool_reserved_keys ~w(name description parameters)
+  # Parts whose payload must survive as Raw even when a signature rides along.
+  @content_keys ~w(inlineData fileData executableCode codeExecutionResult)
+
   @gemini_schema_unsupported ~w(additionalProperties $ref $defs prefixItems oneOf const allOf not)
   @gemini_schema_map_keys ~w(items not contains propertyNames if then else additionalProperties
                              unevaluatedProperties unevaluatedItems contentSchema)
@@ -1020,26 +1023,33 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     end
   end
 
-  # A thought part carrying only a signature is the block's `thinking` marker; the
-  # non-streaming decoder renders it as `Content.Thinking{text: "", signature:}`, and
-  # the README's `merge/2` fold expects a Thinking delta rather than Raw.
-  defp part_events(%{"thoughtSignature" => signature}, term, config, data)
+  # A thought part carrying only a signature signs a block whose text arrived earlier
+  # and is the `thinking` marker the README's `merge/2` fold expects. A part that also
+  # carries content — an inline image, a code block — keeps that payload as `Raw`,
+  # which is what the non-streaming decoder does with the same part.
+  defp part_events(%{"thoughtSignature" => signature} = part, term, config, data)
        when is_binary(signature) do
-    thinking = %StreamDelta.Thinking{text: "", signature: signature}
-
-    {[Helpers.event(:thinking_delta, nil, thinking, term, config)], data}
+    if Enum.any?(@content_keys, &is_map_key(part, &1)) do
+      raw_part_events(part, term, config, data)
+    else
+      thinking = %StreamDelta.Thinking{text: "", signature: signature}
+      {[Helpers.event(:thinking_delta, nil, thinking, term, config)], data}
+    end
   end
 
   # §8.1 and §12: a field the codec does not know must reach the caller as `Raw`,
   # never as silence. The non-streaming decoder wraps the same part in `Content.Raw`.
-  defp part_events(part, term, config, data) when is_map(part) do
-    {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: part}, term, config)], data}
-  end
+  defp part_events(part, term, config, data) when is_map(part),
+    do: raw_part_events(part, term, config, data)
 
   # An empty `text` part carries nothing canonical in a stream, so it reaches the
   # caller as `Raw` rather than as an empty delta; the non-streaming decoder keeps it
   # as `Content.Text` because it is decoding a whole response, not a delta.
   defp part_events(_part, _term, _config, data), do: {[], data}
+
+  defp raw_part_events(part, term, config, data) do
+    {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: part}, term, config)], data}
+  end
 
   defp encoded_arguments(args, json) do
     case LlmCall.JSON.encode(json, args || %{}) do

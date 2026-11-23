@@ -36,6 +36,40 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
   # written. The documented behaviour is `%{}`, not a rejected replay.
   # §8.3: an unmappable part reaches the caller as Raw, never as silence, and the
   # finish reason must not claim tool calls that were never emitted.
+  test "a signature-only thought part streams as a Thinking delta" do
+    chunk = %{"candidates" => [%{"content" => %{"parts" => [%{"thoughtSignature" => "sig"}]}}]}
+    {_state, events} = run_stream([chunk])
+
+    assert [
+             %LlmCall.StreamEvent{
+               type: :thinking_delta,
+               delta: %LlmCall.StreamDelta.Thinking{} = d
+             }
+           ] =
+             events
+
+    assert d.text == ""
+    assert d.signature == "sig"
+  end
+
+  test "a signature on a part that carries content keeps the content as Raw" do
+    part = %{
+      "inlineData" => %{"mimeType" => "image/png", "data" => "AA=="},
+      "thoughtSignature" => "sig"
+    }
+
+    chunk = %{"candidates" => [%{"content" => %{"parts" => [part]}}]}
+    {_state, events} = run_stream([chunk])
+
+    assert [
+             %LlmCall.StreamEvent{
+               type: :message_delta,
+               delta: %LlmCall.StreamDelta.Raw{data: ^part}
+             }
+           ] =
+             events
+  end
+
   test "an unmappable part streams as Raw" do
     chunk = %{
       "candidates" => [
