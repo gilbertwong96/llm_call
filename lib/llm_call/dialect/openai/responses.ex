@@ -719,24 +719,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
         %Config{} = config,
         %StreamState{} = state
       ) do
-    case term["delta"] do
-      text when is_binary(text) ->
-        delta = %StreamDelta.Thinking{text: text, signature: nil}
-
-        {:ok,
-         [
-           Helpers.event(
-             :thinking_delta,
-             Helpers.index(term["output_index"]),
-             delta,
-             term,
-             config
-           )
-         ], state}
-
-      other ->
-        {:error, invalid_response("reasoning delta is not a string: #{inspect(other)}")}
-    end
+    thinking_delta(term, config, state)
   end
 
   def decode_stream_event(
@@ -744,11 +727,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
         %Config{} = config,
         %StreamState{} = state
       ) do
-    delta = %StreamDelta.Thinking{text: term["delta"], signature: nil}
-
-    {:ok,
-     [Helpers.event(:thinking_delta, Helpers.index(term["output_index"]), delta, term, config)],
-     state}
+    thinking_delta(term, config, state)
   end
 
   def decode_stream_event(
@@ -1031,6 +1010,29 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
 
   defp map_or_empty(%{} = value), do: value
   defp map_or_empty(_value), do: %{}
+
+  # Both reasoning delta events carry the same fragment shape, so they share the
+  # guard and the event they build.
+  defp thinking_delta(term, config, state) do
+    case term["delta"] do
+      text when is_binary(text) ->
+        delta = %StreamDelta.Thinking{text: text, signature: nil}
+
+        {:ok,
+         [
+           Helpers.event(
+             :thinking_delta,
+             Helpers.index(term["output_index"]),
+             delta,
+             term,
+             config
+           )
+         ], state}
+
+      other ->
+        {:error, invalid_response("reasoning delta is not a string: #{inspect(other)}")}
+    end
+  end
 
   defp invalid_response(message) do
     %Error{kind: :invalid_response, message: "openai_responses: " <> message}
