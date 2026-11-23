@@ -34,6 +34,54 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
 
   # §8.2: Gemini's `args` is an object, so a fragment that did not decode cannot be
   # written. The documented behaviour is `%{}`, not a rejected replay.
+  # §8.3: an unmappable part reaches the caller as Raw, never as silence, and the
+  # finish reason must not claim tool calls that were never emitted.
+  test "an unmappable part streams as Raw" do
+    chunk = %{
+      "candidates" => [
+        %{"content" => %{"parts" => [%{"executableCode" => %{"code" => "1"}}]}}
+      ]
+    }
+
+    {_state, events} = run_stream([chunk])
+
+    assert [
+             %LlmCall.StreamEvent{
+               type: :message_delta,
+               delta: %LlmCall.StreamDelta.Raw{data: data}
+             }
+           ] =
+             events
+
+    assert data == %{"executableCode" => %{"code" => "1"}}
+  end
+
+  test "a functionCall that is not a map does not promise :tool_calls" do
+    chunk = %{
+      "candidates" => [
+        %{
+          "content" => %{"parts" => [%{"functionCall" => "not-a-map"}]},
+          "finishReason" => "STOP"
+        }
+      ]
+    }
+
+    {_state, events} = run_stream([chunk])
+
+    refute Enum.any?(events, &match?(%LlmCall.StreamEvent{type: :tool_call_start}, &1))
+
+    delta =
+      Enum.find_value(events, fn
+        %LlmCall.StreamEvent{type: :message_delta, delta: %LlmCall.StreamDelta.MessageDelta{} = d} ->
+          d
+
+        _ ->
+          nil
+      end)
+
+    assert delta.stop_reason == :end_turn
+  end
+
   test "a replay whose arguments did not decode renders as empty args" do
     call = %LlmCall.ToolCall{
       id: "call_1",
