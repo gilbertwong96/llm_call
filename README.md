@@ -175,12 +175,14 @@ runs them:
 ```elixir
 assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 
-{_assembler, calls} =
+{_assembler, _calls} =
   Enum.reduce(events, {assembler, []}, fn event, {acc, calls} ->
     {:ok, acc, new_calls} = LlmCall.StreamAssembler.feed(acc, event)
     {acc, calls ++ new_calls}
   end)
 ```
+
+The second element holds every tool call that completed, in completion order.
 
 ## Media generation
 
@@ -399,8 +401,8 @@ The one-call client is the default. The encode/decode functions stay available f
 callers that already own a transport:
 
 ```elixir
-{:ok, encoded} = LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request)
-# transport: encoded.method to base_url <> encoded.path, JSON-encode encoded.body
+{:ok, _encoded} = LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request)
+# the struct carries `method`, `path` and `body`; `body` is already a map
 {:ok, _response} = LlmCall.decode_response(LlmCall.Dialect.Anthropic.Messages, payload)
 ```
 
