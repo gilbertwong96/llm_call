@@ -322,9 +322,13 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
       Keyword.get(opts, :stream_id) ||
         "lane-" <> Integer.to_string(System.unique_integer([:positive]))
 
+    # A duplicate id is the caller's mistake whatever the server echoes, so it is
+    # checked before the capability-dependent lane-count rule; otherwise the same
+    # duplicate reports "this server does not echo stream_id" whenever no echo has
+    # arrived yet.
     with :ok <- validate_stream_id(stream_id),
-         :ok <- validate_lane_count(state),
          false <- Map.has_key?(state.lanes, stream_id),
+         :ok <- validate_lane_count(state),
          {:ok, request} <- Tools.normalize_request(request, Responses),
          {:ok, encoded} <- Responses.encode_request(request, state.client.config),
          {:ok, stream_state} <- Responses.init_stream(request, state.client.config),
