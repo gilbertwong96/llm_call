@@ -130,6 +130,16 @@ defmodule LlmCall.HTTPTest do
     assert HTTP.retry_after_ms([]) == nil
   end
 
+  test "retryable_status?/1 is the one status rule" do
+    for status <- [408, 425, 429, 500, 502, 503, 504] do
+      assert LlmCall.Error.retryable_status?(status), "#{status} must be retryable"
+    end
+
+    for status <- [400, 401, 403, 404, 409, 413, 422, nil] do
+      refute LlmCall.Error.retryable_status?(status), "#{inspect(status)} must not be"
+    end
+  end
+
   test "retry_after_ms/1 tolerates a non-list argument" do
     assert HTTP.retry_after_ms(nil) == nil
     assert HTTP.retry_after_ms(%{"retry-after" => "5"}) == nil

@@ -153,6 +153,29 @@ defmodule LlmCall.StreamTest do
     assert message =~ "closed"
   end
 
+  test "a mid-stream non-2xx unions the codec's verdict with the status" do
+    # A 429 whose body the codec cannot classify must still read as retryable:
+    # the status is the second signal, exactly as on the non-streaming path.
+    TestHTTP.put_events([
+      {:status, 429},
+      {:data, "brand new body"}
+    ])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{status: 429, retryable?: true} = HTTP.Error.error(exception)
+  end
+
+  test "a mid-stream status that is not retryable stays not retryable" do
+    TestHTTP.put_events([{:status, 404}, {:data, "nope"}])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{status: 404, retryable?: false} = HTTP.Error.error(exception)
+  end
+
   test "a payload that is not JSON names the payload and the decoder reason" do
     # A truncated fragment is the realistic case: the stream was cut, or a gateway
     # injected its own body. Neither is diagnosable from "is not JSON" alone.

@@ -247,7 +247,16 @@ defmodule LlmCall.Stream do
       end
 
     retry_after = HTTP.retry_after_ms(state.headers)
-    raise HTTP.Error, error: %{error | status: status, retry_after_ms: retry_after}
+
+    # Same union as the non-streaming path: a code the codec does not list is not
+    # evidence against retrying, so the status is a second signal.
+    raise HTTP.Error,
+      error: %{
+        error
+        | status: status,
+          retry_after_ms: retry_after,
+          retryable?: error.retryable? or LlmCall.Error.retryable_status?(status)
+      }
   end
 
   defp finish(%{done?: true} = state), do: {:done, untag(state.downstream)}

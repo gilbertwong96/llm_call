@@ -635,19 +635,34 @@ defmodule LlmCall.ClientTest do
       end
     end
 
-    test "a provider envelope decides from its own code, not the status" do
-      # When the body decodes, the codec's verdict stands: a status the transport
-      # would call retryable does not turn a provider error into a retryable one.
+    test "the codec's verdict and the status are unioned" do
+      # A code the codec does not list is not evidence against retrying: a 429 is
+      # a 429, and a provider that adds a rate-limit code must not turn it into
+      # "do not retry".
       TestHTTP.put_response(
         {:ok,
          %{
-           status: 503,
+           status: 429,
            headers: [],
-           body: ~s({"error":{"message":"bad request","code":"invalid_request_error"}})
+           body: ~s({"error":{"message":"slow","code":"brand_new_rate_limit"}})
          }}
       )
 
-      assert {:error, %Error{kind: :provider, status: 503, retryable?: false}} =
+      assert {:error, %Error{kind: :provider, status: 429, retryable?: true}} =
+               LlmCall.complete(client(), request())
+    end
+
+    test "a status that is not retryable stays not retryable" do
+      TestHTTP.put_response(
+        {:ok,
+         %{
+           status: 404,
+           headers: [],
+           body: ~s({"error":{"message":"gone","code":"not_found"}})
+         }}
+      )
+
+      assert {:error, %Error{kind: :provider, status: 404, retryable?: false}} =
                LlmCall.complete(client(), request())
     end
   end

@@ -2,10 +2,13 @@ defmodule LlmCall.Error do
   @moduledoc """
   A codec error.
 
-  `retryable?` is a hint derived from the provider's error code, not a retry
-  policy. `kind` says who produced the error: a codec produces `:validation`,
-  `:invalid_response` or `:provider`; the client adds `:transport` for a failure
-  that never reached a provider.
+  `retryable?` is a hint, not a retry policy. It comes from two signals: the
+  codec's verdict on the provider's own code or status field, and the HTTP status
+  (`retryable_status?/1`). The client takes the union, because a provider that
+  introduces a new code — or a proxy that answers with its own body — must not
+  turn a `429` into "do not retry". `kind` says who produced the error: a codec
+  produces `:validation`, `:invalid_response` or `:provider`; the client adds
+  `:transport` for a failure that never reached a provider.
 
   `retry_after_ms` is the parsed `Retry-After` header, when the transport saw
   one; it is a hint, not a retry policy.
@@ -64,6 +67,20 @@ defmodule LlmCall.Error do
             retryable?: false,
             retry_after_ms: nil,
             raw: nil
+
+  @retryable_statuses [408, 425, 429, 500, 502, 503, 504]
+
+  @doc """
+  Whether an HTTP status is worth retrying on its own.
+
+  Used two ways: as the whole hint for a `:transport` error that carries no
+  provider verdict, and as the second input when a decoded error's status is
+  filled in. A provider adding a new rate-limit code must not make a `429` look
+  permanent, and the reverse — retrying a `413` — stays out because it is not in
+  the list.
+  """
+  @spec retryable_status?(non_neg_integer() | nil) :: boolean()
+  def retryable_status?(status), do: status in @retryable_statuses
 
   @doc false
   @spec from_transport(term()) :: t()
