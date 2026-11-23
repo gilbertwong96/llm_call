@@ -91,6 +91,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `Error.retryable?` is now the union of the codec's verdict and the HTTP status
+  (`LlmCall.Error.retryable_status?/1`: `408`, `425`, `429`, `500`, `502`, `503`,
+  `504`). Before, a `429` whose body named a code the codec did not list reported
+  `retryable?: false`, while the same `429` with an unparseable body reported
+  `true` — better evidence gave the worse answer, and a provider that introduced a
+  new rate-limit code silently stopped retries.
 - `LlmCall.Codec.Conformance.assert_capability_consistency/3` no longer reports a
   reasoning budget as rejected by a codec that correctly requires it to be below
   `params.max_tokens`. The sample now tracks the request, so the suite can be run

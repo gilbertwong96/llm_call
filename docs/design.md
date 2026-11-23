@@ -665,17 +665,21 @@ of parsing `message`; a non-transport error never sets it.
 response header (delta-seconds or IMF-fixdate) and sets it on the error; a codec
 leaves it `nil`. It is a hint, like `retryable?`; backoff policy stays outside.
 
-`retryable?` is a hint with two sources, and which one applies depends on whether
-the body decoded:
+`retryable?` is a hint with two signals, and the client takes their **union**:
 
-- the provider envelope decoded: the codec's verdict stands, derived from its own
-  code or status field (`rate_limit_exceeded`, `overloaded_error`,
-  `RESOURCE_EXHAUSTED`, ...). A transport-level status does not override it.
-- the body did not decode (a gateway's HTML, an empty body, a proxy's plain
-  text): there is no code to classify, so the client derives the hint from the
-  HTTP status — `408`, `425`, `429`, `500`, `502`, `503` and `504` are
-  retryable. Without this a real `429` answered by a CDN reported
-  `retryable?: false`.
+- the codec's verdict on the provider's own code or status field
+  (`rate_limit_exceeded`, `overloaded_error`, `RESOURCE_EXHAUSTED`, ...);
+- the HTTP status, through `LlmCall.Error.retryable_status?/1` — `408`, `425`,
+  `429`, `500`, `502`, `503` and `504`.
+
+Neither overrides the other, because a false negative is the costly direction: a
+`429` answered with a code the codec does not list — a provider that added a
+rate-limit code, a proxy with its own body — must not read as "do not retry".
+`:transport` errors have no codec verdict, so the status is their whole hint; the
+same status is a *second* signal when a decoded error gets its `status` filled in,
+which the client and the streaming path both do. The asymmetry this avoids:
+before the union, a `429` with an unparseable body was retryable while a `429`
+with a body naming an unknown code was not.
 
 A failure whose body cannot be decoded at all — a gateway's HTML, a truncated
 frame, a proxy's plain text — has nothing to put in `raw` or `code`, so the

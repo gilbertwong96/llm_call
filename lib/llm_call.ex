@@ -414,7 +414,7 @@ defmodule LlmCall do
       %{} = payload ->
         case codec.decode_error(payload, client.config) do
           %Error{} = error ->
-            {:error, %{error | status: status, retry_after_ms: retry_after}}
+            {:error, with_status(error, status, retry_after)}
 
           other ->
             {:error,
@@ -583,15 +583,25 @@ defmodule LlmCall do
   # classify, so the HTTP status is the only signal. Without this a real 429 or
   # 503 answered by a gateway as HTML or an empty body reported
   # `retryable?: false`, and a caller that follows the hint stops retrying.
-  @retryable_statuses [408, 425, 429, 500, 502, 503, 504]
-
   defp transport_error(message, status, retry_after_ms) do
     %Error{
       kind: :transport,
       message: message,
       status: status,
-      retryable?: status in @retryable_statuses,
+      retryable?: Error.retryable_status?(status),
       retry_after_ms: retry_after_ms
+    }
+  end
+
+  # The codec decided from the provider's own code, but a code it does not list
+  # is not evidence against retrying: a `429` is a `429`. The status is a second
+  # signal, so the hint is the union rather than the codec's verdict alone.
+  defp with_status(%Error{} = error, status, retry_after_ms) do
+    %{
+      error
+      | status: status,
+        retry_after_ms: retry_after_ms,
+        retryable?: error.retryable? or Error.retryable_status?(status)
     }
   end
 
