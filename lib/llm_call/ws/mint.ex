@@ -75,7 +75,7 @@ defmodule LlmCall.WS.Mint do
     case Mint.WebSocket.upgrade(scheme, conn, path(uri), headers) do
       {:ok, conn, ref} ->
         await_upgrade(
-          %{conn: conn, ref: ref, websocket: nil, pending: []},
+          %{conn: conn, ref: ref, websocket: nil, pending: [], upgrade_status: nil},
           deadline(timeout(opts))
         )
 
@@ -87,45 +87,61 @@ defmodule LlmCall.WS.Mint do
 
   defp await_upgrade(state, deadline) do
     case receive_stream(state, deadline) do
-      {:ok, state, responses} ->
-        status =
-          Enum.find_value(responses, fn
-            {:status, _, status} -> status
-            _ -> nil
-          end)
-
-        headers =
-          Enum.find_value(responses, fn
-            {:headers, _, headers} -> headers
-            _ -> nil
-          end)
-
-        cond do
-          status == 101 and is_list(headers) ->
-            upgrade(state, headers)
-
-          is_integer(status) ->
-            Mint.HTTP.close(state.conn)
-            {:error, {:upgrade_failed, status}}
-
-          true ->
-            await_upgrade(state, deadline)
-        end
-
-      {:error, reason} ->
-        Mint.HTTP.close(state.conn)
-        {:error, reason}
+      {:ok, state, responses} -> decide_upgrade(state, responses, deadline)
+      {:error, reason} -> close_with(state, reason)
     end
+  end
+
+  defp decide_upgrade(state, responses, deadline) do
+    # A split 101 delivers its status and its header block in separate reads, so the
+    # status seen earlier has to survive into the batch that carries the headers.
+    status = List.last(for {:status, _ref, status} <- responses, do: status)
+    status = status || state.upgrade_status
+    headers = response_headers(responses)
+
+    # Bytes the server wrote after the 101 head are already the first frames.
+    decide_upgrade_status(state, status, headers, response_data(responses), deadline)
+  end
+
+  defp decide_upgrade_status(state, 101, headers, data, _deadline) when is_list(headers),
+    do: upgrade(state, headers, data)
+
+  # An interim status (100 Continue, or a 101 whose header block is still in flight)
+  # is not the server's answer, so keep reading instead of failing.
+  defp decide_upgrade_status(state, status, _headers, _data, deadline)
+       when status in 100..199,
+       do: await_upgrade(%{state | upgrade_status: status}, deadline)
+
+  defp decide_upgrade_status(state, status, _headers, _data, _deadline) when is_integer(status) do
+    Mint.HTTP.close(state.conn)
+    {:error, {:upgrade_failed, status}}
+  end
+
+  defp decide_upgrade_status(state, _status, _headers, _data, deadline),
+    do: await_upgrade(state, deadline)
+
+  defp response_headers(responses) do
+    Enum.find_value(responses, fn
+      {:headers, _ref, headers} -> headers
+      _ -> nil
+    end)
+  end
+
+  defp response_data(responses), do: for({:data, _ref, bytes} <- responses, into: <<>>, do: bytes)
+
+  defp close_with(state, reason) do
+    Mint.HTTP.close(state.conn)
+    {:error, reason}
   end
 
   # Dialyzer cannot see Mint.WebSocket.new/4's HTTP/1 success branch through
   # Mint's opaque connection type; the status and protocol are checked here.
-  @dialyzer {:nowarn_function, upgrade: 2}
-  defp upgrade(state, headers) do
+  @dialyzer {:nowarn_function, [{:upgrade, 3}, {:buffer, 2}]}
+  defp upgrade(state, headers, data) do
     if Mint.HTTP.protocol(state.conn) == :http1 do
       case Mint.WebSocket.new(state.conn, state.ref, 101, headers) do
         {:ok, conn, websocket} ->
-          {:ok, %{state | conn: conn, websocket: websocket}}
+          buffer(%{state | conn: conn, websocket: websocket}, data)
 
         {:error, conn, reason} ->
           Mint.HTTP.close(conn)
@@ -134,6 +150,21 @@ defmodule LlmCall.WS.Mint do
     else
       Mint.HTTP.close(state.conn)
       {:error, :unsupported_protocol}
+    end
+  end
+
+  # `Mint.WebSocket.new/4` only registers the ref for future socket messages, so
+  # anything already buffered with the upgrade response would never be decoded.
+  defp buffer(state, ""), do: {:ok, state}
+
+  defp buffer(state, data) do
+    case collect_data(data, state) do
+      {:ok, frames, state} ->
+        {:ok, %{state | pending: frames}}
+
+      {:error, reason} ->
+        Mint.HTTP.close(state.conn)
+        {:error, reason}
     end
   end
 

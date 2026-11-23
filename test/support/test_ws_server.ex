@@ -23,6 +23,7 @@ defmodule LlmCall.TestWSServer do
     mode = Keyword.get(opts, :mode, :echo)
     echo_stream_id = Keyword.get(opts, :echo_stream_id, false)
     port = Keyword.get(opts, :port, 0)
+    upgrade_mode = Keyword.get(opts, :upgrade, :single)
 
     pid =
       spawn_link(fn ->
@@ -34,6 +35,7 @@ defmodule LlmCall.TestWSServer do
           buffer: "",
           mode: mode,
           echo_stream_id: echo_stream_id,
+          upgrade: upgrade_mode,
           pongs: [],
           frames: [],
           close_sent?: false,
@@ -126,18 +128,34 @@ defmodule LlmCall.TestWSServer do
     pid
   end
 
-  defp upgrade(socket) do
+  # `:single` writes the whole 101 head in one send. `:split` separates the status
+  # line from the headers so a client must not treat the status alone as the answer.
+  # `:coalesced` appends a first frame to the head, which a client must not drop.
+  defp upgrade(socket, mode) do
     key = socket |> read_head("") |> websocket_key()
     accept = Base.encode64(:crypto.hash(:sha, key <> @guid))
 
-    :gen_tcp.send(socket, [
+    head = [
       "HTTP/1.1 101 Switching Protocols\r\n",
       "Upgrade: websocket\r\n",
       "Connection: Upgrade\r\n",
       "Sec-WebSocket-Accept: ",
       accept,
       "\r\n\r\n"
-    ])
+    ]
+
+    case mode do
+      :split ->
+        :ok = :gen_tcp.send(socket, "HTTP/1.1 101 Switching Protocols\r\n")
+        Process.sleep(50)
+        :ok = :gen_tcp.send(socket, tl(head))
+
+      :coalesced ->
+        :ok = :gen_tcp.send(socket, [head, encode_frame({:text, "early"})])
+
+      :single ->
+        :ok = :gen_tcp.send(socket, head)
+    end
 
     :inet.setopts(socket, active: :once)
   end
@@ -185,7 +203,7 @@ defmodule LlmCall.TestWSServer do
   defp control(listen, acceptor, state) do
     receive do
       {:accepted, socket} ->
-        upgrade(socket)
+        upgrade(socket, state.upgrade)
 
         case loop(socket, state) do
           {:continue, state} -> control(listen, acceptor, state)
