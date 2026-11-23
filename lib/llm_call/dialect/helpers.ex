@@ -769,7 +769,7 @@ defmodule LlmCall.Dialect.Helpers do
     if tools == [] do
       error(codec, "tool_choice requires at least one tool")
     else
-      validate_tool_choice_value(choice, codec)
+      validate_tool_choice_value(choice, tools, codec)
     end
   end
 
@@ -777,19 +777,61 @@ defmodule LlmCall.Dialect.Helpers do
     error(codec, "tool_choice #{inspect(choice)} is not supported")
   end
 
-  defp validate_tool_choice_value(:required, _codec), do: :ok
+  defp validate_tool_choice_value(:required, _tools, _codec), do: :ok
 
-  defp validate_tool_choice_value({:tool, name}, _codec) when is_binary(name) and name != "",
-    do: :ok
+  defp validate_tool_choice_value({:tool, name}, tools, codec)
+       when is_binary(name) and name != "",
+       do: validate_chosen_tool(name, tools, codec)
 
-  defp validate_tool_choice_value({:tool, _name}, codec),
+  defp validate_tool_choice_value({:tool, _name}, _tools, codec),
     do: error(codec, "tool_choice tool name is required")
 
-  defp validate_tool_choice_value({:allowed, _names}, codec),
+  defp validate_tool_choice_value({:allowed, _names}, _tools, codec),
     do: error(codec, "tool_choice {:allowed, names} is not supported")
 
-  defp validate_tool_choice_value(choice, codec),
+  defp validate_tool_choice_value(choice, _tools, codec),
     do: error(codec, "tool_choice #{inspect(choice)} is not supported")
+
+  @doc """
+  Validates that a chosen tool name is one the request declares.
+
+  Both OpenAI and Anthropic reject a `tool_choice` naming a tool that is not in
+  `tools` (Anthropic: "tool_choice not in tools"), and Gemini requires its
+  `allowedFunctionNames` to match a `FunctionDeclaration.name`. The request holds
+  both sides, so the mismatch is a local `:validation` error instead of a 400.
+  """
+  @spec validate_chosen_tool(String.t(), [ToolSpec.t()], codec()) :: :ok | {:error, Error.t()}
+  def validate_chosen_tool(name, tools, codec) do
+    if Enum.any?(tools, &match?(%ToolSpec{name: ^name}, &1)) do
+      :ok
+    else
+      error(
+        codec,
+        "tool_choice names #{inspect(name)}, which no tool in the request declares"
+      )
+    end
+  end
+
+  @doc """
+  Validates a list of allowed tool names, one entry at a time.
+
+  An empty list is rejected: a protocol that sets `mode: ANY` from it would
+  require a call while allowing none, which contradicts itself.
+  """
+  @spec validate_allowed_tools([String.t()], [ToolSpec.t()], codec()) ::
+          :ok | {:error, Error.t()}
+  def validate_allowed_tools([], _tools, codec),
+    do: error(codec, "tool_choice {:allowed, names} requires at least one name")
+
+  def validate_allowed_tools(names, tools, codec) when is_list(names) do
+    first_error(names, fn name ->
+      if is_binary(name) and name != "" do
+        validate_chosen_tool(name, tools, codec)
+      else
+        error(codec, "tool_choice {:allowed, names} entries must be non-empty strings")
+      end
+    end)
+  end
 
   @doc """
   Validates the response format shared by OpenAI-style protocols.

@@ -386,7 +386,8 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   defp validate_tool_choice({:tool, name}, []) when is_binary(name),
     do: Helpers.error(@codec, "tool_choice requires at least one tool")
 
-  defp validate_tool_choice({:tool, name}, _tools) when is_binary(name) and name != "", do: :ok
+  defp validate_tool_choice({:tool, name}, tools) when is_binary(name) and name != "",
+    do: Helpers.validate_chosen_tool(name, tools, @codec)
 
   defp validate_tool_choice({:tool, _name}, _tools),
     do: Helpers.error(@codec, "tool_choice tool name is required")

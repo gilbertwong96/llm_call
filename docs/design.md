@@ -319,6 +319,15 @@ Fields:
   with a leading letter or underscore, and OpenAI Responses publishes no
   constraint. See [§8.12](#812-tool-names).
 - `tool_choice` — `:auto | :none | :required | {:tool, name} | {:allowed, [name]}`.
+  `{:tool, name}` and `{:allowed, names}` are cross-referenced against `tools`:
+  a name no tool declares is a `:validation` error, because both OpenAI and
+  Anthropic reject such a request (Anthropic: "tool_choice not in tools") and
+  Gemini requires its `allowedFunctionNames` to match a `FunctionDeclaration.name`.
+  Both sides live in the same request, so the mismatch is caught locally. A
+  builtin tool's `name` counts as declared. An empty `{:allowed, []}` is rejected
+  too: a protocol that derives `mode: ANY` from it would require a call while
+  allowing none. `{:allowed, names}` is Gemini-only; the other codecs reject the
+  form outright.
 - `output` — `:text | :json_object | {:json_schema, name, schema, strict?}`. This
   describes the text format only.
 - `modalities` — which output modalities the caller accepts, default `[:text]`.

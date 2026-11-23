@@ -191,4 +191,56 @@ defmodule LlmCall.Dialect.HelpersTest do
       assert message =~ "not supported"
     end
   end
+
+  describe "tool_choice cross-references the declared tools" do
+    @tools [
+      %LlmCall.ToolSpec{name: "get_weather"},
+      %LlmCall.ToolSpec{kind: :builtin, name: "web_search_20250305"}
+    ]
+    @codec :test_codec
+
+    test "a chosen tool must be declared" do
+      assert :ok == Helpers.validate_tool_choice({:tool, "get_weather"}, @tools, @codec)
+
+      # A builtin tool is declared by name too, so it is choosable.
+      assert :ok == Helpers.validate_tool_choice({:tool, "web_search_20250305"}, @tools, @codec)
+
+      assert {:error, %{kind: :validation, message: message}} =
+               Helpers.validate_tool_choice({:tool, "nonexistent"}, @tools, @codec)
+
+      assert message =~ ~s(tool_choice names "nonexistent")
+      assert message =~ "no tool in the request declares"
+    end
+
+    test "an allowed list must be non-empty and only name declared tools" do
+      assert :ok == Helpers.validate_allowed_tools(["get_weather"], @tools, @codec)
+
+      assert :ok ==
+               Helpers.validate_allowed_tools(
+                 ["get_weather", "web_search_20250305"],
+                 @tools,
+                 @codec
+               )
+
+      assert {:error, %{message: message}} = Helpers.validate_allowed_tools([], @tools, @codec)
+      assert message =~ "requires at least one name"
+
+      assert {:error, %{message: message}} =
+               Helpers.validate_allowed_tools(["get_weather", "nope"], @tools, @codec)
+
+      assert message =~ ~s(\"nope\")
+
+      for bad <- [[""], [nil], [123]] do
+        assert {:error, %{message: message}} = Helpers.validate_allowed_tools(bad, @tools, @codec)
+        assert message =~ "non-empty strings"
+      end
+    end
+
+    test "the choice is still rejected when no tool is declared at all" do
+      assert {:error, %{message: message}} =
+               Helpers.validate_tool_choice({:tool, "get_weather"}, [], @codec)
+
+      assert message =~ "requires at least one tool"
+    end
+  end
 end

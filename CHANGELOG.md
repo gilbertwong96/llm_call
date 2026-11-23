@@ -23,6 +23,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `tool_choice` was not cross-referenced against `tools`, so `{:tool, "typo"}`
+  produced a request naming a tool the request never declares. OpenAI and
+  Anthropic reject that with a 400 (Anthropic: "tool_choice not in tools"), and
+  Gemini requires `allowedFunctionNames` to match a `FunctionDeclaration.name`.
+  It is now a `:validation` error naming the undeclared tool; a builtin tool's
+  `name` counts as declared. Gemini's `{:allowed, []}` is rejected as well, since
+  `mode: ANY` derived from it would require a call while allowing none.
 - The default WebSocket transport raised `FunctionClauseError` for a URL that is
   not a string, because `URI.parse/1` only accepts a binary. The `LlmCall.WS`
   behaviour promises `{:ok, conn()} | {:error, error()}`, so a non-string URL is
