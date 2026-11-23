@@ -349,7 +349,7 @@ want the specs before the call:
 
 What a decoded turn can be sent back as depends on the protocol: text and tool
 calls always, thinking blocks and `Content.Raw` only where the request shape
-allows it. `docs/design.md` §8.2 has the table, and
+allows it. `docs/design.md` §8.3 has the replay table, and
 `LlmCall.Codec.Conformance.assert_replays/3` pins it for an adapter.
 
 Provider-hosted tools (web search, grounding, server tools) are builtin tools whose
@@ -382,10 +382,12 @@ of the stable API surface (see `LlmCall.Media`):
 | MiniMax Hailuo | `LlmCall.Media.Dialect.MiniMax.Video` |
 
 The library does not promise provider coverage. An adapter outside this repository
-is a module that `use`s `LlmCall.Dialect.Adapter` (or `LlmCall.Media.Dialect.Adapter`) and
-supplies `@path`, `@headers`, a private `body/2`, and the protocol's own
-`validate_request/2`; share validation through `LlmCall.Dialect.Helpers` instead
-of reimplementing it. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+is a module that `use`s `LlmCall.Dialect.Adapter` and supplies `@path`, `@headers`,
+a private `body/2`, and the protocol's own `validate_request/2`. A media adapter
+`use`s `LlmCall.Media.Dialect.Adapter` instead and implements `encode_submit/2`,
+`decode_submit/2`, `decode_operation/2` plus the validators the macro documents —
+it injects `validate_request/2` and has no `body/2`. Share validation through
+`LlmCall.Dialect.Helpers` instead of reimplementing it. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 OpenAI-compatible endpoints (Groq, DeepSeek, Together, vLLM, Ollama's OpenAI
 surface, ...) use the OpenAI Chat codec with their own base URL and
