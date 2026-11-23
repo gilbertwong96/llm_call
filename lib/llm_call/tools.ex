@@ -18,7 +18,7 @@ defmodule LlmCall.Tools do
   @typedoc """
   A tool entry: a spec to keep, or a `ToolCall` module to expand.
   """
-  @type input :: ToolSpec.t() | module() | {module(), keyword()}
+  @type input :: LlmCall.Request.tool_entry()
 
   @doc """
   Expands `tools` into one spec per tool.
@@ -98,8 +98,41 @@ defmodule LlmCall.Tools do
   defp projection(_protocol), do: :neutral
 
   defp specs_for(module, strict, codec) do
+    case projection(codec.info().protocol) do
+      :gemini -> gemini_specs(module, strict, codec)
+      target -> module_specs(module, target, strict, codec)
+    end
+  end
+
+  defp module_specs(module, target, strict, codec) do
+    entries =
+      case target do
+        :neutral -> ToolCall.describe(module, strict: strict)
+        :openai -> ToolCall.emit(module, :openai, strict: strict)
+      end
+
+    {:ok, Enum.map(entries, &module_spec(&1, target, strict))}
+  rescue
+    error in ArgumentError -> Helpers.error(codec.info().name, Exception.message(error))
+  end
+
+  defp module_spec(
+         %{name: name, description: description, parameters: parameters},
+         :neutral,
+         strict
+       ) do
+    to_spec(name, description, parameters, strict)
+  end
+
+  defp module_spec(%{"function" => function}, :openai, strict) do
+    # LlmCall renders OpenAI's `strict` inside `function`, so this drops the
+    # sibling `strict` ToolCall.emit/3 adds.
+    to_spec(function["name"], function["description"], function["parameters"], strict)
+  end
+
+  defp gemini_specs(module, strict, codec) do
     with {:ok, tools} <- tools_for(module, codec) do
-      Helpers.map_ok(tools, &spec_for(&1, module, strict, codec))
+      Helpers.map_ok(tools, &gemini_spec(&1, module, strict, codec))
     end
   end
 
@@ -109,8 +142,9 @@ defmodule LlmCall.Tools do
     error in ArgumentError -> Helpers.error(codec.info().name, Exception.message(error))
   end
 
-  defp spec_for(tool, module, strict, codec) do
-    {:ok, project(tool, strict, projection(codec.info().protocol))}
+  defp gemini_spec(tool, module, strict, codec) do
+    entry = ToolCall.emit(tool, :gemini)
+    {:ok, to_spec(entry["name"], entry["description"], entry["parameters"], strict)}
   rescue
     error in ArgumentError ->
       Helpers.error(
@@ -118,23 +152,6 @@ defmodule LlmCall.Tools do
         "cannot render tool #{inspect(tool.name)} in #{inspect(module)}: " <>
           Exception.message(error)
       )
-  end
-
-  defp project(tool, strict, :neutral) do
-    parameters = ToolCall.Emit.Schema.params(tool, strict: strict)
-    to_spec(tool.name, tool.description || tool.name, parameters, strict)
-  end
-
-  defp project(tool, strict, :gemini) do
-    entry = ToolCall.emit(tool, :gemini)
-    to_spec(entry["name"], entry["description"], entry["parameters"], strict)
-  end
-
-  defp project(tool, strict, :openai) do
-    # LlmCall renders OpenAI's `strict` inside `function`, so the sibling
-    # `strict` ToolCall.emit/3 adds is dropped here.
-    %{"function" => function} = ToolCall.emit(tool, :openai, strict: strict)
-    to_spec(function["name"], function["description"], function["parameters"], strict)
   end
 
   defp to_spec(name, description, parameters, strict) do
