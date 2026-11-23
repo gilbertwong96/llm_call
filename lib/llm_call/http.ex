@@ -15,7 +15,7 @@ defmodule LlmCall.HTTP do
 
   Neither function raises for a transport failure: a Finch exception or exit —
   a pool checkout timeout is a `RuntimeError` — returns `{:error, {:exception,
-  message}}`, which `LlmCall.Error.from_transport/1` maps to `reason: :exception`.
+  message}}`, which the transport-reason mapping carries as `reason: :exception`.
   `stream/4`'s reducer runs inside that protected region, so an `ArgumentError` or
   `RuntimeError` the callback itself raises is reported the same way.
 

@@ -14,7 +14,10 @@ defmodule MyApp.OpenAI do
   use LlmCall.Provider,
     base_url: "https://api.openai.com",
     auth: :bearer,
-    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
+    codecs: [
+      chat: LlmCall.Dialect.OpenAI.Chat,
+      images: LlmCall.Media.Dialect.OpenAI.Images
+    ]
 end
 
 client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
@@ -59,7 +62,7 @@ defmodule MyApp.Groq do
     codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
 end
 
-client = MyApp.Groq.client(api_key: key)
+client = MyApp.Groq.client(api_key: System.fetch_env!("GROQ_API_KEY"))
 ```
 
 `codecs:` is a named map because one endpoint can serve several request shapes.
@@ -68,9 +71,19 @@ An endpoint that returns text and images is still **one** chat codec
 OpenAI Images — is a second codec selected per call:
 
 ```elixir
-{:ok, %LlmCall.Media.Response{assets: assets}} =
+media_request = %LlmCall.Media.Request{
+  modality: :image,
+  model: "gpt-image-1",
+  prompt: "a cat, watercolor"
+}
+
+{:ok, %LlmCall.Media.Response{assets: _assets}} =
   LlmCall.generate(client, media_request, codec: :images)
 ```
+
+`client` must be a provider that declares `:images` — the OpenAI one above does.
+A chat codec cannot serve a media request, and the error names the codecs the
+client does declare.
 
 Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
 `{module, function}`. The key is always passed in; nothing reads the environment.
@@ -117,7 +130,7 @@ connection. `complete/3` rejects `stream: true` rather than silently flipping it
 To observe events without owning the reduce, pass `on_event:`:
 
 ```elixir
-{:ok, stream} =
+{:ok, _stream} =
   LlmCall.stream(client, request, on_event: &MyApp.Audit.stream_event/1)
 ```
 
@@ -172,17 +185,27 @@ assembler = LlmCall.StreamAssembler.new(json_decoder: &JSON.decode/1)
 ## Media generation
 
 A completion can ask for image output; generated parts arrive in
-`Response.content`:
+`Response.content`. Only a protocol that accepts `modalities: [:text, :image]`
+serves it — Gemini does, OpenAI Chat and Anthropic reject it:
 
 ```elixir
+defmodule MyApp.Gemini do
+  use LlmCall.Provider,
+    base_url: "https://generativelanguage.googleapis.com",
+    auth: {:header, "x-goog-api-key"},
+    codecs: [chat: LlmCall.Dialect.Gemini.GenerateContent]
+end
+
+gemini = MyApp.Gemini.client(api_key: System.fetch_env!("GEMINI_API_KEY"))
+
 request = %LlmCall.Request{
   model: "gemini-2.5-flash-image",
   modalities: [:text, :image],
   messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "a cat"}]}]
 }
 
-{:ok, response} = LlmCall.complete(client, request)
-# response.content may contain %LlmCall.Content.Image{}
+{:ok, _response} = LlmCall.complete(gemini, request)
+# the response content may contain %LlmCall.Content.Image{}
 ```
 
 Dedicated endpoints take a prompt and media parameters instead of messages:
@@ -195,7 +218,7 @@ media = %LlmCall.Media.Request{
   params: %{n: 2, size: "1024x1024"}
 }
 
-{:ok, %LlmCall.Media.Response{assets: assets}} =
+{:ok, %LlmCall.Media.Response{assets: _assets}} =
   LlmCall.generate(client, media, codec: :images)
 ```
 
@@ -203,8 +226,14 @@ Asynchronous video returns an `%LlmCall.Operation{}` whose `next` is the request
 to execute; `poll/3` runs it and returns the next state:
 
 ```elixir
+video = %LlmCall.Media.Request{
+  modality: :video,
+  model: "MiniMax-Hailuo-02",
+  prompt: "a cat walking on a beach"
+}
+
 {:ok, %LlmCall.Media.Response{operation: op}} = LlmCall.generate(client, video, codec: :video)
-{:ok, %LlmCall.Operation{status: :completed} = done} = LlmCall.poll(client, op, codec: :video)
+{:ok, %LlmCall.Operation{status: :completed} = _done} = LlmCall.poll(client, op, codec: :video)
 ```
 
 `next_kind: :poll` means "execute `next` and poll"; `next_kind: :asset` means the
@@ -315,7 +344,7 @@ Pass a `%LlmCall.ToolSpec{}` when you already own a dialect-correct schema;
 want the specs before the call:
 
 ```elixir
-{:ok, specs} = LlmCall.Tools.expand([MyApp.Tools.Weather], LlmCall.Dialect.OpenAI.Chat)
+{:ok, _specs} = LlmCall.Tools.expand([MyApp.Tools.Weather], LlmCall.Dialect.OpenAI.Chat)
 ```
 
 What a decoded turn can be sent back as depends on the protocol: text and tool
@@ -370,7 +399,7 @@ callers that already own a transport:
 ```elixir
 {:ok, encoded} = LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request)
 # transport: encoded.method to base_url <> encoded.path, JSON-encode encoded.body
-{:ok, response} = LlmCall.decode_response(LlmCall.Dialect.Anthropic.Messages, payload)
+{:ok, _response} = LlmCall.decode_response(LlmCall.Dialect.Anthropic.Messages, payload)
 ```
 
 ## Design
