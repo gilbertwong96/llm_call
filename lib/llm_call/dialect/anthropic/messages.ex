@@ -448,7 +448,9 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
 
   # Messages validates content-block types per role: an assistant turn takes text,
   # tool_use, thinking and redacted_thinking, so an image or a document there is a
-  # provider 400 that the OpenAI codecs already refuse locally.
+  # provider 400 that the OpenAI codecs already refuse locally. `Content.Raw` is the
+  # documented escape hatch and is not role-checked: a caller that reaches for it is
+  # asserting it knows the block, and `redacted_thinking` passthrough relies on it.
   defp validate_part_shape(:assistant, %Content.Image{}, _json),
     do: Helpers.error(@codec, "images belong to user messages")
 

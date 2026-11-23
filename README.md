@@ -14,10 +14,7 @@ defmodule MyApp.OpenAI do
   use LlmCall.Provider,
     base_url: "https://api.openai.com",
     auth: :bearer,
-    codecs: [
-      chat: LlmCall.Dialect.OpenAI.Chat,
-      images: LlmCall.Media.Dialect.OpenAI.Images
-    ]
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
 end
 
 client = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
@@ -68,7 +65,8 @@ client = MyApp.Groq.client(api_key: System.fetch_env!("GROQ_API_KEY"))
 `codecs:` is a named map because one endpoint can serve several request shapes.
 An endpoint that returns text and images is still **one** chat codec
 (`modalities: [:text, :image]`); a different request shape — Imagen's `predict`,
-OpenAI Images — is a second codec selected per call:
+OpenAI Images — is a second codec selected per call, declared alongside the first
+under the same `base_url`:
 
 ```elixir
 media_request = %LlmCall.Media.Request{
@@ -77,14 +75,13 @@ media_request = %LlmCall.Media.Request{
   prompt: "a cat, watercolor"
 }
 
-openai = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
-
 {:ok, %LlmCall.Media.Response{assets: _assets}} =
-  LlmCall.generate(openai, media_request, codec: :images)
+  LlmCall.generate(client, media_request, codec: :images)
 ```
 
-The client must be a provider that declares `:images`; the OpenAI one does, and a
-chat-only client returns an error naming the codecs it does declare.
+The client must declare `:images` — `MyApp.OpenAI` above declares only `:chat`, so
+this returns an error naming the codecs it does declare. The media section below
+shows a provider that declares the image codec.
 
 Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
 `{module, function}`. The key is always passed in; nothing reads the environment.
@@ -188,7 +185,9 @@ end
 ```
 
 `events` is the stream's events in order (`Enum.to_list/1`), and the return value
-holds every tool call that completed.
+holds every tool call that completed. A stream that ends without a stop event —
+a truncated response, a provider that closes the lane — leaves a call pending, so
+`LlmCall.StreamAssembler.finish/1` returns it before you act on the list.
 
 ## Media generation
 
@@ -219,6 +218,15 @@ request = %LlmCall.Request{
 Dedicated endpoints take a prompt and media parameters instead of messages:
 
 ```elixir
+defmodule MyApp.Images do
+  use LlmCall.Provider,
+    base_url: "https://api.openai.com",
+    auth: :bearer,
+    codecs: [images: LlmCall.Media.Dialect.OpenAI.Images]
+end
+
+images = MyApp.Images.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
+
 media = %LlmCall.Media.Request{
   modality: :image,
   model: "gpt-image-1",
@@ -227,7 +235,7 @@ media = %LlmCall.Media.Request{
 }
 
 {:ok, %LlmCall.Media.Response{assets: _assets}} =
-  LlmCall.generate(openai, media, codec: :images)
+  LlmCall.generate(images, media, codec: :images)
 ```
 
 Asynchronous video returns an `%LlmCall.Operation{}` whose `next` is the request
