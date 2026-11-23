@@ -132,6 +132,72 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
            ]
   end
 
+  test "a text block must be non-empty and contain a non-whitespace character" do
+    # Verbatim Anthropic messages: "text content blocks must be non-empty" and
+    # "... must contain non-whitespace text". A response can carry an empty text
+    # block, so replaying that history is a live path.
+    for text <- ["", "   ", "\n\t"] do
+      messages = [%Message{role: :user, content: [%Content.Text{text: text}]}]
+
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.encode_request(text_request(messages: messages), %Config{})
+
+      assert message =~ "messages: text content blocks must"
+    end
+
+    # A sibling block does not excuse an empty one.
+    messages = [
+      %Message{role: :user, content: [%Content.Text{text: "hi"}, %Content.Text{text: ""}]}
+    ]
+
+    assert {:error, %Error{message: message}} =
+             Messages.encode_request(text_request(messages: messages), %Config{})
+
+    assert message =~ "messages: text content blocks"
+
+    # Non-text parts and a normal block still pass.
+    assert {:ok, _} =
+             Messages.encode_request(
+               text_request(
+                 messages: [
+                   %Message{role: :user, content: [%Content.Text{text: "hi"}]}
+                 ]
+               ),
+               %Config{}
+             )
+
+    assert {:ok, _} =
+             Messages.encode_request(
+               text_request(
+                 messages: [
+                   %Message{
+                     role: :user,
+                     content: [%Content.Image{source: {:url, "https://example.test/a.png"}}]
+                   }
+                 ]
+               ),
+               %Config{}
+             )
+  end
+
+  test "a whitespace-only system prompt is rejected, in both shapes" do
+    for system <- ["", "   ", "\n\t", [%Content.Text{text: ""}], [%Content.Text{text: "   "}]] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Messages.encode_request(text_request(system: system), %Config{})
+
+      assert message =~ "system: text content blocks must contain non-whitespace text"
+    end
+
+    assert {:ok, _} = Messages.encode_request(text_request(system: "be brief"), %Config{})
+    assert {:ok, _} = Messages.encode_request(text_request(system: nil), %Config{})
+
+    assert {:ok, _} =
+             Messages.encode_request(
+               text_request(system: [%Content.Text{text: "be brief"}]),
+               %Config{}
+             )
+  end
+
   test "a tool_result must come first in the message that answers a call" do
     call_turn = %Message{
       role: :assistant,

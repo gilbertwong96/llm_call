@@ -600,12 +600,31 @@ An assistant turn whose calls have **no** results is not rejected: a truncated
 turn is the caller's decision, and only the protocol can say whether it is
 recoverable.
 
-Anthropic adds a positional rule the other protocols do not have: in the user
-message that answers a call, every `tool_result` block must come **first**, before
-any text, so text after the results is fine and text before one is a 400. The
-Anthropic codec rejects the latter as a `:validation` error naming the message
-index; the other codecs carry results in their own envelope (OpenAI's `tool`
-message, Gemini's `functionResponse` part) and are unaffected.
+Anthropic adds two rules the other protocols do not have.
+
+**Position.** In the user message that answers a call, every `tool_result` block
+must come **first**, before any text, so text after the results is fine and text
+before one is a 400. The Anthropic codec rejects the latter as a `:validation`
+error naming the message index; the other codecs carry results in their own
+envelope (OpenAI's `tool` message, Gemini's `functionResponse` part) and are
+unaffected.
+
+**Text.** A text block must be non-empty and contain a non-whitespace character,
+and the same holds for a `system` prompt. Anthropic rejects the two cases with
+`messages: text content blocks must be non-empty` and `... must contain
+non-whitespace text`; the codec reproduces both as `:validation` errors. This is a
+live path rather than a hypothetical one: a response can carry an empty text block
+("an empty string response from Claude" in the provider's own wording), so a
+replayed history reaches the encoder with one. OpenAI and Gemini accept an empty
+text block, so the rule stays in this codec.
+
+A request whose last turn is an assistant turn is accepted by every codec: it is
+Anthropic's documented prefill, and Gemini accepted it through 2.5. Gemini 3.6
+Flash and later reject it with `Requests ending with a model turn are not
+supported.`, but that is a model-version rule and `capabilities/2` does not
+inspect the model ([§2.2](#22-what-this-is-not)), so the library cannot reject it
+without breaking the versions that allow it. A caller targeting those models must
+end the history on a user turn.
 
 ### 8.7 Response
 

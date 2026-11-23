@@ -89,6 +89,7 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
              &validate_tool_choice/2
            ),
          :ok <- Helpers.validate_system(request.system, @codec),
+         :ok <- validate_system_whitespace(request.system),
          :ok <- validate_parts(request.messages, config.json) do
       validate_provider_options(request, config)
     end
@@ -436,7 +437,8 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
 
   defp check_tool_result_first(_message, _index), do: :ok
 
-  defp validate_part_shape(_role, %Content.Text{}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.Text{text: text}, _json),
+    do: validate_text_block(text, "messages")
 
   defp validate_part_shape(_role, %Content.Thinking{signature: nil}, _json) do
     Helpers.error(@codec, "thinking content requires a signature")
@@ -497,6 +499,44 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
+
+  # Anthropic rejects a text block with `messages: text content blocks must be
+  # non-empty` and one holding only whitespace with `... must contain
+  # non-whitespace text`. Both strings are verbatim from its API. A response can
+  # carry an empty text block ("an empty string response from Claude"), so
+  # replaying that history is a live path, not a hypothetical one.
+  defp validate_text_block(text, field) when is_binary(text) do
+    cond do
+      text == "" ->
+        Helpers.error(@codec, "#{field}: text content blocks must be non-empty")
+
+      String.trim(text) == "" ->
+        Helpers.error(@codec, "#{field}: text content blocks must contain non-whitespace text")
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_text_block(_text, _field), do: :ok
+
+  defp validate_system_whitespace(nil), do: :ok
+  defp validate_system_whitespace(text), do: validate_system_block(text)
+
+  defp validate_system_block(text) when is_binary(text) do
+    if text == "" or String.trim(text) == "",
+      do: Helpers.error(@codec, "system: text content blocks must contain non-whitespace text"),
+      else: :ok
+  end
+
+  defp validate_system_block(parts) when is_list(parts) do
+    Helpers.first_error(parts, fn
+      %Content.Text{text: text} -> validate_system_block(text)
+      _part -> :ok
+    end)
+  end
+
+  defp validate_system_block(_parts), do: :ok
 
   defp validate_provider_options(request, config) do
     with :ok <-
