@@ -601,7 +601,9 @@ boolean) and `provider_options`.
 ### 8.5 ToolCall
 
 `%LlmCall.ToolCall{}` carries `id`, `name`, `arguments`, `raw_arguments`,
-`arguments_error` (`nil | {:invalid_json, reason} | :no_json_decoder`) and `index`.
+`arguments_error`
+(`nil | {:invalid_json, reason} | {:too_large, bytes} | :no_json_decoder`) and
+`index`.
 
 The `arguments` map is the decoded form where decoding is safe. Keep the raw
 JSON string because:
@@ -615,8 +617,11 @@ JSON string because:
 
 When `raw_arguments` is present, `arguments` is its decoded value. If decoding
 fails, `arguments` is `nil` and `arguments_error` says why — `{:invalid_json,
-reason}` for a payload that is not decodable JSON or not an object, and
-`:no_json_decoder` when `LlmCall.StreamAssembler` was built without a decoder.
+reason}` for a payload that is not decodable JSON or not an object,
+`:no_json_decoder` when `LlmCall.StreamAssembler` was built without a decoder, and
+`{:too_large, bytes}` when the assembled fragment passed the assembler's
+`max_argument_bytes` cap, in which case `raw_arguments` holds only the prefix that
+fit.
 `reason` is a message, never the payload: `raw_arguments` is the only place the
 payload travels. The codec must not silently turn malformed arguments into
 `%{}`.
@@ -1214,7 +1219,10 @@ map()} | {:error, String.t()}`.
 returns the complete `ToolCall` with `arguments: nil` and
 `arguments_error: :no_json_decoder`. If decoding fails, the field carries
 `{:invalid_json, reason}` — the decoder's own message when it returns a string,
-and a fixed phrase otherwise — while `raw_arguments` preserves the payload.
+and a fixed phrase otherwise — while `raw_arguments` preserves the payload. The
+accumulated string is capped at `max_argument_bytes` (8 MiB by default, a `new/1`
+option) because the SSE frame cap cannot see fragments accumulated across events;
+past the cap the call finalises with `{:too_large, bytes}` and the prefix.
 
 Provider timing differs:
 
