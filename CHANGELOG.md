@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Anthropic codec accepted an empty or whitespace-only text block, and a
+  whitespace-only `system` prompt, all of which the Messages API rejects
+  (`messages: text content blocks must be non-empty`, `... must contain
+  non-whitespace text`). A response can carry an empty text block, so replaying
+  that history produced a request the provider refuses; it is now a `:validation`
+  error. OpenAI and Gemini accept the same shape, so the rule stays in this codec.
 - `tool_choice` was not cross-referenced against `tools`, so `{:tool, "typo"}`
   produced a request naming a tool the request never declares. OpenAI and
   Anthropic reject that with a 400 (Anthropic: "tool_choice not in tools"), and
