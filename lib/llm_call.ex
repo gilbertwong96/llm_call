@@ -45,7 +45,7 @@ defmodule LlmCall do
           | :error
           | :unknown
 
-  alias LlmCall.{Client, Config, EncodedRequest, Error, Operation, StreamState}
+  alias LlmCall.{Client, Config, EncodedRequest, Error, Operation, StreamState, Tools}
   alias LlmCall.HTTP
 
   @default_codec :chat
@@ -74,6 +74,7 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :encode_request, 2),
          :ok <- require_callback(codec, :decode_response, 2),
          :ok <- require_callback(codec, :decode_error, 2),
+         {:ok, request} <- normalize_tools(request, codec),
          {:ok, encoded} <- call_encode(codec, :encode_request, request, client.config) do
       client
       |> call_and_decode(
@@ -122,6 +123,7 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :decode_stream_event, 3),
          :ok <- require_callback(codec, :finish_stream, 2),
          :ok <- require_callback(codec, :decode_error, 2),
+         {:ok, request} <- normalize_tools(request, codec),
          {:ok, encoded} <- call_encode(codec, :encode_request, request, client.config),
          {:ok, http_request} <- build_http_request(client, encoded, opts[:headers]),
          {:ok, state} <- start_stream_state(codec, request, client.config) do
@@ -531,6 +533,12 @@ defmodule LlmCall do
 
   defp invalid(message, kind), do: %Error{kind: kind, message: message}
 
+  defp normalize_tools(%LlmCall.Request{} = request, codec) do
+    with {:ok, specs} <- Tools.expand(request.tools, codec) do
+      {:ok, %{request | tools: specs}}
+    end
+  end
+
   defp call_encode(codec, function, request, config) do
     case apply(codec, function, [request, config]) do
       {:ok, %EncodedRequest{}} = ok ->
@@ -611,7 +619,8 @@ defmodule LlmCall do
   def encode(codec, request, config \\ Config.new())
 
   def encode(codec, %LlmCall.Request{} = request, config) do
-    with :ok <- require_callback(codec, :encode_request, 2) do
+    with :ok <- require_callback(codec, :encode_request, 2),
+         {:ok, request} <- normalize_tools(request, codec) do
       codec.encode_request(request, config)
     end
   end
@@ -643,7 +652,8 @@ defmodule LlmCall do
 
   def validate_request(codec, %LlmCall.Request{} = request, config) do
     with :ok <- require_callback(codec, :encode_request, 2),
-         :ok <- require_callback(codec, :validate_request, 2) do
+         :ok <- require_callback(codec, :validate_request, 2),
+         {:ok, request} <- normalize_tools(request, codec) do
       codec.validate_request(request, config)
     end
   end

@@ -12,6 +12,10 @@ defmodule LlmCall.ToolsTest do
   alias LlmCall.ToolSpec
   alias LlmCall.ToolsTest.NeutralCodec
 
+  defp user_message do
+    %LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]}
+  end
+
   test "passes ToolSpec entries through untouched" do
     spec = %ToolSpec{name: "hand", description: "d", parameters: %{"type" => "object"}}
     assert {:ok, [^spec]} = Tools.expand([spec], Messages)
@@ -20,8 +24,8 @@ defmodule LlmCall.ToolsTest do
   test "expands a module into one spec per declared tool" do
     assert {:ok, specs} = Tools.expand([Weather], Messages)
     assert Enum.map(specs, & &1.name) == ["forecast", "conditions"]
-    assert Enum.all?(specs, &is_binary(&1.description))
-    assert Enum.all?(specs, &is_map(&1.parameters))
+    assert Enum.map(specs, & &1.description) == ["Forecast for a city.", "Current conditions."]
+    assert Enum.all?(specs, &(&1.parameters["required"] == ["city"]))
   end
 
   test "accepts the mixed forms in one list" do
@@ -35,5 +39,66 @@ defmodule LlmCall.ToolsTest do
              Tools.expand(Weather, NeutralCodec)
 
     assert message == "neutral: tools must be a list"
+  end
+
+  test "encode/3 accepts a module for Anthropic and sends the tool" do
+    request = %LlmCall.Request{
+      model: "claude-sonnet-4",
+      params: %{max_tokens: 1024},
+      messages: [user_message()],
+      tools: [Weather]
+    }
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request, %LlmCall.Config{})
+
+    assert [_, _] = body["tools"]
+  end
+
+  test "tool_choice resolves against names that came from a module" do
+    request = %LlmCall.Request{
+      model: "claude-sonnet-4",
+      params: %{max_tokens: 1024},
+      messages: [user_message()],
+      tools: [Weather],
+      tool_choice: {:tool, "forecast"}
+    }
+
+    assert {:ok, _} =
+             LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request, %LlmCall.Config{})
+  end
+
+  test "tool_choice naming a tool the modules do not declare is a validation error" do
+    request = %LlmCall.Request{
+      model: "claude-sonnet-4",
+      params: %{max_tokens: 1024},
+      messages: [user_message()],
+      tools: [Weather],
+      tool_choice: {:tool, "nope"}
+    }
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request, %LlmCall.Config{})
+
+    assert message =~ "nope"
+    refute message =~ "is not supported"
+  end
+
+  test "stream/3 expands module tools before init_stream" do
+    client = %LlmCall.Client{
+      provider: LlmCall.TestProvider,
+      codecs: %{chat: LlmCall.Dialect.Anthropic.Messages},
+      base_url: "http://127.0.0.1:1",
+      config: %LlmCall.Config{}
+    }
+
+    request = %LlmCall.Request{
+      model: "claude-sonnet-4",
+      params: %{max_tokens: 1024},
+      messages: [user_message()],
+      tools: [Weather]
+    }
+
+    assert {:ok, %LlmCall.Stream{}} = LlmCall.stream(client, request)
   end
 end
