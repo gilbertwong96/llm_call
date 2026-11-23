@@ -36,3 +36,23 @@ defmodule LlmCall.ToolFixtures.Weather do
           {:ok, %{city: String.t(), units: String.t()}}
   def detailed(city, units \\ "metric"), do: {:ok, %{city: city, units: units}}
 end
+
+defmodule LlmCall.ToolFixtures.Recursive do
+  @moduledoc """
+  A `ToolCall` module whose parameter refers to itself, so Gemini's `parameters`
+  subset, which cannot express `$ref`/`$defs`, has to refuse it.
+  """
+
+  use ToolCall
+
+  @type tree :: %{value: integer(), children: [tree()]}
+
+  @doc """
+  Store a tree.
+
+  ## Parameters
+    * `tree` - the tree
+  """
+  @spec store(tree :: tree()) :: :ok
+  def store(_tree), do: :ok
+end

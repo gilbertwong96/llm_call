@@ -102,6 +102,32 @@ defmodule LlmCall.ToolsTest do
     end
   end
 
+  test "OpenAI Responses carries the strict tuple form onto the declared tool" do
+    request = %LlmCall.Request{
+      model: "gpt-5",
+      messages: [user_message()],
+      tools: [{Weather, strict: true}]
+    }
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             LlmCall.encode(LlmCall.Dialect.OpenAI.Responses, request, %LlmCall.Config{})
+
+    forecast = Enum.find(body["tools"], &(&1["name"] == "forecast"))
+    assert forecast["strict"] == true
+    assert forecast["parameters"]["additionalProperties"] == false
+  end
+
+  test "strict: false is treated as absent, so Gemini accepts the tuple form" do
+    request = %LlmCall.Request{
+      model: "gemini-2.5-pro",
+      messages: [user_message()],
+      tools: [{Weather, strict: false}]
+    }
+
+    assert {:ok, %LlmCall.EncodedRequest{}} =
+             LlmCall.encode(LlmCall.Dialect.Gemini.GenerateContent, request, %LlmCall.Config{})
+  end
+
   test "a codec that does not forward strict rejects it" do
     request = %LlmCall.Request{
       model: "gemini-2.5-pro",
@@ -120,6 +146,39 @@ defmodule LlmCall.ToolsTest do
              Tools.expand([{Weather, strict: :fine_tuned}], NeutralCodec)
 
     assert message =~ "tool strict must be a boolean"
+  end
+
+  test "a malformed entry is a validation error, not a FunctionClauseError" do
+    for bad <- [123, "forecast", {Weather, :bad_opts}, Enum] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Tools.expand([bad], NeutralCodec)
+
+      assert message =~ "neutral: "
+    end
+  end
+
+  test "a module that does not use ToolCall is named in the error" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Tools.expand([Enum], NeutralCodec)
+
+    assert message =~ "Enum"
+    assert message =~ "does not use ToolCall"
+  end
+
+  test "a recursive parameter type on Gemini is a validation error, not a raise" do
+    alias LlmCall.ToolFixtures.Recursive
+
+    request = %LlmCall.Request{
+      model: "gemini-2.5-pro",
+      messages: [user_message()],
+      tools: [Recursive]
+    }
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.encode(LlmCall.Dialect.Gemini.GenerateContent, request, %LlmCall.Config{})
+
+    assert message =~ "Recursive"
+    assert message =~ ~s(tool "store")
   end
 
   test "an unknown protocol falls back to provider-neutral schemas" do

@@ -26,9 +26,11 @@ defmodule LlmCall.Tools do
   A `%LlmCall.ToolSpec{}` passes through unchanged; a module, or
   `{module, opts}`, contributes one spec per tool, in the module's declaration
   order, with the schema projected for `codec`'s protocol. `opts` may carry
-  `strict: true`, which OpenAI renders as its strict schema; every other codec
-  rejects it. Errors are named after `codec`, so a caller sees which protocol
-  refused the request.
+  `strict: boolean()`: `true` is OpenAI's strict schema, `false` is treated as
+  absent, and every other codec rejects `true`. Errors are named after `codec`,
+  so a caller sees which protocol refused the request; an entry that is none of
+  the accepted forms, a module that does not `use ToolCall`, and a schema the
+  codec cannot express are `:validation` errors rather than raises.
   """
   @spec expand([input()], module()) :: {:ok, [ToolSpec.t()]} | {:error, Error.t()}
   def expand(tools, codec) when is_list(tools) do
@@ -60,12 +62,19 @@ defmodule LlmCall.Tools do
 
   defp expand_tool({module, opts}, codec) when is_atom(module) and is_list(opts) do
     with {:ok, strict} <- strict_option(opts, codec) do
-      {:ok, descriptors(module, strict, projection(codec.info().protocol))}
+      specs_for(module, strict, codec)
     end
   end
 
-  defp expand_tool(module, codec) when is_atom(module),
-    do: {:ok, descriptors(module, nil, projection(codec.info().protocol))}
+  defp expand_tool(module, codec) when is_atom(module), do: specs_for(module, nil, codec)
+
+  defp expand_tool(entry, codec) do
+    Helpers.error(
+      codec.info().name,
+      "tool entry must be a LlmCall.ToolSpec, a module, or a {module, opts} pair, " <>
+        "got: #{inspect(entry)}"
+    )
+  end
 
   defp strict_option(opts, codec) do
     case Keyword.get(opts, :strict) do
@@ -88,24 +97,44 @@ defmodule LlmCall.Tools do
   defp projection(protocol) when protocol in [:openai_chat, :openai_responses], do: :openai
   defp projection(_protocol), do: :neutral
 
-  defp descriptors(module, strict, :neutral) do
-    for entry <- ToolCall.describe(module, strict: strict) do
-      to_spec(entry.name, entry.description, entry.parameters, strict)
+  defp specs_for(module, strict, codec) do
+    with {:ok, tools} <- tools_for(module, codec) do
+      Helpers.map_ok(tools, &spec_for(&1, module, strict, codec))
     end
   end
 
-  defp descriptors(module, strict, :gemini) do
-    for entry <- ToolCall.emit(module, :gemini) do
-      to_spec(entry["name"], entry["description"], entry["parameters"], strict)
-    end
+  defp tools_for(module, codec) do
+    {:ok, ToolCall.tools(module)}
+  rescue
+    error in ArgumentError -> Helpers.error(codec.info().name, Exception.message(error))
   end
 
-  defp descriptors(module, strict, :openai) do
+  defp spec_for(tool, module, strict, codec) do
+    {:ok, project(tool, strict, projection(codec.info().protocol))}
+  rescue
+    error in ArgumentError ->
+      Helpers.error(
+        codec.info().name,
+        "cannot render tool #{inspect(tool.name)} in #{inspect(module)}: " <>
+          Exception.message(error)
+      )
+  end
+
+  defp project(tool, strict, :neutral) do
+    parameters = ToolCall.Emit.Schema.params(tool, strict: strict)
+    to_spec(tool.name, tool.description || tool.name, parameters, strict)
+  end
+
+  defp project(tool, strict, :gemini) do
+    entry = ToolCall.emit(tool, :gemini)
+    to_spec(entry["name"], entry["description"], entry["parameters"], strict)
+  end
+
+  defp project(tool, strict, :openai) do
     # LlmCall renders OpenAI's `strict` inside `function`, so the sibling
     # `strict` ToolCall.emit/3 adds is dropped here.
-    Enum.map(ToolCall.emit(module, :openai, strict: strict), fn %{"function" => function} ->
-      to_spec(function["name"], function["description"], function["parameters"], strict)
-    end)
+    %{"function" => function} = ToolCall.emit(tool, :openai, strict: strict)
+    to_spec(function["name"], function["description"], function["parameters"], strict)
   end
 
   defp to_spec(name, description, parameters, strict) do
