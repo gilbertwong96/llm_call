@@ -94,32 +94,48 @@ WebSocket has a behaviour, but no config-level transport resolution.
 
 ### 2.3 Relationship to `tool_call`
 
-`LlmCall` does not depend on the `tool_call` project.
+`LlmCall` depends on [`tool_call`](https://hex.pm/packages/tool_call) for schema
+derivation only. A `tool_call` module is accepted directly in `Request.tools`
+(§8.1), expanded into `%LlmCall.ToolSpec{}` values before the codec sees the
+request, and never run: approval, audit and timeouts are `tool_call`'s policies,
+and the follow-up request stays with the application (§13).
 
-The tool concepts in `LlmCall` are wire data only:
+The tool concepts in `LlmCall` are wire data:
 
 - `LlmCall.ToolSpec`: what the model may call
 - `LlmCall.ToolCall`: what the model asked to call
 - `LlmCall.ToolResult`: the result of a call, ready to send back to the model
 
-The application maps between them; neither project depends on the other:
+The mapping from a `tool_call` module into those specs is the library's job:
+`LlmCall.Tools.expand/2` returns one spec per declared tool, in declaration
+order, and `LlmCall.Tools.normalize_request/2` applies it to a whole request. The
+projection follows `codec.info().protocol`: `:openai_chat` and `:openai_responses`
+take the schema `ToolCall.emit/3` renders for OpenAI, `:gemini_generate_content`
+the one it renders for Gemini, and any other protocol the neutral schema
+`ToolCall.describe/2` returns. The spec keeps `name`, `description` and
+`parameters`; the codec supplies its own tool envelope. So a Gemini request
+needs no manual schema projection step, and the Gemini codec still validates its
+OpenAPI subset and answers `:validation` for constructs it cannot send.
 
-A `ToolCall.describe/2` entry becomes a `%LlmCall.ToolSpec{}` with its
-`name`, `description` and `parameters`.
+`tools` is normalized for the caller by `complete/3`, `stream/3`, `encode/3`,
+`validate_request/3`, `init_stream/3`, and
+`LlmCall.Dialect.OpenAI.Responses.Connection.create/3`; `capabilities/3` is the
+exemption, because it reads no tools. `LlmCall.Codec.Conformance` calls the
+codec callbacks directly, so a request handed to one of its assertions must
+already carry `%LlmCall.ToolSpec{}` entries. Carrying those is also the escape
+hatch for a caller that owns a dialect-correct schema: `expand/2` keeps them
+unchanged.
 
-`ToolCall.describe/2` returns a provider-neutral `name`/`description`/`parameters`
-per tool, and a decoded `%LlmCall.ToolCall{}` carries the name and arguments
-`ToolCall.run/4` needs. `parameters` must already be in the selected codec's
-dialect: the Gemini codec validates its OpenAPI subset and returns `:validation`
-for constructs it cannot send.
+A decoded `%LlmCall.ToolCall{}` carries the name and arguments `ToolCall.run/4`
+needs. Running it is the caller's loop, not the library's.
 
 ### 2.4 Relationship to LangChain and ReqLLM
 
-| Project          | Focus                                                                    |
-|------------------|--------------------------------------------------------------------------|
-| LangChain Elixir | Chains, conversation flow, tool execution, callbacks                     |
-| ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools |
-| `LlmCall`     | Dialect codecs, canonical wire IR, one-call client                      |
+| Project          | Focus                                                                     |
+|------------------|---------------------------------------------------------------------------|
+| LangChain Elixir | Chains, conversation flow, tool execution, callbacks                      |
+| ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools  |
+| `LlmCall`        | Dialect codecs, canonical wire IR, one-call client, tool schema derivation |
 
 `LlmCall` can be used underneath those systems. Its client is deliberately narrow
 — one call, no model metadata, no tool execution, no retry policy.
@@ -311,13 +327,19 @@ Fields:
   it belongs in the provider request.
 - `messages` — user/assistant turns. Tool results are content parts, not a
   mandatory `:tool` role.
-- `tools` — optional neutral tool specifications. A function tool's `name` must
-  be unique within the list; each protocol identifies a tool by name, so a second
-  entry under one name is a `:validation` error. The name must also match the
+- `tools` — optional tool entries. Three forms mix freely in one list: a
+  `%LlmCall.ToolSpec{}`, a `tool_call` module, or `{module, opts}`, where `opts`
+  may carry `strict: boolean()`. A module contributes one spec per declared tool,
+  with the schema projected for the codec's protocol (§2.3, §13); a spec passes
+  unchanged, so a caller that already owns a dialect-correct schema is not
+  re-derived. A function tool's `name` must be unique within the list; each
+  protocol identifies a tool by name, so a second entry under one name is a
+  `:validation` error. The name must also match the
   selected protocol's published class: OpenAI Chat allows `[a-zA-Z0-9_-]` up to 64
   characters, Anthropic the same class up to 128, Gemini the same plus `.` and `:`
   with a leading letter or underscore, and OpenAI Responses publishes no
-  constraint. See [§8.12](#812-tool-names).
+  constraint. See [§8.12](#812-tool-names). A malformed entry is a `:validation`
+  error returned, not an exception raised.
 - `tool_choice` — `:auto | :none | :required | {:tool, name} | {:allowed, [name]}`.
   `{:tool, name}` and `{:allowed, names}` are cross-referenced against `tools`:
   a name no tool declares is a `:validation` error, because both OpenAI and
@@ -542,7 +564,10 @@ boolean) and `provider_options`.
 
 - `parameters` is a JSON Schema object (`map()`), not a JSON string or a
   provider-specific schema struct. It must already be in the selected codec's
-  dialect. The Gemini codec validates the OpenAPI subset and returns `:validation`
+  dialect when the caller builds the spec; a `tool_call` module in
+  `Request.tools` is projected by the library instead (§2.3), and `strict: true`
+  there asks `tool_call` for OpenAI's strict subset. The Gemini codec validates
+  the OpenAPI subset and returns `:validation`
   for a lowercase `type`, `additionalProperties`, `$ref`/`$defs`, `prefixItems`,
   `oneOf`, `const`, `allOf` or `not`. OpenAI's `strict: true` mismatch is not
   locally detectable and remains a provider error. `nil` is valid for a built-in
@@ -849,7 +874,7 @@ Four unions are closed, and changing one is an IR change:
 | `LlmCall.Message` | role and a list of content parts | §8.2 |
 | `LlmCall.Content.Text` / `.Image` / `.File` / `.Video` / `.Thinking` / `.Raw` | one content part each; a `source()` is a string, `{:url, _}`, `{:base64, _}` or `{:file_id, _}` | §8.3 |
 | `LlmCall.Reasoning` / `LlmCall.Reasoning.Capabilities` | effort, budget_tokens, summary, provider_options; what a protocol supports | §8.3.1 |
-| `LlmCall.ToolSpec` / `.ToolCall` / `.ToolResult` | tool wire data; no schema derivation, no dispatch | §8.4–§8.6 |
+| `LlmCall.ToolSpec` / `.ToolCall` / `.ToolResult` | tool wire data; schema derived from `tool_call`, never dispatch | §8.4–§8.6 |
 | `LlmCall.Response` | id, model, content, stop_reason, usage, raw | §8.7 |
 | `LlmCall.Usage` | six token counters, provider-reported and token-only | §8.8 |
 | `LlmCall.Error` | kind, message, code, status, reason, retryable?, retry_after_ms, raw | §8.9 |
@@ -1240,16 +1265,18 @@ The core only defines tool wire data. It does not call tools.
 
 ### `tool_call`
 
-`LlmCall` does not wrap `tool_call`: the application maps `ToolCall.describe/2` into
-`%LlmCall.ToolSpec{}` values, and after decoding dispatches each call through
-`ToolCall.run/4` with `call.name` and `call.arguments`. The library neither runs the
-call nor builds the follow-up request.
+`LlmCall` depends on `tool_call` for schema derivation only, and does not wrap it:
+a `tool_call` module is accepted in `Request.tools` and `LlmCall.Tools.expand/2`
+maps it into `%LlmCall.ToolSpec{}` values, projected for the codec's protocol
+(§2.3). After decoding, the application dispatches each call through
+`ToolCall.run/4` with `call.name` and `call.arguments`. The library neither runs
+the call nor builds the follow-up request.
 
 Dependency direction:
 
 ```text
-llm_call              no tool_call dependency
-tool_call                no llm_call dependency
+llm_call               tool_call for schema derivation
+tool_call              no llm_call dependency
 ```
 
 ### Other frameworks
@@ -1333,7 +1360,8 @@ dialect module: an adapter is selected by name at call time.
 Optional packages live outside this repository: `llm_call_cost` for pricing and
 `llm_call_langchain` for a LangChain adapter. `LlmCall.HTTP` is Finch and
 `LlmCall.WS.Mint` is the WebSocket implementation; there is no HTTP behaviour and no
-tool behaviour (`tool_call` is a companion the application adds itself).
+tool behaviour (`tool_call` is a plain dependency, used directly rather than
+wrapped behind one).
 
 Test support and the compiled examples are not part of the design: `test/support/`
 holds the fixture payloads, the two test servers, the JSON doubles and the codec
@@ -1353,6 +1381,13 @@ A caller that owns a transport keeps the encode/decode boundary:
 `encode/3`, `decode_response/3`, `init_stream/3`, `decode_stream_event/4`,
 `finish_stream/3`, `validate_request/3`, `capabilities/3`, and
 `StreamAssembler.new/1`, `feed/2`, `finish/1`.
+
+`LlmCall.Tools.expand/2` and `LlmCall.Tools.normalize_request/2` are utility entry
+points rather than a third tier: `complete/3`, `stream/3`, `encode/3`,
+`validate_request/3`, `init_stream/3` and `Responses.Connection.create/3` call
+them, while `capabilities/3` is the exemption (§2.3). A caller that wants the
+specs before the call can call `expand/2` directly; `LlmCall.Codec.Conformance`
+reaches the codec callbacks without expanding, as §2.3 says.
 
 `headers:` is a list of string `{name, value}` pairs for this call only. The
 client merges them in this order: client/provider headers, then call headers,
@@ -1453,9 +1488,9 @@ No longer anti-goals:
   one-call path must work after `mix deps.get`.
 - **A fixed HTTP client.** `LlmCall.HTTP` is Finch; it is not a seam. JSON
   remains replaceable through `LlmCall.JSON`.
-- **A tool runner.** Still an anti-goal, and now there is no tool adapter either:
-  schema derivation and dispatch belong to `tool_call` or an application module,
-  and building the follow-up request stays with the caller.
+- **A tool runner.** Still an anti-goal: dispatch belongs to `tool_call` or an
+  application module, schema derivation is delegated to `tool_call` instead of
+  implemented here, and building the follow-up request stays with the caller.
 
 Still anti-goals; if they appear, the design has drifted:
 
@@ -1478,9 +1513,11 @@ Settled:
    now fixed. JSON remains the replaceable edge.
 2. **JSON encoding:** the client encodes and decodes with the configured module;
    codecs use the same module for tool-call arguments. Was "transport encodes".
-3. **Tool data in core:** neutral `ToolSpec`, `ToolCall`, `ToolResult`; no schema
-   derivation, no dispatch, no dependency on `tool_call`. An application maps
-   `ToolCall.describe/2` into `ToolSpec` itself.
+3. **Tool data in core:** neutral `ToolSpec`, `ToolCall`, `ToolResult`; no
+   dispatch. Schema derivation is delegated to `tool_call` through
+   `LlmCall.Tools.expand/2`, so `Request.tools` accepts its modules and the core
+   adds no schema builder of its own. Was "no dependency on `tool_call`; an
+   application maps `ToolCall.describe/2` into `ToolSpec` itself".
 4. **First protocol set:** OpenAI Chat, Anthropic Messages, Gemini
    GenerateContent.
 5. **OpenAI Responses:** a core reference adapter over HTTP/SSE and the
@@ -1509,8 +1546,8 @@ This design is working if:
   parsing SSE.
 - The JSON layer can be replaced without touching a codec, per application, per
   provider, or per client; HTTP is Finch.
-- A tool framework can be used directly; the library models tool wire data only
-  and depends on no tool library.
+- A tool framework can be used directly; the library models tool wire data, takes
+  `tool_call` modules as input to derive their schemas, and runs no tool.
 - Adding a dialect adapter does not require changing canonical messages.
 - Provider-specific features remain accessible through explicit escape hatches.
 - The core has no auth lookup, model catalog, provider registry, or agent loop.
