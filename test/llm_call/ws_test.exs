@@ -19,6 +19,25 @@ defmodule LlmCall.WSTest do
     assert :ok = Mint.close(conn)
   end
 
+  describe "upgrade boundaries" do
+    test "a 101 whose header block arrives after the status line still connects" do
+      Server.start(upgrade: :split)
+
+      assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
+      assert {:ok, conn} = Mint.send_frame(conn, {:text, "hello"})
+      assert {:ok, {:text, "hello"}, conn} = Mint.recv(conn, 2_000)
+      assert :ok = Mint.close(conn)
+    end
+
+    test "a frame coalesced with the 101 head is not lost" do
+      Server.start(upgrade: :coalesced)
+
+      assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
+      assert {:ok, {:text, "early"}, conn} = Mint.recv(conn, 2_000)
+      assert :ok = Mint.close(conn)
+    end
+  end
+
   test "reassembles fragmented binary frames" do
     assert {:ok, conn} = Mint.connect(Server.url(), [], timeout: 2_000)
     Server.send_fragments([<<1, 2>>, <<3>>], :binary)
