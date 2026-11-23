@@ -13,6 +13,31 @@ defmodule LlmCall.StreamAssemblerTest do
     _ -> {:error, "invalid json"}
   end
 
+  test "an argument fragment past max_argument_bytes is reported, not accumulated" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1, max_argument_bytes: 10)
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, "c1", "f"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, ~s({"city":"Syd)))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, ~s(ney"})))
+
+    {:ok, assembler, [call]} =
+      StreamAssembler.feed(assembler, %StreamEvent{type: :tool_call_stop, index: 0})
+
+    assert call.arguments == nil
+    assert call.arguments_error == {:too_large, 10}
+    assert call.raw_arguments == ~s({"city":"S)
+    refute match?(%{calls: calls} when map_size(calls) > 0, assembler)
+  end
+
+  test "max_argument_bytes must be a positive integer" do
+    assert_raise ArgumentError, ~r/max_argument_bytes/, fn ->
+      StreamAssembler.new(max_argument_bytes: 0)
+    end
+
+    assert_raise ArgumentError, ~r/max_argument_bytes/, fn ->
+      StreamAssembler.new(max_argument_bytes: :infinity)
+    end
+  end
+
   defp start(index, id, name) do
     %StreamEvent{
       type: :tool_call_start,

@@ -25,7 +25,9 @@ defmodule LlmCall.StreamAssembler do
             calls: map()
           }
 
-  defstruct json_decoder: nil, calls: %{}
+  @default_max_argument_bytes 8 * 1024 * 1024
+
+  defstruct json_decoder: nil, max_argument_bytes: @default_max_argument_bytes, calls: %{}
 
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -35,7 +37,13 @@ defmodule LlmCall.StreamAssembler do
       raise ArgumentError, "json_decoder must be a 1-arity function or nil"
     end
 
-    %__MODULE__{json_decoder: decoder}
+    max = Keyword.get(opts, :max_argument_bytes, @default_max_argument_bytes)
+
+    unless is_integer(max) and max > 0 do
+      raise ArgumentError, "max_argument_bytes must be a positive integer"
+    end
+
+    %__MODULE__{json_decoder: decoder, max_argument_bytes: max}
   end
 
   @spec feed(t(), StreamEvent.t()) :: {:ok, t(), [ToolCall.t()]}
@@ -74,25 +82,39 @@ defmodule LlmCall.StreamAssembler do
     index = normalize_index(index)
 
     update_in(assembler.calls, fn calls ->
-      Map.put(calls, index, %{
-        id: delta.id,
-        name: delta.name,
-        arguments: get_in(calls, [index, :arguments]) || ""
-      })
+      entry = Map.get(calls, index, new_entry())
+
+      Map.put(calls, index, %{entry | id: delta.id, name: delta.name})
     end)
   end
 
+  # Fragments are kept as an iodata prefix and joined once, so a large argument
+  # costs one pass rather than a quadratic append. `max_argument_bytes` bounds the
+  # one accumulation path in the streaming stack that the SSE frame cap cannot see.
   defp append_arguments(assembler, index, fragment) do
     index = normalize_index(index)
+    max = assembler.max_argument_bytes
 
     update_in(assembler.calls, fn calls ->
-      entry =
-        calls
-        |> Map.get(index, %{id: nil, name: nil, arguments: ""})
-        |> Map.update!(:arguments, &(&1 <> fragment))
+      entry = Map.get(calls, index, new_entry())
+      room = max - entry.size
 
-      Map.put(calls, index, entry)
+      Map.put(calls, index, add_fragment(entry, fragment, room))
     end)
+  end
+
+  defp new_entry, do: %{id: nil, name: nil, fragments: [], size: 0, overflow: false}
+
+  defp add_fragment(%{overflow: true} = entry, _fragment, _room), do: entry
+
+  defp add_fragment(entry, fragment, room) when byte_size(fragment) <= room do
+    %{entry | fragments: [fragment | entry.fragments], size: entry.size + byte_size(fragment)}
+  end
+
+  defp add_fragment(_entry, _fragment, room) when room <= 0, do: %{new_entry() | overflow: true}
+
+  defp add_fragment(entry, fragment, room) do
+    %{entry | fragments: [binary_part(fragment, 0, room) | entry.fragments], overflow: true}
   end
 
   defp pending_indexes(%__MODULE__{calls: calls}), do: calls |> Map.keys() |> Enum.sort()
@@ -114,9 +136,21 @@ defmodule LlmCall.StreamAssembler do
     {completed, remaining}
   end
 
-  defp build_call(%__MODULE__{json_decoder: decoder}, index, entry) do
-    case entry.arguments do
-      "" ->
+  defp build_call(%__MODULE__{} = assembler, index, entry) do
+    raw = entry.fragments |> Enum.reverse() |> IO.iodata_to_binary()
+
+    cond do
+      entry.overflow ->
+        %ToolCall{
+          id: entry.id,
+          name: entry.name,
+          arguments: nil,
+          raw_arguments: raw,
+          arguments_error: {:too_large, assembler.max_argument_bytes},
+          index: index
+        }
+
+      raw == "" ->
         %ToolCall{
           id: entry.id,
           name: entry.name,
@@ -126,8 +160,8 @@ defmodule LlmCall.StreamAssembler do
           index: index
         }
 
-      raw ->
-        {arguments, arguments_error} = decode(decoder, raw)
+      true ->
+        {arguments, arguments_error} = decode(assembler.json_decoder, raw)
 
         %ToolCall{
           id: entry.id,
