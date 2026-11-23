@@ -62,6 +62,13 @@ defmodule LlmCall.WS.Mint do
     :ok
   end
 
+  # Dialyzer resolves `conn` to the union inside `Mint.HTTP.t()` (the HTTP1,
+  # HTTP2 and proxy structs) and then reports handing it back to a function that
+  # asks for the opaque type, as `call_with_opaque` — on OTP 27 but not on 29,
+  # and no spec changes its mind. `upgrade/2` below needs the same exemption for
+  # `Mint.WebSocket.new/4`; the connection is threaded through untouched either
+  # way, so there is nothing here for it to catch.
+  @dialyzer {:nowarn_function, start_upgrade: 5}
   defp start_upgrade(conn, scheme, uri, headers, opts) do
     headers = ensure_host(headers, uri)
 

@@ -860,16 +860,17 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
       assert %LlmCall.StreamDelta.MessageDelta{stop_reason: :end_turn} =
                List.last(events).delta
 
-      assert {:ok,
-              [
-                %LlmCall.StreamEvent{
-                  type: :message_delta,
-                  delta: %LlmCall.StreamDelta.MessageDelta{
-                    usage: %LlmCall.Usage{total_tokens: 17}
-                  }
-                },
-                %LlmCall.StreamEvent{type: :message_stop}
-              ], state} = GenerateContent.finish_stream(state, %Config{})
+      assert {:ok, events, state} = GenerateContent.finish_stream(state, %Config{})
+
+      assert [
+               %LlmCall.StreamEvent{
+                 type: :message_delta,
+                 delta: %LlmCall.StreamDelta.MessageDelta{
+                   usage: %LlmCall.Usage{total_tokens: 17}
+                 }
+               },
+               %LlmCall.StreamEvent{type: :message_stop}
+             ] = events
 
       assert state |> LlmCall.StreamState.data() |> Map.fetch!(:finished?) == true
       assert {:ok, [], _state} = GenerateContent.finish_stream(state, %Config{})
@@ -906,19 +907,20 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
     test "thought text emits thinking deltas and capture_raw :all keeps the chunk" do
       chunk = Fx.thought_chunk()
 
-      assert {:ok,
-              [
-                %LlmCall.StreamEvent{
-                  type: :thinking_delta,
-                  delta: %LlmCall.StreamDelta.Thinking{text: "hmm"},
-                  raw: ^chunk
-                }
-              ], _} =
+      assert {:ok, events, _} =
                GenerateContent.decode_stream_event(
                  chunk,
                  %Config{capture_raw: :all},
                  stream_state(%Config{capture_raw: :all})
                )
+
+      assert [
+               %LlmCall.StreamEvent{
+                 type: :thinking_delta,
+                 delta: %LlmCall.StreamDelta.Thinking{text: "hmm"},
+                 raw: ^chunk
+               }
+             ] = events
 
       assert {:ok, [%LlmCall.StreamEvent{raw: nil}], _} =
                GenerateContent.decode_stream_event(chunk, %Config{}, stream_state())
@@ -972,14 +974,11 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
                  stream_state()
                )
 
-      assert {:ok,
-              [
-                %LlmCall.StreamEvent{
-                  type: :message_delta,
-                  delta: %LlmCall.StreamDelta.Raw{}
-                }
-              ], _} =
+      assert {:ok, events, _} =
                GenerateContent.decode_stream_event(%{"foo" => "bar"}, %Config{}, stream_state())
+
+      assert [%LlmCall.StreamEvent{type: :message_delta, delta: %LlmCall.StreamDelta.Raw{}}] =
+               events
     end
   end
 

@@ -953,14 +953,15 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
     test "unknown chunk shapes become Raw message deltas and finish_stream closes the stream once" do
       state = stream_state()
 
-      assert {:ok,
-              [
-                %LlmCall.StreamEvent{
-                  type: :message_delta,
-                  delta: %LlmCall.StreamDelta.Raw{}
-                }
-              ], state} =
+      assert {:ok, events, state} =
                Chat.decode_stream_event(%{"foo" => "bar"}, %Config{}, state)
+
+      assert [
+               %LlmCall.StreamEvent{
+                 type: :message_delta,
+                 delta: %LlmCall.StreamDelta.Raw{}
+               }
+             ] = events
 
       assert {:ok, [%LlmCall.StreamEvent{type: :message_stop}], state} =
                Chat.finish_stream(state, %Config{})
