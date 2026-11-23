@@ -125,15 +125,16 @@ defmodule LlmCall.ApiTest do
     assert {:ok, %StreamState{} = state} = LlmCall.init_stream(Fake, request(), config)
     assert StreamState.codec(state) == Fake
 
-    assert {:ok,
-            [
-              %StreamEvent{
-                type: :text_delta,
-                delta: %LlmCall.StreamDelta.Text{text: "a"},
-                raw: raw
-              }
-            ], state} =
+    assert {:ok, events, state} =
              LlmCall.decode_stream_event(Fake, %{"delta" => "a"}, config, state)
+
+    assert [
+             %StreamEvent{
+               type: :text_delta,
+               delta: %LlmCall.StreamDelta.Text{text: "a"},
+               raw: raw
+             }
+           ] = events
 
     assert raw == %{"delta" => "a"}
     assert {:done, %StreamState{}} = LlmCall.decode_stream_event(Fake, "[DONE]", config, state)
