@@ -537,7 +537,9 @@ defmodule LlmCall.Codec.Conformance do
   arguments the provider never sent.
 
   `expected_calls` pins the count; pass `json_decoder:` to supply a decoder other
-  than `:json` (the assembler never decodes JSON itself).
+  than `:json` (the assembler never decodes JSON itself), and `max_argument_bytes:`
+  to pin the assembler's argument cap — a codec whose fragments exceed it produces
+  `{:too_large, bytes}` rather than a decoded map.
   """
   @spec assert_tool_call_assembly(
           module(),
@@ -551,7 +553,8 @@ defmodule LlmCall.Codec.Conformance do
     decoder = Keyword.get_lazy(opts, :json_decoder, fn -> &default_decoder/1 end)
     {events, _tail, _done?} = collect_stream(codec, request, chunks, label)
 
-    assembler = StreamAssembler.new(json_decoder: decoder)
+    assembler =
+      StreamAssembler.new([json_decoder: decoder] ++ Keyword.take(opts, [:max_argument_bytes]))
 
     {assembler, calls} =
       Enum.reduce(events, {assembler, []}, fn event, {assembler, calls} ->
