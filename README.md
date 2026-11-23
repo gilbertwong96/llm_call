@@ -42,7 +42,7 @@ def deps do
 end
 ```
 
-Requires Elixir 1.18+ on OTP 27+. Runtime dependencies are Finch,
+Requires Elixir 1.18+ on OTP 27.1+. Runtime dependencies are Finch, `mint`,
 `mint_web_socket` and `tool_call` (which brings no runtime dependency of its
 own); everything else is dev/test only.
 
@@ -285,8 +285,8 @@ end
   })
 
 for call <- LlmCall.Response.tool_calls(response) do
-  {:ok, result} = ToolCall.run(MyApp.Tools.Weather, call.name, call.arguments)
-  # build the %LlmCall.ToolResult{} from result and send the next request yourself
+  {:ok, _result} = ToolCall.run(MyApp.Tools.Weather, call.name, call.arguments)
+  # build the %LlmCall.ToolResult{} and send the next request yourself
 end
 ```
 
@@ -315,11 +315,7 @@ Pass a `%LlmCall.ToolSpec{}` when you already own a dialect-correct schema;
 want the specs before the call:
 
 ```elixir
-%LlmCall.ToolSpec{
-  name: "get_weather",
-  description: "Get the forecast for a city.",
-  parameters: schema
-}
+{:ok, specs} = LlmCall.Tools.expand([MyApp.Tools.Weather], LlmCall.Dialect.OpenAI.Chat)
 ```
 
 What a decoded turn can be sent back as depends on the protocol: text and tool

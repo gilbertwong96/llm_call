@@ -70,8 +70,10 @@ decode tool-call arguments with the same implementation as the transport.
 
 ## Tools
 
-Tool wire data lives here; schema derivation and dispatch do not. Use
-[`tool_call`](https://hex.pm/packages/tool_call) directly:
+The library derives and projects the schema for its codec; running a tool stays
+yours. Name a [`tool_call`](https://hex.pm/packages/tool_call) module in
+`request.tools` and the root [README's Tools section](../README.md#tools) covers
+the full contract:
 
 ```elixir
 defmodule MyApp.Tools.Weather do
@@ -87,16 +89,11 @@ defmodule MyApp.Tools.Weather do
   def get_weather(city), do: {:ok, %{temp: 21.5}}
 end
 
-tools =
-  for tool <- ToolCall.describe(MyApp.Tools.Weather) do
-    %LlmCall.ToolSpec{name: tool.name, description: tool.description, parameters: tool.parameters}
-  end
-
-request = %{request | tools: tools}
+request = %{request | tools: [MyApp.Tools.Weather]}
 {:ok, response} = LlmCall.complete(client, request)
 
 for call <- LlmCall.Response.tool_calls(response) do
-  {:ok, result} = ToolCall.run(MyApp.Tools.Weather, String.to_existing_atom(call.name), call.arguments)
+  {:ok, result} = ToolCall.run(MyApp.Tools.Weather, call.name, call.arguments)
   # build the %LlmCall.ToolResult{} and send the next request yourself
 end
 ```

@@ -7,9 +7,13 @@ defmodule LlmCall.Tools do
 
   Modules are an input form, not a canonical type: `expand/2` turns a module or
   a `{module, opts}` pair into `LlmCall.ToolSpec` structs with the schema
-  projected for the codec's protocol, and `normalize_request/2` applies that to a
-  whole request before the codec at every public request entry point except
-  `capabilities/3`, which reads no tools.
+  projected for the codec's protocol. Every entry point that forwards a request
+  to a codec expands `tools` first: `complete/3`, `stream/3`, `encode/3`,
+  `validate_request/3`, `init_stream/3` and
+  `Dialect.OpenAI.Responses.Connection.create/3`; `capabilities/3` reads no
+  tools. `LlmCall.Codec.Conformance` calls the codec callbacks directly, so a
+  request handed to one of its assertions must already carry
+  `%LlmCall.ToolSpec{}` entries.
   """
 
   alias LlmCall.Dialect.Helpers
@@ -46,10 +50,10 @@ defmodule LlmCall.Tools do
   Normalizes a request's `tools` into `LlmCall.ToolSpec` structs.
 
   The request-level companion to `expand/2`: `complete/3`, `stream/3`, `encode/3`,
-  `validate_request/3` and `init_stream/3` call this before the codec, so the
-  codec sees only specs; `capabilities/3` is the one public request entry point
-  that does not, because it reads no tools. Other fields pass through unchanged
-  and an expansion error is returned as-is.
+  `validate_request/3`, `init_stream/3` and
+  `Dialect.OpenAI.Responses.Connection.create/3` call this before the codec, so
+  the codec sees only specs. `capabilities/3` reads no tools. Other fields pass
+  through unchanged and an expansion error is returned as-is.
   """
   @spec normalize_request(LlmCall.Request.t(), module()) ::
           {:ok, LlmCall.Request.t()} | {:error, Error.t()}
