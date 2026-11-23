@@ -14,6 +14,11 @@ defmodule LlmCall.StreamAssembler do
   `arguments_error` of `:no_json_decoder`; it never arrives with invented
   arguments. The decoder's own message becomes the `reason` of
   `{:invalid_json, reason}`.
+
+  Fragments are accumulated across events, so `LlmCall.SSE`'s single-frame cap
+  cannot bound them. `new/1` takes `max_argument_bytes` (8 MiB by default); past it
+  the call finalises with `{:too_large, bytes}` and `raw_arguments` holding the
+  prefix that fit.
   """
 
   alias LlmCall.{StreamDelta, StreamEvent, ToolCall}
@@ -22,6 +27,7 @@ defmodule LlmCall.StreamAssembler do
 
   @opaque t :: %__MODULE__{
             json_decoder: decoder(),
+            max_argument_bytes: pos_integer(),
             calls: map()
           }
 

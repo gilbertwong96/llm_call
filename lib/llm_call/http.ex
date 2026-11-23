@@ -13,6 +13,12 @@ defmodule LlmCall.HTTP do
   dropped silently. The per-request read timeout is not one of them: it comes
   from the request itself, which the client fills from its `timeout:` option.
 
+  Neither function raises for a transport failure: a Finch exception or exit —
+  a pool checkout timeout is a `RuntimeError` — returns `{:error, {:exception,
+  message}}`, which `LlmCall.Error.from_transport/1` maps to `reason: :exception`.
+  `stream/4`'s reducer runs inside that protected region, so an `ArgumentError` or
+  `RuntimeError` the callback itself raises is reported the same way.
+
   ## Streaming events
 
   `stream/4` delivers, in order:
