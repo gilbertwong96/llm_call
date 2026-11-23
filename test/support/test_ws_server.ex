@@ -19,6 +19,8 @@ defmodule LlmCall.TestWSServer do
   @guid "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
   def start(opts \\ []) do
+    if Process.get(@key), do: stop()
+
     parent = self()
     mode = Keyword.get(opts, :mode, :echo)
     echo_stream_id = Keyword.get(opts, :echo_stream_id, false)

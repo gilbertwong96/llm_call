@@ -536,9 +536,11 @@ Verbatim means verbatim where the wire field is a string: OpenAI Chat's
 `function.arguments` and Responses' `arguments`. Anthropic's `input` and Gemini's
 `args` are JSON *objects*, so a fragment that did not decode cannot be written
 there; those two codecs send `%{}` and the repair loop continues without the model
-seeing its own bad text. Both behaviours are pinned in
-`test/llm_call/content_validation_test.exs` and
-`test/llm_call/dialect/openai_chat_test.exs`.
+seeing its own bad text. Verbatim is pinned in
+`test/llm_call/dialect/openai_chat_test.exs`, the `%{}` substitution in
+`test/llm_call/dialect/anthropic_messages_test.exs` and
+`test/llm_call/dialect/gemini_generate_content_test.exs`, and the replay itself in
+`test/llm_call/content_validation_test.exs`.
 
 `LlmCall.Codec.Conformance.assert_replays/3` pins this table per codec.
 

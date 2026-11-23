@@ -315,14 +315,15 @@ defmodule LlmCall.HTTP do
   end
 
   defp exit_message(reason) do
-    case reason do
-      {exception, stacktrace} when is_list(stacktrace) ->
-        Exception.format_banner(exception, stacktrace)
-
-      other ->
-        "transport exited: #{inspect(other)}"
-    end
+    "transport exited: " <> exit_reason(reason)
   end
+
+  # `Exception.format_banner/2` takes a kind, not an exception, so an exit whose
+  # reason is `{exception, stacktrace}` has to go through the 3-arity form.
+  defp exit_reason({exception, stacktrace}) when is_exception(exception) and is_list(stacktrace),
+    do: Exception.format_banner(:error, exception, stacktrace)
+
+  defp exit_reason(reason), do: Exception.format_exit(reason)
 
   defp pool_alive?(name) when is_atom(name), do: Process.whereis(name) != nil
 

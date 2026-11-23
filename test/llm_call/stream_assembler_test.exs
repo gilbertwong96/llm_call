@@ -28,6 +28,21 @@ defmodule LlmCall.StreamAssemblerTest do
     refute match?(%{calls: calls} when map_size(calls) > 0, assembler)
   end
 
+  test "a fragment arriving after an exact fill keeps identity and prefix" do
+    assembler = StreamAssembler.new(json_decoder: &decoder/1, max_argument_bytes: 10)
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, start(0, "c1", "f"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, "0123456789"))
+    {:ok, assembler, []} = StreamAssembler.feed(assembler, delta(0, "x"))
+
+    {:ok, _assembler, [call]} =
+      StreamAssembler.feed(assembler, %StreamEvent{type: :tool_call_stop, index: 0})
+
+    assert call.id == "c1"
+    assert call.name == "f"
+    assert call.raw_arguments == "0123456789"
+    assert call.arguments_error == {:too_large, 10}
+  end
+
   test "max_argument_bytes must be a positive integer" do
     assert_raise ArgumentError, ~r/max_argument_bytes/, fn ->
       StreamAssembler.new(max_argument_bytes: 0)

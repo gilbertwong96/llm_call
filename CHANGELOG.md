@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Breaking changes
+
+- `:pool_strategy` now validates against Finch's own contract — `nil`, a module
+  exporting `select/2`, `{module, state}`, a 1-arity function, or
+  `{2-arity function, state}`. It previously accepted `:random`, `:ordered` and
+  integers, none of which Finch dispatches on, so every accepted value raised
+  inside Finch; those are now rejected while the client is built.
+
+### Added
+
+- `LlmCall.StreamAssembler.new/1` takes `max_argument_bytes` (8 MiB by default).
+  Fragments accumulate across events, which the SSE frame cap cannot bound; past
+  the cap a call finalises with `{:too_large, bytes}`, a new variant of the public
+  `LlmCall.ToolCall.arguments_error` type, and `raw_arguments` keeps the prefix
+  that fit.
+
+### Changed
+
+- `LlmCall.HTTP.request/2` and `stream/4` no longer let a transport failure escape:
+  a Finch exception or exit returns `{:error, {:exception, message}}`, which
+  `LlmCall.Error.from_transport/1` maps to `reason: :exception`. This covers the
+  `RuntimeError` Finch raises when it cannot check a connection out of the pool.
+- Tool-argument fragments are kept as iodata and joined once, replacing an append
+  that was quadratic for large arguments.
+- `docs/design.md` records two field drops that were happening silently:
+  `ToolResult.is_error` on OpenAI Chat and Responses, and a tool call whose
+  arguments did not decode on Anthropic and Gemini (the wire field is an object,
+  so the fragment cannot be carried).
+
 ## 0.2.0 - 2026-11-23
 
 ### Added

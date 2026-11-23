@@ -136,6 +136,10 @@ defmodule LlmCall.WS.Mint do
 
   # Dialyzer cannot see Mint.WebSocket.new/4's HTTP/1 success branch through
   # Mint's opaque connection type; the status and protocol are checked here.
+  # `buffer/2` is listed for the same reason and not for a hidden defect: its only
+  # caller is the success branch below, where `websocket` was set in the same
+  # expression, so `collect_data/2` cannot see `nil`. Verified by removing the
+  # entry: Dialyzer reports `buffer/2` unused rather than anything about its body.
   @dialyzer {:nowarn_function, [{:upgrade, 3}, {:buffer, 2}]}
   defp upgrade(state, headers, data) do
     if Mint.HTTP.protocol(state.conn) == :http1 do
