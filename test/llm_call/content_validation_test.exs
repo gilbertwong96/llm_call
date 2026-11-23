@@ -144,6 +144,34 @@ defmodule LlmCall.ContentValidationTest do
     assert :ok == validate_messages(messages)
   end
 
+  test "a tool_choice naming an undeclared tool is a validation error" do
+    tools = [%LlmCall.ToolSpec{name: "get_weather"}]
+
+    request = fn choice ->
+      %Request{
+        model: "gpt-4o",
+        params: %{max_tokens: 100},
+        messages: [%Message{role: :user, content: [%Content.Text{text: "hi"}]}],
+        tools: tools,
+        tool_choice: choice
+      }
+    end
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.Dialect.OpenAI.Chat.validate_request(
+               request.({:tool, "nonexistent"}),
+               %Config{}
+             )
+
+    assert message =~ "no tool in the request declares"
+
+    assert :ok ==
+             LlmCall.Dialect.OpenAI.Chat.validate_request(
+               request.({:tool, "get_weather"}),
+               %Config{}
+             )
+  end
+
   test "a tool name may only be declared once" do
     duplicated = [%LlmCall.ToolSpec{name: "f"}, %LlmCall.ToolSpec{name: "f"}]
 

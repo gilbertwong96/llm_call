@@ -500,20 +500,15 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     do: Helpers.error(@codec, "tool_choice requires at least one tool")
 
   defp validate_tool_choice(:required, _tools), do: :ok
-  defp validate_tool_choice({:tool, name}, _tools) when is_binary(name) and name != "", do: :ok
+
+  defp validate_tool_choice({:tool, name}, tools) when is_binary(name) and name != "",
+    do: Helpers.validate_chosen_tool(name, tools, @codec)
 
   defp validate_tool_choice({:tool, _name}, _tools),
     do: Helpers.error(@codec, "tool_choice tool name is required")
 
-  defp validate_tool_choice({:allowed, names}, _tools) when is_list(names) do
-    Helpers.first_error(names, fn
-      name when is_binary(name) and name != "" ->
-        :ok
-
-      _name ->
-        Helpers.error(@codec, "tool_choice {:allowed, names} requires non-empty string names")
-    end)
-  end
+  defp validate_tool_choice({:allowed, names}, tools) when is_list(names),
+    do: Helpers.validate_allowed_tools(names, tools, @codec)
 
   defp validate_tool_choice(choice, _tools),
     do: Helpers.error(@codec, "tool_choice #{inspect(choice)} is not supported")
