@@ -446,6 +446,15 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
 
   defp validate_part_shape(_role, %Content.Thinking{}, _json), do: :ok
 
+  # Messages validates content-block types per role: an assistant turn takes text,
+  # tool_use, thinking and redacted_thinking, so an image or a document there is a
+  # provider 400 that the OpenAI codecs already refuse locally.
+  defp validate_part_shape(:assistant, %Content.Image{}, _json),
+    do: Helpers.error(@codec, "images belong to user messages")
+
+  defp validate_part_shape(:assistant, %Content.File{}, _json),
+    do: Helpers.error(@codec, "files belong to user messages")
+
   defp validate_part_shape(_role, %Content.Image{source: {:file_id, _file_id}}, _json),
     do: Helpers.error(@codec, "image source {:file_id, id} is not supported")
 
@@ -497,8 +506,28 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   defp validate_part_shape(_role, _part, _json),
     do: Helpers.error(@codec, "unsupported content part")
 
+  # A text block nested in a `tool_result` is the same block type as a top-level
+  # one, so the non-empty rule applies to it too; `Helpers` only checks the type.
+  defp validate_tool_result_content([_ | _] = content) do
+    with :ok <- Helpers.validate_tool_result_content(content, @codec) do
+      first_error(content, fn
+        %Content.Text{text: text} -> validate_text_block(text, "tool_result")
+        _part -> :ok
+      end)
+    end
+  end
+
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
+
+  defp first_error(parts, fun) do
+    Enum.reduce_while(parts, :ok, fn part, :ok ->
+      case fun.(part) do
+        :ok -> {:cont, :ok}
+        {:error, %Error{}} = error -> {:halt, error}
+      end
+    end)
+  end
 
   # Anthropic rejects a text block with `messages: text content blocks must be
   # non-empty` and one holding only whitespace with `... must contain
