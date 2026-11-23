@@ -30,8 +30,11 @@ defmodule LlmCall.Tools do
   A `%LlmCall.ToolSpec{}` passes through unchanged; a module, or
   `{module, opts}`, contributes one spec per tool, in the module's declaration
   order, with the schema projected for `codec`'s protocol. `opts` may carry
-  `strict: boolean()`: `true` is OpenAI's strict schema, `false` is treated as
-  absent, and every other codec rejects `true`. Any other option, or a value
+  `strict: boolean()`: `true` asks for OpenAI's strict schema and `false` is
+  treated as absent. `expand/2` does not police that per protocol — the resulting
+  `%LlmCall.ToolSpec{strict: true}` is what the codec's own `validate_request/2`
+  rejects when it has no per-tool flag, so a caller that only expands sees the spec
+  accepted here. Any other option, or a value
   that is not a keyword list, is rejected. Errors are named after `codec`,
   so a caller sees which protocol refused the request; an entry that is none of
   the accepted forms, a module that does not `use ToolCall`, and a schema the

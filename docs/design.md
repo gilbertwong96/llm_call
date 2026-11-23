@@ -405,9 +405,14 @@ them:
 
 - `ToolCall.index` — stream bookkeeping. `LlmCall.StreamAssembler` keys
   fragments by it; a request tool call has no index on the wire.
-- `Content.Image.media_type` when `source` is a URL (Anthropic): the protocol
-  infers the type from the URL, and its `image` block has no `media_type` for that
-  source. Base64 sources do carry it.
+- `Content.Image.media_type` and `Content.File.media_type` when the source is not
+  base64: every codec relies on the URL, the file id or the provider's own
+  inference, and only a base64 source has to state its type.
+- `ToolResult.name` on OpenAI Chat, OpenAI Responses and Anthropic: the result is
+  addressed by `call_id`/`tool_use_id`, and no protocol has a field for the tool's
+  name on a result. Gemini is the exception, where `name` is the only identifier.
+- `Content.File.filename` on Gemini: `inlineData`/`fileData` carry no filename.
+  Responses sends it as `filename` and Anthropic as `title`.
 - The `name` in `output: {:json_schema, name, schema, strict?}` (Gemini): Gemini's
   `responseSchema` has no schema name. The name stays a caller-side label; the
   codec keeps the schema and drops the label. OpenAI emits it; Anthropic rejects
@@ -594,7 +599,8 @@ boolean) and `provider_options`.
   `google_search`), and its native knobs go in `provider_options`, merged into the
   codec's tool shape. `parameters` and `strict` are rejected for this kind,
   because a hosted tool has no local schema.
-- The library never interprets a hosted tool's name; it answers only "will this
+- The library does not validate a hosted tool against a local schema; it answers
+  only "will this
   codec forward it?" through `Capabilities.builtin_tools`.
 - No callback, function, approval policy, or execution metadata belongs here.
 - `strict` is optional; dialect adapters reject it when unsupported or map it
@@ -1012,7 +1018,7 @@ Adding a new codec should require only:
 1. A module that `use`s `LlmCall.Dialect.Adapter` (or
    `LlmCall.Media.Dialect.Adapter`), declaring its `provider_options` namespaces
    (`@namespaces`, or `namespaces:` on the media macro) and supplying `@path`,
-   `@headers`, `info/0`, `capabilities/0`, the protocol's own
+   `@headers`, `info/0`, `capabilities/2`, the protocol's own
    `validate_request/2`, and a private `body/2` that returns the wire body.
 2. Dialect-specific request/response/stream fixtures.
 3. Capability declarations for the models/endpoints the codec supports.
@@ -1260,7 +1266,8 @@ A caller that owns a transport does the same four steps itself before calling
 `decode_stream_event/3`.
 
 `LlmCall.SSE` keeps the server's `retry:` hint on the state as `retry_ms` instead
-of dropping it, so a caller that owns reconnection policy can read it; the
+of dropping it, so a caller that drives `LlmCall.SSE.parse/2` itself can read it —
+`LlmCall.Stream` keeps the hint in its reducer state and does not return it. The
 library never reconnects a stream on its own. A pending event is capped at 1 MiB:
 a peer that never sends the blank line ending an event raises
 `LlmCall.SSE.Error` rather than growing the buffer without bound, and
