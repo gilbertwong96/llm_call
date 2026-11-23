@@ -6,6 +6,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-23
+
+### Added
+
+- `Request.tools` accepts a [`tool_call`](https://hex.pm/packages/tool_call)
+  module, or `{module, opts}` with `strict: boolean()`. A module contributes one
+  `%LlmCall.ToolSpec{}` per declared tool, in declaration order; a
+  `%LlmCall.ToolSpec{}` entry still passes through unchanged, and the three forms
+  mix freely in one list. `strict: true` asks for OpenAI's strict schema, while
+  `strict: false` is treated as absent rather than sent as a flag; a codec with
+  no per-tool flag rejects `true`.
+- `LlmCall.Tools.expand/2` turns tool entries into specs for a codec, and
+  `LlmCall.Tools.normalize_request/2` applies it to a whole request. Every public
+  entry point that takes a `%LlmCall.Request{}` and forwards it to a codec
+  normalizes first: `complete/3`, `stream/3`, `encode/3`, `validate_request/3`,
+  `init_stream/3`, and `Responses.Connection.create/3`. `capabilities/3` reads no
+  tools and is the one exemption. `expand/2` is public, so a caller that wants to
+  hold the expanded specs calls `Tools.expand([module], codec)` themselves.
+- New hard dependency `tool_call ~> 0.4`, which has no runtime dependencies of
+  its own.
+
+### Changed
+
+- The tool schema projection is chosen from `codec.info().protocol`:
+  `:openai_chat` and `:openai_responses` take the schema `ToolCall.emit/3`
+  renders for OpenAI, `:gemini_generate_content` the one it renders for Gemini,
+  and any other protocol the neutral schema `ToolCall.describe/2` returns. Gemini
+  therefore no longer needs a manual `to_gemini/2` step, and the schema is already
+  in the codec's dialect when the codec validates it.
+- A malformed tool entry, a module that does not `use ToolCall`, and a schema the
+  selected protocol cannot render are `:validation` errors returned by
+  `Tools.expand/2`, naming the codec that refused, rather than raises.
+
 ## 0.1.1 - 2026-11-23
 
 ### Breaking changes

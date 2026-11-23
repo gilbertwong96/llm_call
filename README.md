@@ -37,13 +37,14 @@ image and video endpoints, including long-running jobs.
 ```elixir
 def deps do
   [
-    {:llm_call, "~> 0.1.1"}
+    {:llm_call, "~> 0.2.0"}
   ]
 end
 ```
 
-Requires Elixir 1.18+ on OTP 27+. Runtime dependencies are Finch and
-`mint_web_socket`; everything else is dev/test only.
+Requires Elixir 1.18+ on OTP 27+. Runtime dependencies are Finch,
+`mint_web_socket` and `tool_call` (which brings no runtime dependency of its
+own); everything else is dev/test only.
 
 ## Providers
 
@@ -257,10 +258,10 @@ not the whole call, so a large response on a slow link can outlive it. Add
 
 ## Tools
 
-Tool data is wire data only: `LlmCall.ToolSpec`, `LlmCall.ToolCall` and
-`LlmCall.ToolResult`. The library does not derive schemas or dispatch calls — the
-[`tool_call`](https://hex.pm/packages/tool_call) package does that well, so use it
-directly and map its provider-neutral descriptions into canonical specs:
+`Request.tools` takes a [`tool_call`](https://hex.pm/packages/tool_call) module, a
+`{module, opts}` pair, or a ready `%LlmCall.ToolSpec{}`; the three forms mix freely
+in one list. Naming the module is the short form — the schema is derived from its
+`@spec` and `@doc`, and projected into the selected codec's dialect:
 
 ```elixir
 defmodule MyApp.Tools.Weather do
@@ -276,31 +277,50 @@ defmodule MyApp.Tools.Weather do
   def get_weather(city), do: {:ok, %{temp: 21.5}}
 end
 
-tools =
-  for tool <- ToolCall.describe(MyApp.Tools.Weather) do
-    %LlmCall.ToolSpec{
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }
-  end
-
-request = %{request | tools: tools}
-{:ok, response} = LlmCall.complete(client, request)
+{:ok, response} =
+  LlmCall.complete(client, %LlmCall.Request{
+    model: "gpt-4o",
+    messages: messages,
+    tools: [MyApp.Tools.Weather]
+  })
 
 for call <- LlmCall.Response.tool_calls(response) do
-  {:ok, result} = ToolCall.run(MyApp.Tools.Weather, String.to_existing_atom(call.name), call.arguments)
-  # build the %LlmCall.ToolResult{} and send the next request yourself
+  {:ok, result} = ToolCall.run(MyApp.Tools.Weather, call.name, call.arguments)
+  # build the %LlmCall.ToolResult{} from result and send the next request yourself
 end
 ```
+
+`{MyApp.Tools.Weather, strict: true}` asks for OpenAI's strict schema. Setting
+`strict: false` is treated as absent rather than sent as a flag, and a codec
+without a per-tool flag rejects `true`.
 
 Approvals, audits and timeouts stay in `tool_call`, and the follow-up request stays
 with you: the library does not run an agent loop.
 
-`ToolSpec.parameters` must already be in the selected codec's dialect. For Gemini,
-project it with `ToolCall.Schema.to_gemini/2`; the Gemini codec returns a
-`:validation` error for a lowercase `type`, `additionalProperties`, `$ref`/`$defs`,
-`prefixItems`, `oneOf` or `const` instead of sending it.
+The projection follows the codec, so no per-provider step is left to the caller:
+the two OpenAI protocols get the schema `ToolCall.emit/3` renders for OpenAI,
+Gemini the one rendered for Gemini, and any other protocol the neutral
+`ToolCall.describe/2` schema. That is why Gemini needs no manual projection step,
+and a schema the protocol cannot express is a `:validation` error instead of a
+request the provider refuses — Gemini rejects a lowercase `type`,
+`additionalProperties`, `$ref`/`$defs`, `prefixItems`, `oneOf`, `const`, `allOf`
+or `not`.
+
+Every entry point that forwards a request to a codec expands `tools` first:
+`complete/3`, `stream/3`, `encode/3`, `validate_request/3`, `init_stream/3` and
+`Responses.Connection.create/3`. `capabilities/3` reads no tools.
+
+Pass a `%LlmCall.ToolSpec{}` when you already own a dialect-correct schema;
+`LlmCall.Tools.expand/2` keeps it unchanged. Call `expand/2` directly when you
+want the specs before the call:
+
+```elixir
+%LlmCall.ToolSpec{
+  name: "get_weather",
+  description: "Get the forecast for a city.",
+  parameters: schema
+}
+```
 
 What a decoded turn can be sent back as depends on the protocol: text and tool
 calls always, thinking blocks and `Content.Raw` only where the request shape
