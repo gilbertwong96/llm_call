@@ -19,8 +19,10 @@ defmodule LlmCall.Client do
   body chunk must arrive within it, but it is not a deadline for the whole call.
   A large response on a slow link, or a provider that keeps sending, can outlast
   it. For a wall-clock cap, pass Finch's total timeout through `http_opts:
-  [request_timeout: ...]`; on a streaming call it is checked between reads, so
-  the effective bound is `request_timeout` plus one `timeout`.
+  [request_timeout: ...]`. On an HTTP/1 pool it is checked between reads, so a
+  streaming call's effective bound is `request_timeout` plus one `timeout`; Finch
+  implements it on HTTP/2 as a wall-clock timer for the whole response, where the
+  bound is `request_timeout` itself.
   """
 
   alias LlmCall.Config

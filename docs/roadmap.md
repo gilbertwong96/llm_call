@@ -17,8 +17,8 @@ depend on each other:
 6. Generic OpenAI-compatible configuration.
 7. `LlmCall.HTTP` on Finch and the default pool.
 8. `LlmCall.JSON` as a behaviour, threaded through the codecs and resolved (with
-   `http`, `http_opts`, `timeout`) from call option, provider, application
-   environment and default.
+   `http_opts`, `timeout`) from call option, provider, application environment and
+   default. There is no configurable HTTP behaviour.
 9. `LlmCall.Client`, `LlmCall.Provider`, and `complete/3`, `execute/2`, `fetch/2`.
 10. `LlmCall.SSE`, `LlmCall.Stream` and `stream/3`.
 11. The media IR (design §23): `Content.Video`, `Request.modalities`,
@@ -75,8 +75,8 @@ reorganisation, not a feature, and it belongs in a 0.x minor.
 
 | Operation | Canonical shape | New family | Demand | Plan |
 | --- | --- | --- | --- | --- |
-| Embeddings | `{model, input, dimensions?}` → vectors + usage | yes, small | highest: a conversation library is almost always paired with a vector store | 0.2, with rerank |
-| Rerank | `{model, query, documents, top_n?}` → ordered scores | shares the vector family | medium, narrow vendor set | 0.2 |
+| Embeddings | `{model, input, dimensions?}` → vectors + usage | yes, small | highest: a conversation library is almost always paired with a vector store | next minor, with rerank |
+| Rerank | `{model, query, documents, top_n?}` → ordered scores | shares the vector family | medium, narrow vendor set | next minor |
 | Speech | text in, media bytes out | media-shaped | medium-low | 0.3 |
 | Transcription | bytes in, text and segments out; needs the multipart boundary the transport deliberately does not own (design §23.7) | yes | medium | 0.3, once that boundary has a design |
 | OCR | image or file in, text out | **no**: `Content.Image` and `Content.File` in a chat request already express it for every multimodal codec | low | documentation; a dedicated endpoint only on demand |

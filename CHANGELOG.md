@@ -221,7 +221,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   URLs the way the library does.
 - `LlmCall.Codec.Conformance.assert_replays/3` pins which decoded content parts a
   codec accepts back in an assistant message, the contract an agent loop depends
-  on; `docs/design.md` §8.2 carries the table.
+  on; `docs/design.md` §8.3 carries the replay table.
 - `config :llm_call, capture_raw: ...` sets the compile-time capture default,
   symmetric with `json_library:`; `LlmCall.Config.new(capture_raw: ...)` still
   overrides it per client.
