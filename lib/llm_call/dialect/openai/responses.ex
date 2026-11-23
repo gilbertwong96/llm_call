@@ -623,8 +623,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
       ) do
     index = Helpers.index(term["output_index"])
 
-    delta = %StreamDelta.Text{text: term["delta"]}
-    {:ok, [Helpers.event(:text_delta, index, delta, term, config)], state}
+    case term["delta"] do
+      text when is_binary(text) ->
+        delta = %StreamDelta.Text{text: text}
+        {:ok, [Helpers.event(:text_delta, index, delta, term, config)], state}
+
+      other ->
+        {:error, invalid_response("text delta is not a string: #{inspect(other)}")}
+    end
   end
 
   def decode_stream_event(

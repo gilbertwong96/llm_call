@@ -63,6 +63,17 @@ defmodule LlmCall.ApiTest do
     }
   end
 
+  test "poll/3 returns a typed error when next is not an encoded request" do
+    operation = %LlmCall.Operation{status: :in_progress, next: %{method: :get, path: "/jobs/1"}}
+
+    client = LlmCall.TestProvider.client(api_key: "k", base_url: "http://127.0.0.1:1")
+
+    assert {:error, %LlmCall.Error{kind: :validation, message: message}} =
+             LlmCall.poll(client, operation, codec: :chat)
+
+    assert message =~ "EncodedRequest"
+  end
+
   test "encode/3 delegates to the codec" do
     assert {:ok, encoded} = LlmCall.encode(Fake, request())
     assert encoded.path == "/fake"
