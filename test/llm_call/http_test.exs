@@ -82,6 +82,50 @@ defmodule LlmCall.HTTPTest do
     assert {"content-type", "application/json"} in headers
   end
 
+  describe "transport raises become typed errors" do
+    # Finch calls `module.select(entries, state)` (or the fun) only when a pool
+    # name maps to several entries, so this needs count: 2. Without the rescue in
+    # request/2 and stream/4 the raise reaches the caller instead.
+    defp multi_pool do
+      name = :"llm_call_pool_#{System.unique_integer([:positive])}"
+      start_supervised!({Finch, name: name, pools: %{default: [count: 2, size: 1]}})
+      name
+    end
+
+    test "request/2 returns {:error, {:exception, message}} instead of raising" do
+      TestHTTP.put_events([{:status, 200}, {:data, "{}"}])
+      name = multi_pool()
+      boom = fn _entries, _state -> raise "strategy exploded" end
+      request = Request.post(TestHTTP.url() <> "/v1/x", [], "{}", 5_000)
+
+      assert {:error, {:exception, "strategy exploded"}} =
+               HTTP.request(request, name: name, pool_strategy: {boom, nil})
+    end
+
+    test "stream/4 returns {:error, {:exception, message}} instead of raising" do
+      name = multi_pool()
+      boom = fn _entries, _state -> raise "strategy exploded" end
+      request = Request.post(TestHTTP.url() <> "/v1/x", [], "{}", 5_000)
+
+      assert {:error, {:exception, "strategy exploded"}} =
+               HTTP.stream(request, [], fn event, acc -> {:cont, [event | acc]} end,
+                 name: name,
+                 pool_strategy: {boom, nil}
+               )
+    end
+
+    test "a strategy fun that exits is reported, not propagated" do
+      name = multi_pool()
+      exiter = fn _entries, _state -> exit(:strategy_gone) end
+      request = Request.post(TestHTTP.url() <> "/v1/x", [], "{}", 5_000)
+
+      assert {:error, {:exception, message}} =
+               HTTP.request(request, name: name, pool_strategy: {exiter, nil})
+
+      assert message =~ "transport exited"
+    end
+  end
+
   test "stream/4 delivers the status before any data" do
     TestHTTP.put_events([{:status, 200}, {:data, "data: one\n\n"}])
 

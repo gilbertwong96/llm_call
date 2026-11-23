@@ -237,16 +237,24 @@ defmodule LlmCall.HTTP do
     pool = Keyword.get(opts, :name, @default_pool)
 
     with :ok <- validate_pool(pool) do
-      case Finch.request(build(request), pool, forward(opts, request)) do
-        {:ok, %Finch.Response{status: status, headers: headers, body: body}} ->
-          {:ok, %{status: status, headers: headers, body: body}}
+      finch_request = build(request)
+      finch_opts = forward(opts, request)
 
-        {:error, reason} ->
-          {:error, reason}
+      try do
+        case Finch.request(finch_request, pool, finch_opts) do
+          {:ok, %Finch.Response{status: status, headers: headers, body: body}} ->
+            {:ok, %{status: status, headers: headers, body: body}}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      rescue
+        error in [ArgumentError, RuntimeError] ->
+          {:error, {:exception, Exception.message(error)}}
+      catch
+        :exit, reason -> {:error, {:exception, exit_message(reason)}}
       end
     end
-  rescue
-    error in [ArgumentError] -> {:error, {:exception, Exception.message(error)}}
   end
 
   @doc """
@@ -275,9 +283,19 @@ defmodule LlmCall.HTTP do
     end
 
     with :ok <- validate_pool(pool) do
-      case Finch.stream_while(build(request), pool, acc, reducer, forward(opts, request)) do
-        {:ok, acc} -> {:ok, acc}
-        {:error, reason, _acc} -> {:error, reason}
+      finch_request = build(request)
+      finch_opts = forward(opts, request)
+
+      try do
+        case Finch.stream_while(finch_request, pool, acc, reducer, finch_opts) do
+          {:ok, acc} -> {:ok, acc}
+          {:error, reason, _acc} -> {:error, reason}
+        end
+      rescue
+        error in [ArgumentError, RuntimeError] ->
+          {:error, {:exception, Exception.message(error)}}
+      catch
+        :exit, reason -> {:error, {:exception, exit_message(reason)}}
       end
     end
   end
@@ -288,6 +306,16 @@ defmodule LlmCall.HTTP do
     if pool_alive?(pool), do: :ok, else: {:error, {:unknown_pool, pool}}
   rescue
     _error -> {:error, {:unknown_pool, pool}}
+  end
+
+  defp exit_message(reason) do
+    case reason do
+      {exception, stacktrace} when is_list(stacktrace) ->
+        Exception.format_banner(exception, stacktrace)
+
+      other ->
+        "transport exited: #{inspect(other)}"
+    end
   end
 
   defp pool_alive?(name) when is_atom(name), do: Process.whereis(name) != nil
