@@ -200,7 +200,7 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
     assert [_ | _] = Enum.to_list(stream)
 
     create = await_event("response.create")
-    assert Enum.map(create["tools"], & &1["name"]) == ["forecast", "conditions"]
+    assert Enum.map(create["tools"], & &1["name"]) == ["forecast", "conditions", "detailed"]
 
     Connection.close(connection)
   end

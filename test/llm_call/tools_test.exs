@@ -23,15 +23,21 @@ defmodule LlmCall.ToolsTest do
 
   test "expands a module into one spec per declared tool" do
     assert {:ok, specs} = Tools.expand([Weather], Messages)
-    assert Enum.map(specs, & &1.name) == ["forecast", "conditions"]
-    assert Enum.map(specs, & &1.description) == ["Forecast for a city.", "Current conditions."]
+    assert Enum.map(specs, & &1.name) == ["forecast", "conditions", "detailed"]
+
+    assert Enum.map(specs, & &1.description) == [
+             "Forecast for a city.",
+             "Current conditions.",
+             "Detailed forecast for a city."
+           ]
+
     assert Enum.all?(specs, &(&1.parameters["required"] == ["city"]))
   end
 
   test "accepts the mixed forms in one list" do
     spec = %ToolSpec{name: "hand", parameters: %{"type" => "object"}}
     assert {:ok, specs} = Tools.expand([spec, Weather], Messages)
-    assert Enum.map(specs, & &1.name) == ["hand", "forecast", "conditions"]
+    assert Enum.map(specs, & &1.name) == ["hand", "forecast", "conditions", "detailed"]
   end
 
   test "Gemini gets uppercase types from tool_call's own projection" do
@@ -60,6 +66,62 @@ defmodule LlmCall.ToolsTest do
     refute Map.has_key?(tool["function"], "strict")
   end
 
+  test "OpenAI strict closes the schema and sets the flag inside function" do
+    request = %LlmCall.Request{
+      model: "gpt-4o",
+      messages: [user_message()],
+      tools: [{Weather, strict: true}]
+    }
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, %LlmCall.Config{})
+
+    [tool | _] = body["tools"]
+    assert tool["function"]["strict"] == true
+    assert tool["function"]["parameters"]["additionalProperties"] == false
+
+    detailed = Enum.find(body["tools"], &(&1["function"]["name"] == "detailed"))
+    assert detailed["function"]["parameters"]["required"] == ["city", "units"]
+
+    assert detailed["function"]["parameters"]["properties"]["units"]["type"] == [
+             "string",
+             "null"
+           ]
+  end
+
+  test "strict: false and an omitted strict leave the optional parameter optional" do
+    for tools <- [[Weather], [{Weather, []}], [{Weather, strict: false}]] do
+      request = %LlmCall.Request{model: "gpt-4o", messages: [user_message()], tools: tools}
+
+      assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+               LlmCall.encode(LlmCall.Dialect.OpenAI.Chat, request, %LlmCall.Config{})
+
+      detailed = Enum.find(body["tools"], &(&1["function"]["name"] == "detailed"))
+      refute Map.has_key?(detailed["function"], "strict")
+      assert detailed["function"]["parameters"]["required"] == ["city"]
+    end
+  end
+
+  test "a codec that does not forward strict rejects it" do
+    request = %LlmCall.Request{
+      model: "gemini-2.5-pro",
+      messages: [user_message()],
+      tools: [{Weather, strict: true}]
+    }
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             LlmCall.encode(LlmCall.Dialect.Gemini.GenerateContent, request, %LlmCall.Config{})
+
+    assert message =~ "tool strict mode is not supported"
+  end
+
+  test "strict must be a boolean or nil" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Tools.expand([{Weather, strict: :fine_tuned}], NeutralCodec)
+
+    assert message =~ "tool strict must be a boolean"
+  end
+
   test "an unknown protocol falls back to provider-neutral schemas" do
     assert {:ok, specs} = Tools.expand([Weather], NeutralCodec)
     assert [%ToolSpec{parameters: %{"type" => "object"}} | _] = specs
@@ -69,7 +131,7 @@ defmodule LlmCall.ToolsTest do
     request = %LlmCall.Request{model: "test-1", messages: [user_message()], tools: [Weather]}
 
     assert {:ok, %LlmCall.Request{} = normalized} = Tools.normalize_request(request, Messages)
-    assert Enum.map(normalized.tools, & &1.name) == ["forecast", "conditions"]
+    assert Enum.map(normalized.tools, & &1.name) == ["forecast", "conditions", "detailed"]
     assert normalized.model == request.model
     assert normalized.messages == request.messages
   end
@@ -99,7 +161,7 @@ defmodule LlmCall.ToolsTest do
     assert {:ok, %LlmCall.EncodedRequest{body: body}} =
              LlmCall.encode(LlmCall.Dialect.Anthropic.Messages, request, %LlmCall.Config{})
 
-    assert [_, _] = body["tools"]
+    assert [_, _, _] = body["tools"]
   end
 
   test "tool_choice resolves against names that came from a module" do
