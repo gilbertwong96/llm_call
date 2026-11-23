@@ -46,6 +46,19 @@ defmodule LlmCall.Dialect.OpenAIResponsesTest do
     events
   end
 
+  test "a text delta whose payload is not a string is an invalid response" do
+    {:ok, state} = Responses.init_stream(text_request(), %Config{})
+
+    assert {:error, %LlmCall.Error{kind: :invalid_response, message: message}} =
+             Responses.decode_stream_event(
+               %{"type" => "response.output_text.delta", "delta" => nil},
+               %Config{},
+               state
+             )
+
+    assert message =~ "text delta is not a string"
+  end
+
   test "info/0 declares the protocol and IR version" do
     assert %LlmCall.Codec.Info{name: :openai_responses, protocol: :openai_responses} =
              Responses.info()

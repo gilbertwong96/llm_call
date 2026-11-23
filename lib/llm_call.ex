@@ -206,6 +206,9 @@ defmodule LlmCall do
 
       nil ->
         {:error, invalid("the operation has no next request", :validation)}
+
+      other ->
+        {:error, not_a_request(other, "%LlmCall.EncodedRequest{}")}
     end
   end
 
