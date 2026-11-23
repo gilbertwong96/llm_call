@@ -60,9 +60,17 @@ config :llm_call,
 ```
 
 ```elixir
-# per provider, or per client
-use LlmCall.Provider, json_library: Jason, ...
-MyProvider.client(api_key: key, json_library: Jason)
+# per provider
+defmodule MyApp.Groq do
+  use LlmCall.Provider,
+    base_url: "https://api.groq.com/openai",
+    auth: :bearer,
+    json_library: Jason,
+    codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
+end
+
+# or per client
+MyApp.Groq.client(api_key: System.fetch_env!("GROQ_API_KEY"), json_library: Jason)
 ```
 
 The JSON module is written into the client's `%LlmCall.Config{}`, so the codecs
