@@ -432,9 +432,12 @@ Everything else is a rejection: an unsupported content variant
 `{:allowed, names}` on OpenAI or Anthropic, and a `params` key the codec does not
 implement.
 
-`test/llm_call/write_path_audit_test.exs` enumerates every canonical-derived
-wire key and asserts each is rejected from every source that can write it, so
-this list is the only place a dropped field may be added.
+`test/llm_call/write_path_audit_test.exs` enumerates the canonical-derived wire
+keys a request body can carry and asserts each is rejected from every source that can
+write it, so a field dropped from the body has to appear here. It enumerates top-level
+keys, not values inside a content part, so the entries above that name a part-level
+value (`media_type`, `filename`, `ToolResult.name`) are the one place a reviewer has to
+read the codec for.
 
 The decode side has the mirror problem: a provider field can be ignored. Envelope
 data, echoes (`choices[].index`, `candidates[].index`), discriminators
@@ -1386,9 +1389,11 @@ client, the Finch transport, the SSE parser and the pure stream assembler.
 `dialect/*` holds the **reference adapters** — the protocol families the IR is
 written against — and `media/dialect/*` the **vendored** media adapters, which ship
 with the library but are not part of the stable surface. `mix docs` lists every
-module; the file tree is not repeated here, and nothing in the core depends on a
-reference adapter — an adapter is selected by name at call time — though
-`LlmCall.Tools` shares `Dialect.Helpers`' error constructor.
+module and the file tree is not repeated here. An adapter is selected by name at call
+time, so the core does not reach into a reference adapter's implementation — with two
+deliberate exceptions: `LlmCall.Tools` shares `Dialect.Helpers`' error constructor, and
+`LlmCall.Codec.Conformance` matches one adapter by name because Gemini's minimal
+schema is uppercase while the others are not.
 
 Optional packages live outside this repository: `llm_call_cost` for pricing and
 `llm_call_langchain` for a LangChain adapter. `LlmCall.HTTP` is Finch and
