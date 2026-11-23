@@ -245,7 +245,10 @@ defmodule LlmCall.ClientTest do
           [request_timeout: "x"],
           [pool_timeout: nil],
           [name: "not-an-atom"],
-          [pool_strategy: :bogus]
+          [pool_strategy: :random],
+          [pool_strategy: :ordered],
+          [pool_strategy: 3],
+          [pool_strategy: &Enum.at/2]
         ] do
       assert_raise ArgumentError, ~r/:http_opts/, fn -> client(http_opts: opts) end
     end
@@ -253,8 +256,17 @@ defmodule LlmCall.ClientTest do
     assert %Client{http_opts: [request_timeout: 5_000, pool_timeout: 1_000]} =
              client(http_opts: [request_timeout: 5_000, pool_timeout: 1_000])
 
-    assert %Client{http_opts: [pool_strategy: :random]} =
-             client(http_opts: [pool_strategy: :random])
+    for strategy <- [
+          nil,
+          Finch.Pool.Strategy.Random,
+          Finch.Pool.Strategy.Hash,
+          {Finch.Pool.Strategy.RoundRobin, :counters.new(1, [])},
+          &Enum.random/1,
+          {&Enum.at/2, 0}
+        ] do
+      assert %Client{http_opts: [pool_strategy: ^strategy]} =
+               client(http_opts: [pool_strategy: strategy])
+    end
   end
 
   test "http_opts rejects keys the client would drop" do

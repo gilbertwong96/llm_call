@@ -59,7 +59,10 @@ defmodule LlmCall.Provider do
   `http_opts` accepts `:name` (the Finch pool), `:pool_timeout`,
   `:request_timeout`, and `:pool_strategy`; anything else is an `ArgumentError`,
   because the client would drop it. The read timeout is `timeout:`, not
-  `http_opts: [receive_timeout: ...]`.
+  `http_opts: [receive_timeout: ...]`. `:pool_strategy` follows Finch's own
+  contract: `nil`, a module exporting `select/2`, `{module, state}`, a 1-arity
+  function, or `{2-arity function, state}`. A strategy *module* is checked to
+  export `select/2` here rather than failing at request time inside Finch.
 
   `timeout` is per chunk, not per call: it becomes Finch's `:receive_timeout`, so
   a slow trickle can outlast it. Pair it with `http_opts: [request_timeout: ...]`
@@ -196,17 +199,41 @@ defmodule LlmCall.Provider do
     end
   end
 
-  defp validate_http_opt!({:pool_strategy, value})
-       when value in [:random, :ordered] or is_integer(value) or is_function(value, 2),
-       do: :ok
+  defp validate_http_opt!({:pool_strategy, nil}), do: :ok
+
+  defp validate_http_opt!({:pool_strategy, fun}) when is_function(fun, 1), do: :ok
+
+  defp validate_http_opt!({:pool_strategy, {fun, _state}}) when is_function(fun, 2), do: :ok
+
+  defp validate_http_opt!({:pool_strategy, {module, _state}}) when is_atom(module) do
+    require_strategy!(module, {module, nil})
+  end
+
+  defp validate_http_opt!({:pool_strategy, module}) when is_atom(module) do
+    require_strategy!(module, module)
+  end
 
   defp validate_http_opt!({:pool_strategy, value}) do
     raise ArgumentError,
-          "client option :http_opts :pool_strategy must be :random, :ordered, an integer, " <>
-            "or a 2-arity function, got: #{inspect(value)}"
+          "client option :http_opts :pool_strategy must be a Finch pool strategy — nil, " <>
+            "a module exporting select/2, {module, state}, a 1-arity function, or " <>
+            "{2-arity function, state} — got: #{inspect(value)}"
   end
 
   defp validate_http_opt!(_entry), do: :ok
+
+  # Finch calls `module.select(entries, state)`, so a strategy atom that is not
+  # such a module fails at request time with UndefinedFunctionError. Catching it
+  # while the client is built keeps the failure inside the ArgumentError contract.
+  defp require_strategy!(module, reportable) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :select, 2) do
+      :ok
+    else
+      raise ArgumentError,
+            "client option :http_opts :pool_strategy module must export select/2, " <>
+              "got: #{inspect(reportable)}"
+    end
+  end
 
   defp validate_timeout!(:infinity), do: :infinity
 
