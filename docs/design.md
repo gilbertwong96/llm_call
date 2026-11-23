@@ -135,7 +135,7 @@ needs. Running it is the caller's loop, not the library's.
 |------------------|---------------------------------------------------------------------------|
 | LangChain Elixir | Chains, conversation flow, tool execution, callbacks                      |
 | ReqLLM           | Complete LLM client with provider transports, registry, streaming, tools  |
-| `LlmCall`        | Dialect codecs, canonical wire IR, one-call client, tool schema derivation |
+| `LlmCall`        | Dialect codecs, canonical wire IR, one-call client, tool schema projection |
 
 `LlmCall` can be used underneath those systems. Its client is deliberately narrow
 — one call, no model metadata, no tool execution, no retry policy.
@@ -1355,7 +1355,8 @@ client, the Finch transport, the SSE parser and the pure stream assembler.
 written against — and `media/dialect/*` the **vendored** media adapters, which ship
 with the library but are not part of the stable surface. `mix docs` lists every
 module; the file tree is not repeated here, and nothing in the core depends on a
-dialect module: an adapter is selected by name at call time.
+reference adapter — an adapter is selected by name at call time — though
+`LlmCall.Tools` shares `Dialect.Helpers`' error constructor.
 
 Optional packages live outside this repository: `llm_call_cost` for pricing and
 `llm_call_langchain` for a LangChain adapter. `LlmCall.HTTP` is Finch and

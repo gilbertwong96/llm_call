@@ -18,14 +18,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `strict: false` is treated as absent rather than sent as a flag; a codec with
   no per-tool flag rejects `true`.
 - `LlmCall.Tools.expand/2` turns tool entries into specs for a codec, and
-  `LlmCall.Tools.normalize_request/2` applies it to a whole request. Every public
-  entry point that takes a `%LlmCall.Request{}` and forwards it to a codec
-  normalizes first: `complete/3`, `stream/3`, `encode/3`, `validate_request/3`,
-  `init_stream/3`, and `Responses.Connection.create/3`. `capabilities/3` reads no
-  tools and is the one exemption. `expand/2` is public, so a caller that wants to
-  hold the expanded specs calls `Tools.expand([module], codec)` themselves.
-- New hard dependency `tool_call ~> 0.4`, which has no runtime dependencies of
-  its own.
+  `LlmCall.Tools.normalize_request/2` applies it to a whole request. Every entry
+  point that forwards a request to a codec normalizes first: `complete/3`,
+  `stream/3`, `encode/3`, `validate_request/3`, `init_stream/3`, and
+  `Responses.Connection.create/3`. `capabilities/3` reads no tools.
+  `LlmCall.Codec.Conformance` calls the codec callbacks directly, so a request
+  handed to one of its assertions must already carry `%LlmCall.ToolSpec{}`
+  entries. `expand/2` is public, so a caller that wants to hold the expanded
+  specs calls `Tools.expand([module], codec)` themselves.
+- New hard dependency `tool_call ~> 0.4`, which requires Erlang/OTP 27.1+ and
+  has no runtime dependencies of its own. The supported floor moves from OTP 27
+  to 27.1.
 
 ### Changed
 
