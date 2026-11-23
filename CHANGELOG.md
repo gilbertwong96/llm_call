@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A tool call the decoder could not parse could not be replayed. The decoder keeps
+  the malformed `raw_arguments` and sets `arguments_error`, but every codec's
+  validator demanded a decodable object, so an assistant turn carrying that call
+  was rejected. A model does not always generate valid JSON, and the repair is to
+  send that turn back with a tool result saying so — the round trip is now open,
+  while a hand-written fragment with no `arguments_error` is still rejected.
 - The Anthropic codec accepted an empty or whitespace-only text block, and a
   whitespace-only `system` prompt, all of which the Messages API rejects
   (`messages: text content blocks must be non-empty`, `... must contain
