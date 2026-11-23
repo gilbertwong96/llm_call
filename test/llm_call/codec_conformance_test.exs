@@ -328,6 +328,22 @@ defmodule LlmCall.CodecConformanceTest do
     }
   end
 
+  # The harness has to accept {:too_large, bytes}: it is a documented variant of the
+  # public ToolCall.arguments_error type, so an adapter pinning the assembler cap
+  # must not flunk on it.
+  test "a codec whose fragment exceeds the assembler cap reports too_large" do
+    {codec, model, _response, _path, _error_payload, _chunks, tool_chunks} = hd(codecs())
+
+    assert :ok =
+             Conformance.assert_tool_call_assembly(
+               codec,
+               request(model, true),
+               tool_chunks,
+               1,
+               max_argument_bytes: 1
+             )
+  end
+
   test "every codec satisfies the conformance contract" do
     for {codec, model, response, path, error_payload, chunks, tool_chunks} <- codecs() do
       assert :ok = Conformance.assert_info(codec)
