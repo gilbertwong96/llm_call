@@ -107,6 +107,34 @@ defmodule LlmCall.Dialect.HelpersTest do
     assert String.length(error.message) < 300
   end
 
+  test "param validation has one entry point that checks values" do
+    # A key-only validator used to exist next to the spec-driven one, under a
+    # shorter name that made it the obvious choice for an out-of-tree adapter —
+    # while it accepted `temperature: "hot"`. Only the spec-driven form remains.
+    functions =
+      LlmCall.Dialect.Helpers.__info__(:functions)
+      |> Enum.filter(fn {name, _arity} ->
+        String.starts_with?(Atom.to_string(name), "validate_param")
+      end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    assert functions ==
+             [:validate_param_keys, :validate_param_values, :validate_params_with_spec]
+
+    # The remaining key-only primitive still exists for a codec that validates its
+    # values itself, but it is not presented as the params entry point.
+    assert {:error, %{kind: :validation}} =
+             Helpers.validate_params_with_spec(
+               %{temperature: "hot"},
+               [:temperature],
+               %{
+                 temperature: {:number, 0, 2}
+               },
+               :codec
+             )
+  end
+
   describe "validate_param_values/4" do
     @spec_map %{
       temperature: {:number, 0, 2},

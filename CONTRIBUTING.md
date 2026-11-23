@@ -70,6 +70,13 @@ Every adapter must:
    `namespaces:` on `use LlmCall.Media.Dialect.Adapter`) and validate them with
    `Helpers.validate_option_map/4`: an unknown namespace is a validation error,
    because a silently ignored `provider_options` key is a silent drop.
+
+   Validate `params` with `Helpers.validate_params_with_spec/4` and a
+   `@param_spec` map. It checks each key's value against the shape your protocol
+   accepts, so `temperature: "hot"` is a `:validation` error rather than a request
+   the provider refuses. `validate_param_keys/3` and `validate_param_values/4`
+   are the two halves it composes; call either directly only when your pipeline
+   validates the other half itself.
 6. **Keep fixtures honest.** Elixir maps, no JSON strings, no network. Copy the
    provider's documented response shape; do not invent one.
 7. **Run the conformance suite** in your own tests:

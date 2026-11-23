@@ -1020,15 +1020,6 @@ defmodule LlmCall.Dialect.Helpers do
     do: error(codec, "modalities must be a non-empty list")
 
   @doc """
-  Validates that `params` is a map and only contains supported keys.
-  """
-  @spec validate_params(term(), [atom()], codec()) :: :ok | {:error, Error.t()}
-  def validate_params(params, keys, codec) when is_map(params),
-    do: validate_param_keys(params, keys, codec)
-
-  def validate_params(_params, _keys, codec), do: error(codec, "params must be a map")
-
-  @doc """
   Validates a tool spec.
 
   `strict: true` lets the protocol forward `strict`; otherwise a non-nil value is
