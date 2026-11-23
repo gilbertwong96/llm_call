@@ -102,6 +102,8 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
   def decode_operation(%{"status" => "Fail"} = payload, %Config{} = config) do
     base_resp = if is_map(payload["base_resp"]), do: payload["base_resp"], else: %{}
 
+    code = Helpers.code(base_resp["status_code"] || "Fail")
+
     {:ok,
      %Operation{
        id: Helpers.id(payload["task_id"]),
@@ -109,7 +111,8 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
        error: %Error{
          kind: :provider,
          message: base_resp["status_msg"] || "task failed",
-         code: Helpers.code(base_resp["status_code"] || "Fail"),
+         code: code,
+         retryable?: Helpers.retryable?(code, @retryable_codes),
          raw: Helpers.capture_response(config, payload)
        },
        raw: Helpers.capture_response(config, payload)
