@@ -32,6 +32,30 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
     )
   end
 
+  # §8.2: Gemini's `args` is an object, so a fragment that did not decode cannot be
+  # written. The documented behaviour is `%{}`, not a rejected replay.
+  test "a replay whose arguments did not decode renders as empty args" do
+    call = %LlmCall.ToolCall{
+      id: "call_1",
+      name: "get_weather",
+      raw_arguments: ~s({"city":),
+      arguments_error: {:invalid_json, "tool arguments are not valid JSON"}
+    }
+
+    body =
+      text_request(
+        messages: [
+          %LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]},
+          %LlmCall.Message{role: :assistant, content: [call]}
+        ]
+      )
+      |> encode()
+      |> Map.fetch!(:body)
+
+    assert %{"parts" => [%{"functionCall" => %{"args" => %{}, "name" => "get_weather"}}]} =
+             body["contents"] |> Enum.at(1)
+  end
+
   test "info/0 declares the Gemini API version" do
     assert %LlmCall.Codec.Info{
              name: :gemini_generate_content,

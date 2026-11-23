@@ -74,8 +74,11 @@ defmodule LlmCall.ContentValidationTest do
 
   test "a tool call the decoder could not parse is still replayable" do
     # §8.2 pins ToolCall as replayable in every codec. A model does not always
-    # generate valid JSON, and the repair is to send the assistant turn back with
-    # a tool result saying so — so the fragment must survive the encoder.
+    # generate valid JSON, and the repair is to send the assistant turn back with a
+    # tool result saying so — so the *replay* must survive validation here. How the
+    # fragment renders is the codec's business: the OpenAI families send it verbatim
+    # as a string, while Anthropic and Gemini have object-valued argument fields and
+    # send %{}. Both shapes are pinned in the dialect suites.
     malformed = %LlmCall.ToolCall{
       id: "call_1",
       name: "get_weather",
