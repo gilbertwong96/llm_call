@@ -28,12 +28,18 @@ defmodule LlmCall.StreamAssembler do
   @opaque t :: %__MODULE__{
             json_decoder: decoder(),
             max_argument_bytes: pos_integer(),
-            calls: map()
+            calls: map(),
+            unindexed: integer() | nil,
+            next_key: integer()
           }
 
   @default_max_argument_bytes 8 * 1024 * 1024
 
-  defstruct json_decoder: nil, max_argument_bytes: @default_max_argument_bytes, calls: %{}
+  defstruct json_decoder: nil,
+            max_argument_bytes: @default_max_argument_bytes,
+            calls: %{},
+            unindexed: nil,
+            next_key: -1
 
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -58,7 +64,8 @@ defmodule LlmCall.StreamAssembler do
         index: index,
         delta: %StreamDelta.ToolCall{} = delta
       }) do
-    {:ok, put_pending(assembler, index, delta), []}
+    {key, assembler} = start_key(assembler, index)
+    {:ok, put_pending(assembler, key, delta), []}
   end
 
   def feed(%__MODULE__{} = assembler, %StreamEvent{
@@ -67,11 +74,13 @@ defmodule LlmCall.StreamAssembler do
         delta: %StreamDelta.ToolCall{arguments: fragment}
       })
       when is_binary(fragment) do
-    {:ok, append_arguments(assembler, index, fragment), []}
+    {key, assembler} = continuation_key(assembler, index)
+    {:ok, append_arguments(assembler, key, fragment), []}
   end
 
-  def feed(%__MODULE__{} = assembler, %StreamEvent{type: :tool_call_stop, index: index}) do
-    finalize(assembler, [normalize_index(index)])
+  def feed(%__MODULE__{} = assembler, %StreamEvent{type: :tool_call_stop, index: index} = event) do
+    {key, assembler} = continuation_key(assembler, index)
+    finalize(assembler, [key], stop_arguments(event))
   end
 
   def feed(%__MODULE__{} = assembler, %StreamEvent{type: type})
@@ -85,12 +94,13 @@ defmodule LlmCall.StreamAssembler do
   def finish(%__MODULE__{} = assembler), do: finalize(assembler, pending_indexes(assembler))
 
   defp put_pending(assembler, index, %StreamDelta.ToolCall{} = delta) do
-    index = normalize_index(index)
-
     update_in(assembler.calls, fn calls ->
       entry = Map.get(calls, index, new_entry())
 
-      Map.put(calls, index, %{entry | id: delta.id, name: delta.name})
+      # A provider may repeat a start for an index it already announced, carrying
+      # only the field it repeats. Replacing both unconditionally would erase an id
+      # this codec already has, and a tool result without one cannot be sent back.
+      Map.put(calls, index, %{entry | id: delta.id || entry.id, name: delta.name || entry.name})
     end)
   end
 
@@ -98,7 +108,6 @@ defmodule LlmCall.StreamAssembler do
   # costs one pass rather than a quadratic append. `max_argument_bytes` bounds the
   # one accumulation path in the streaming stack that the SSE frame cap cannot see.
   defp append_arguments(assembler, index, fragment) do
-    index = normalize_index(index)
     max = assembler.max_argument_bytes
 
     update_in(assembler.calls, fn calls ->
@@ -125,11 +134,33 @@ defmodule LlmCall.StreamAssembler do
 
   defp pending_indexes(%__MODULE__{calls: calls}), do: calls |> Map.keys() |> Enum.sort()
 
-  defp finalize(%__MODULE__{} = assembler, indexes) do
+  defp finalize(%__MODULE__{} = assembler, indexes, stop_arguments \\ nil) do
+    assembler = seed_from_stop(assembler, indexes, stop_arguments)
     {completed, remaining} = pop_calls(assembler, indexes)
 
-    {:ok, %__MODULE__{assembler | calls: remaining}, completed}
+    # A synthetic key dies with its call, so a later index-less event starts a new one
+    # instead of resurrecting the finished key.
+    unindexed = if assembler.unindexed in indexes, do: nil, else: assembler.unindexed
+
+    {:ok, %__MODULE__{assembler | calls: remaining, unindexed: unindexed}, completed}
   end
+
+  defp seed_from_stop(%__MODULE__{} = assembler, indexes, arguments) when is_binary(arguments) do
+    calls =
+      Enum.reduce(indexes, assembler.calls, fn index, calls ->
+        case Map.fetch(calls, index) do
+          {:ok, %{fragments: []} = entry} ->
+            Map.put(calls, index, %{entry | fragments: [arguments], size: byte_size(arguments)})
+
+          _absent_or_started ->
+            calls
+        end
+      end)
+
+    %__MODULE__{assembler | calls: calls}
+  end
+
+  defp seed_from_stop(%__MODULE__{} = assembler, _indexes, _arguments), do: assembler
 
   defp pop_calls(assembler, indexes) do
     {entries, remaining} = Map.split(assembler.calls, indexes)
@@ -144,6 +175,7 @@ defmodule LlmCall.StreamAssembler do
 
   defp build_call(%__MODULE__{} = assembler, index, entry) do
     raw = entry.fragments |> Enum.reverse() |> IO.iodata_to_binary()
+    index = if index < 0, do: nil, else: index
 
     cond do
       entry.overflow ->
@@ -198,7 +230,30 @@ defmodule LlmCall.StreamAssembler do
     end
   end
 
-  defp normalize_index(nil), do: 0
-  defp normalize_index(index) when is_integer(index) and index >= 0, do: index
-  defp normalize_index(_index), do: 0
+  # A stream that omits indexes must not collapse into index 0: 0 is a real index,
+  # so two index-less calls would merge and lose one. An index-less call gets a
+  # synthetic key, reported as `index: nil` on the assembled call.
+  defp start_key(assembler, index) when is_integer(index) and index >= 0, do: {index, assembler}
+
+  defp start_key(assembler, _missing) do
+    key = assembler.next_key
+    {key, %{assembler | unindexed: key, next_key: key - 1}}
+  end
+
+  defp continuation_key(assembler, index) when is_integer(index) and index >= 0,
+    do: {index, assembler}
+
+  # A delta with no start of its own is still its own call, so it gets a key too.
+  defp continuation_key(%__MODULE__{unindexed: nil} = assembler, missing),
+    do: start_key(assembler, missing)
+
+  defp continuation_key(assembler, _missing), do: {assembler.unindexed, assembler}
+
+  # The Responses protocol can deliver a call whole on its stop event, so a call with
+  # no fragments takes them from there rather than finalising as `%{}`.
+  defp stop_arguments(%StreamEvent{delta: %StreamDelta.ToolCall{arguments: arguments}})
+       when is_binary(arguments) and arguments != "",
+       do: arguments
+
+  defp stop_arguments(_event), do: nil
 end
