@@ -100,7 +100,7 @@ defmodule MyApp.MiniMax do
     codecs: [video: LlmCall.Media.Dialect.MiniMax.Video]
 end
 
-client =
+minimax =
   MyApp.MiniMax.client(
     api_key: System.fetch_env!("MINIMAX_API_KEY"),
     query: %{"GroupId" => System.fetch_env!("MINIMAX_GROUP_ID")}
@@ -113,7 +113,14 @@ The declaration only takes literals, so a value read at runtime belongs on
 ## Streaming
 
 ```elixir
-{:ok, stream} = LlmCall.stream(client, %{request | stream: true})
+openai = MyApp.OpenAI.client(api_key: System.fetch_env!("OPENAI_API_KEY"))
+
+request = %LlmCall.Request{
+  model: "gpt-4o",
+  messages: [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "hi"}]}]
+}
+
+{:ok, stream} = LlmCall.stream(openai, %{request | stream: true})
 
 stream
 |> Stream.each(&IO.inspect({&1.type, &1.delta}))
@@ -129,7 +136,7 @@ To observe events without owning the reduce, pass `on_event:`:
 
 ```elixir
 {:ok, _stream} =
-  LlmCall.stream(client, request, on_event: &MyApp.Audit.stream_event/1)
+  LlmCall.stream(openai, request, on_event: &MyApp.Audit.stream_event/1)
 ```
 
 It runs before the reducer, including for `finish_stream/2` output; the return
@@ -248,8 +255,8 @@ video = %LlmCall.Media.Request{
   prompt: "a cat walking on a beach"
 }
 
-{:ok, %LlmCall.Media.Response{operation: op}} = LlmCall.generate(client, video, codec: :video)
-{:ok, %LlmCall.Operation{status: :completed} = _done} = LlmCall.poll(client, op, codec: :video)
+{:ok, %LlmCall.Media.Response{operation: op}} = LlmCall.generate(minimax, video, codec: :video)
+{:ok, %LlmCall.Operation{status: :completed} = _done} = LlmCall.poll(minimax, op, codec: :video)
 ```
 
 `next_kind: :poll` means "execute `next` and poll"; `next_kind: :asset` means the
@@ -322,8 +329,10 @@ defmodule MyApp.Tools.Weather do
   def get_weather(city), do: {:ok, %{temp: 21.5}}
 end
 
+messages = [%LlmCall.Message{role: :user, content: [%LlmCall.Content.Text{text: "weather in Oslo?"}]}]
+
 {:ok, response} =
-  LlmCall.complete(client, %LlmCall.Request{
+  LlmCall.complete(openai, %LlmCall.Request{
     model: "gpt-4o",
     messages: messages,
     tools: [MyApp.Tools.Weather]
