@@ -422,11 +422,15 @@ defmodule LlmCall do
             {:error, with_status(error, status, retry_after)}
 
           other ->
+            # The codec broke its contract, but the response did arrive with a status:
+            # keep both signals the caller would otherwise have got, exactly as the
+            # streaming path does for the same condition.
             {:error,
-             invalid(
+             transport_error(
                "#{inspect(codec)}.decode_error/2 must return a %LlmCall.Error{}, " <>
                  "got: #{inspect(other)}",
-               :invalid_response
+               status,
+               retry_after
              )}
         end
 

@@ -4,7 +4,12 @@ defmodule LlmCall.Error do
 
   `retryable?` is a hint, not a retry policy. It comes from two signals: the
   codec's verdict on the provider's own code or status field, and the HTTP status
-  (`retryable_status?/1`). The client takes the union, because a provider that
+  (`retryable_status?/1`). A failure that never produced a response has no codec
+  verdict and no status, so it is classified by its `reason` instead: the
+  connection-level failures a new attempt can fix (`:timeout`, `:closed`,
+  `:econnrefused`, `:econnreset`, `:etimedout`, `:epipe`, `:ehostunreach`,
+  `:enetunreach`, `:nxdomain`, a `{:tls_alert, _}`, and a re-established WebSocket
+  lane) are retryable; everything else is not. The client takes the union, because a provider that
   introduces a new code — or a proxy that answers with its own body — must not
   turn a `429` into "do not retry". `kind` says where the error came from. A codec
   produces `:validation`, `:invalid_response` or `:provider`, and the client
@@ -88,15 +93,41 @@ defmodule LlmCall.Error do
   @spec retryable_status?(non_neg_integer() | nil) :: boolean()
   def retryable_status?(status), do: status in @retryable_statuses
 
+  # Reasons a new attempt can plausibly fix. A false negative is the costlier direction
+  # here: a caller that retries on the hint would otherwise give up on a read timeout
+  # while retrying a `503`, which is the reverse of what the hint is for.
+  @transient_reasons [
+    :timeout,
+    :closed,
+    :econnrefused,
+    :econnreset,
+    :etimedout,
+    :epipe,
+    :ehostunreach,
+    :enetunreach,
+    :nxdomain
+  ]
+
   @doc false
   @spec from_transport(term()) :: t()
   def from_transport(reason) do
+    normalized = transport_reason(reason)
+
     %__MODULE__{
       kind: :transport,
       message: transport_message(reason),
-      reason: transport_reason(reason)
+      reason: normalized,
+      retryable?: transient?(normalized)
     }
   end
+
+  defp transient?(reason) when reason in @transient_reasons, do: true
+  defp transient?({:tls_alert, _alert}), do: true
+  # A dropped lane is re-established by a new request; a lane that could not be routed
+  # is a caller error.
+  defp transient?({:interrupted, :reconnected}), do: true
+  defp transient?({:interrupted, :max_age}), do: true
+  defp transient?(_reason), do: false
 
   # Finch only returns `Finch.error/0` values or the tagged values this module
   # produces, but a transport that grows a new error shape must not crash a call.

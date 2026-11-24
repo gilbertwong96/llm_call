@@ -2,10 +2,12 @@ defmodule LlmCall.ModuledocTest do
   use ExUnit.Case, async: true
 
   test "no module opts out of documentation" do
-    offenders =
-      ["lib/**/*.ex", "test/support/**/*.ex"]
-      |> Enum.flat_map(&Path.wildcard/1)
-      |> Enum.filter(&(File.read!(&1) =~ "@moduledoc false"))
+    files = ["lib/**/*.ex", "test/support/**/*.ex"] |> Enum.flat_map(&Path.wildcard/1)
+
+    # A glob that finds nothing would make this pass without checking anything.
+    assert files != [], "the moduledoc glob found no source files"
+
+    offenders = Enum.filter(files, &(File.read!(&1) =~ "@moduledoc false"))
 
     assert offenders == [], "modules without a moduledoc: #{inspect(offenders)}"
   end

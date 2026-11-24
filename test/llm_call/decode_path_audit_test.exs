@@ -166,6 +166,19 @@ defmodule LlmCall.DecodePathAuditTest do
         ignored: []
       },
       %{
+        name: :minimax_submit,
+        codec: LlmCall.Media.Dialect.MiniMax.Video,
+        kind: :submit,
+        payload: LlmCall.Media.Fixtures.MiniMaxVideo.submit_response(),
+        ignored: [
+          # an ok base_resp is the provider's success envelope; task_id becomes the
+          # operation id
+          ["base_resp"],
+          ["base_resp", "status_code"],
+          ["base_resp", "status_msg"]
+        ]
+      },
+      %{
         name: :minimax_operation,
         codec: LlmCall.Media.Dialect.MiniMax.Video,
         kind: :operation,

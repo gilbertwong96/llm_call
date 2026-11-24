@@ -88,7 +88,10 @@ defmodule LlmCall.Dialect.AdapterTest do
       ]
     }
 
-    assert {:ok, %LlmCall.EncodedRequest{path: "/late"}} =
-             module.encode_request(request, %LlmCall.Config{})
+    assert {:ok,
+            %LlmCall.EncodedRequest{
+              path: "/late",
+              headers: [{"content-type", "application/json"}]
+            }} = module.encode_request(request, %LlmCall.Config{})
   end
 end

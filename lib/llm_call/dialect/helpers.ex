@@ -144,13 +144,17 @@ defmodule LlmCall.Dialect.Helpers do
   """
   @spec decode_provider_error(term(), Config.t(), codec(), [String.t()], [String.t()]) ::
           Error.t()
+  # `message` has to be a string: a gateway that answers `{"error": {"message": {…}}}`
+  # would otherwise put a map in `%Error.message`, breaking the field's type and the
+  # `Exception.message/1` path that renders it. A non-string falls to the clause below.
   def decode_provider_error(
         %{"error" => %{"message" => message} = error} = payload,
         %Config{} = config,
         _codec,
         code_keys,
         retryable_codes
-      ) do
+      )
+      when is_binary(message) do
     code = code_keys |> Enum.map(&error[&1]) |> Enum.find(&(not is_nil(&1))) |> code()
 
     %Error{

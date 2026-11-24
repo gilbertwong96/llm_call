@@ -15,13 +15,10 @@ defmodule LlmCall.ApplicationTest do
   end
 
   test "a claimed name is left alone" do
-    pid = self()
-
     {:ok, server} =
       Agent.start_link(fn -> :ok end, name: LlmCall.ClaimedTestPool)
 
     assert Application.default_children(LlmCall.ClaimedTestPool) == []
-    assert is_pid(pid)
     Agent.stop(server)
   end
 

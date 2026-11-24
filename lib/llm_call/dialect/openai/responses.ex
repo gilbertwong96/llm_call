@@ -986,22 +986,24 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   defp stream_error(%{"error" => %{} = error} = event, %Config{} = config),
     do: error_from(error, event, config)
 
-  defp stream_error(event, %Config{} = config) do
-    %Error{
-      kind: :provider,
-      message: event["message"] || "stream error",
-      code: Helpers.code(event["code"]) || event["type"],
-      retryable?: Helpers.retryable?(event["code"], @retryable_codes),
-      raw: Helpers.capture_response(config, event)
-    }
-  end
+  defp stream_error(event, %Config{} = config),
+    do: provider_error(event, event, "stream error", config)
 
-  defp error_from(%{} = error, %{} = raw, %Config{} = config) do
+  defp error_from(%{} = error, %{} = raw, %Config{} = config),
+    do: provider_error(error, raw, "response failed", config)
+
+  # The reported `code` and the verdict read the same normalized value: the provider's
+  # own code when it sent one, its type otherwise. Deriving the verdict from the raw
+  # field would report `code: "server_error"` with `retryable?: false` for a provider
+  # that omits the code.
+  defp provider_error(error, raw, default_message, config) do
+    code = Helpers.code(error["code"]) || Helpers.code(error["type"])
+
     %Error{
       kind: :provider,
-      message: error["message"] || "response failed",
-      code: Helpers.code(error["code"]) || error["type"],
-      retryable?: Helpers.retryable?(error["code"], @retryable_codes),
+      message: error["message"] || default_message,
+      code: code,
+      retryable?: Helpers.retryable?(code, @retryable_codes),
       raw: Helpers.capture_response(config, raw)
     }
   end
