@@ -205,6 +205,5 @@ defmodule LlmCall.HTTPTest do
     assert Code.ensure_loaded?(HTTP)
     assert function_exported?(HTTP, :request, 2)
     assert function_exported?(HTTP, :stream, 4)
-    assert %Request{}.__struct__ == HTTP.Request
   end
 end

@@ -104,7 +104,8 @@ defmodule LlmCall.Media.Dialect.Gemini.Predict do
 
   @impl true
   @spec decode_error(LlmCall.wire_value(), Config.t()) :: Error.t()
-  def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{} = config) do
+  def decode_error(%{"error" => %{"message" => message} = error} = payload, %Config{} = config)
+      when is_binary(message) do
     status = Helpers.code(error["status"])
 
     %Error{

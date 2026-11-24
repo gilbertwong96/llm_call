@@ -47,7 +47,9 @@ defmodule LlmCall.StructsTest do
     assert %EncodedRequest{method: :post, query: %{}, headers: [], body: %{}} = %EncodedRequest{}
   end
 
-  test "content parts are distinguishable structs" do
+  # The distinguishers a caller matches on: a turn that carries several kinds of part
+  # has to be separable, which the struct comparison this replaced could not show.
+  test "content parts are distinguishable by struct and by their own fields" do
     parts = [
       %Content.Text{text: "hi"},
       %Content.Image{source: {:base64, "AAA"}, media_type: "image/png"},
@@ -58,15 +60,11 @@ defmodule LlmCall.StructsTest do
       %ToolResult{call_id: "call_1", content: "ok"}
     ]
 
-    assert Enum.map(parts, & &1.__struct__) == [
-             Content.Text,
-             Content.Image,
-             Content.File,
-             Content.Thinking,
-             Content.Raw,
-             ToolCall,
-             ToolResult
-           ]
+    assert length(Enum.uniq_by(parts, & &1.__struct__)) == length(parts)
+
+    response = %LlmCall.Response{content: parts}
+    assert LlmCall.Response.text(response) == "hi"
+    assert [%ToolCall{id: "call_1"}] = LlmCall.Response.tool_calls(response)
   end
 
   test "Response.text/1 joins text parts and ignores everything else" do
@@ -111,7 +109,6 @@ defmodule LlmCall.StructsTest do
     assert %Request{modalities: [:text]} = %Request{}
     assert %Capabilities{modalities: [:text]} = %Capabilities{}
     assert %LlmCall.Media.Capabilities{modalities: []} = %LlmCall.Media.Capabilities{}
-    assert %EncodedRequest{method: :get} = %EncodedRequest{method: :get}
 
     video = %Content.Video{source: {:url, "https://example.com/a.mp4"}, media_type: "video/mp4"}
     assert video.media_type == "video/mp4"

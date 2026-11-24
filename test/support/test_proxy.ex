@@ -10,7 +10,11 @@ defmodule LlmCall.TestProxy do
   @key :llm_call_test_proxy
 
   def start(target_url) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    # Loopback only: while the suite runs, another host must not be able to use this
+    # as a forward proxy to the fixed target.
+    {:ok, listen} =
+      :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
     {:ok, port} = :inet.port(listen)
     target = URI.parse(target_url)
     pid = spawn_link(fn -> accept_loop(listen, target) end)
