@@ -269,6 +269,19 @@ defmodule LlmCall.ClientTest do
     end
   end
 
+  # Mint rejects these too, but its message embeds the value: a non-ASCII api_key would
+  # reach a log through the transport error. Rejecting it here keeps the value out.
+  test "a header value that is not printable ASCII is rejected without echoing it" do
+    for value <- ["Bearer sk-é", "Bearer sk-中", " padded ", "line\nfeed"] do
+      error =
+        assert_raise ArgumentError, fn ->
+          LlmCall.TestProvider.client(api_key: value)
+        end
+
+      refute Exception.message(error) =~ "sk-"
+    end
+  end
+
   test "http_opts rejects keys the client would drop" do
     assert_raise ArgumentError, ~r/:http_opts does not accept :receive_timeout/, fn ->
       client(http_opts: [receive_timeout: 5_000])

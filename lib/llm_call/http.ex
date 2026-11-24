@@ -89,7 +89,6 @@ defmodule LlmCall.HTTP do
           | {:data, binary()}
 
   @header_name_pattern ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/
-  @invalid_header_value_pattern ~r/[\x00-\x08\x0A-\x1F\x7F]/
 
   @doc """
   Merges header lists, keeping one value per name (case-insensitive).
@@ -200,8 +199,7 @@ defmodule LlmCall.HTTP do
   def valid_headers?(headers) when is_list(headers) do
     Enum.all?(headers, fn
       {name, value} when is_binary(name) and is_binary(value) ->
-        Regex.match?(@header_name_pattern, name) and
-          not Regex.match?(@invalid_header_value_pattern, value)
+        Regex.match?(@header_name_pattern, name) and valid_header_value?(value)
 
       _other ->
         false
@@ -209,6 +207,21 @@ defmodule LlmCall.HTTP do
   end
 
   def valid_headers?(_headers), do: false
+
+  # A header value must be printable ASCII with no leading or trailing whitespace.
+  # Mint rejects anything else too, but its message embeds the value with `inspect/1`,
+  # so a non-ASCII byte in an api_key would reach a log through the transport error.
+  # Catching it while the client is built keeps the value out of the message.
+  defp valid_header_value?(value) do
+    value == String.trim(value) and printable_ascii?(value)
+  end
+
+  defp printable_ascii?(<<>>), do: true
+
+  defp printable_ascii?(<<byte, rest::binary>>) when byte in 0x20..0x7E or byte == 0x09,
+    do: printable_ascii?(rest)
+
+  defp printable_ascii?(_value), do: false
 
   @doc """
   Joins a base URL, a request path, and an already-encoded query.
@@ -282,7 +295,7 @@ defmodule LlmCall.HTTP do
           acc,
           (event(), acc -> {:cont, acc} | {:halt, acc}),
           keyword()
-        ) :: {:ok, acc} | {:error, term()}
+        ) :: {:ok, acc} | {:error, term(), acc} | {:error, term()}
         when acc: term()
   def stream(%Request{} = request, acc, fun, opts) when is_function(fun, 2) do
     pool = Keyword.get(opts, :name, @default_pool)
@@ -299,10 +312,10 @@ defmodule LlmCall.HTTP do
       finch_opts = forward(opts, request)
 
       try do
-        case Finch.stream_while(finch_request, pool, acc, reducer, finch_opts) do
-          {:ok, acc} -> {:ok, acc}
-          {:error, reason, _acc} -> {:error, reason}
-        end
+        # Finch's own shapes are this function's: on a failure the accumulator it returns
+        # holds whatever the reducer had already seen — the status and headers of an error
+        # response, for instance — so `LlmCall.Stream` can still report them.
+        Finch.stream_while(finch_request, pool, acc, reducer, finch_opts)
       rescue
         error in [ArgumentError, RuntimeError] ->
           {:error, {:exception, Exception.message(error)}}
