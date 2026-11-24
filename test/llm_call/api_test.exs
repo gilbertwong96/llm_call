@@ -63,6 +63,22 @@ defmodule LlmCall.ApiTest do
     }
   end
 
+  # The key reaches a `%Client{}` as a resolved header, and `%Error{}` is the library's
+  # normal failure return, routinely logged. Swapping the arguments must not print it.
+  test "a client in a request slot does not put the key into an error message" do
+    client = LlmCall.TestProvider.client(api_key: "sk-must-not-appear")
+
+    assert {:error, %LlmCall.Error{message: message}} = LlmCall.complete(request(), client)
+
+    refute message =~ "sk-must-not-appear"
+    refute inspect(client) =~ "sk-must-not-appear"
+
+    refute inspect(%LlmCall.HTTP.Request{
+             headers: [{"authorization", "Bearer sk-must-not-appear"}]
+           }) =~
+             "sk-must-not-appear"
+  end
+
   test "poll/3 returns a typed error when next is not an encoded request" do
     operation = %LlmCall.Operation{status: :in_progress, next: %{method: :get, path: "/jobs/1"}}
 

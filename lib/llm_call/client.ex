@@ -38,6 +38,12 @@ defmodule LlmCall.Client do
           config: Config.t()
         }
 
+  # `headers` holds the resolved credential: `provider.ex` turns `api_key:` into
+  # `{"authorization", "Bearer …"}` before the struct is built. `query` can hold one
+  # too, because a base_url query is folded into it. `inspect` is how a value reaches a
+  # log or a bug report, so both are left out of it.
+  @derive {Inspect, except: [:headers, :query]}
+
   defstruct [
     :provider,
     :codecs,

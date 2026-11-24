@@ -42,6 +42,9 @@ defmodule LlmCall.Stream do
 
   alias LlmCall.{Error, HTTP, SSE}
 
+  # The client and its resolved request both carry the credential, so `inspect` shows
+  # neither: a stream in a log line or a crash report must not print the key.
+  @derive {Inspect, except: [:client, :http_request]}
   defstruct [:client, :codec, :http_request, :state, :on_event]
 
   @type on_event :: (LlmCall.StreamEvent.t() -> any()) | nil
