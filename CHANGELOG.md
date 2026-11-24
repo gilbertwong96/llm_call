@@ -6,56 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-24
+
 ### Breaking changes
 
-- `:pool_strategy` now validates against Finch's own contract — `nil`, a module
+- A stream that ends without its protocol terminator is now an error. OpenAI Chat
+  and OpenAI Responses used to synthesize a `:message_stop`, and Anthropic ended
+  silently, so a body cut short by a proxy limit or a provider bug looked like a
+  completed stream. `finish_stream/2` on those three codecs returns
+  `{:error, %LlmCall.Error{kind: :invalid_response}}`, which `LlmCall.Stream`
+  raises as `LlmCall.HTTP.Error`. Gemini keeps flushing, because its protocol has
+  no terminator.
+- Header values must be printable ASCII with no leading or trailing whitespace.
+  Values outside that used to reach Mint, which rejects them with a message that
+  embedded the value — including an `api_key`.
+- `:pool_strategy` validates against Finch's own contract: `nil`, a module
   exporting `select/2`, `{module, state}`, a 1-arity function, or
   `{2-arity function, state}`. It previously accepted `:random`, `:ordered` and
   integers, none of which Finch dispatches on, so every accepted value raised
-  inside Finch; those are now rejected while the client is built.
-
-### Added
-
-- `LlmCall.StreamAssembler.new/1` takes `max_argument_bytes` (8 MiB by default).
-  Fragments accumulate across events, which the SSE frame cap cannot bound; past
-  the cap a call finalises with `{:too_large, bytes}`, a new variant of the public
-  `LlmCall.ToolCall.arguments_error` type, and `raw_arguments` keeps the prefix
-  that fit.
-
-### Fixed
-
-- Gemini streaming no longer reports `stop_reason: :tool_calls` when no call was
-  emitted, and an unmappable stream part now arrives as `StreamDelta.Raw` instead
-  of nothing. A thought part carrying only a signature arrives as
-  `StreamDelta.Thinking`, which is what the README's fold expects.
-- `poll/3` returns a typed validation error when an operation's `next` is neither
-  `nil` nor an `%EncodedRequest{}`, instead of raising `CaseClauseError`.
-- The OpenAI Responses codec rejects a text, reasoning or tool-argument delta whose
-  payload is not a string, rather than emitting a delta that breaks the documented
-  fold.
-- The Anthropic codec refuses image and document blocks in an assistant turn, and
-  applies the non-empty text rule to text blocks nested in a `tool_result`.
-- A non-2xx response body is capped at 64 KiB; past the cap the error says the body
-  was truncated rather than reporting that the provider sent invalid JSON.
-- Gemini's Imagen codec reports an empty `predictions` array as a `:provider`
-  error — everything was filtered — instead of `:invalid_response`.
-- A failed MiniMax or Seedance job keeps the codec's own `retryable?` verdict, and
-  Seedance normalizes a numeric submit id instead of refusing it.
-
-### Changed
-
-- `LlmCall.HTTP.request/2` and `stream/4` no longer let a transport failure escape:
-  a Finch exception or exit returns `{:error, {:exception, message}}`, reported as
-  `reason: :exception` on `%LlmCall.Error{}`. This covers the `RuntimeError` Finch
-  raises when it cannot check a connection out of the pool.
-- Tool-argument fragments are kept as iodata and joined once, replacing an append
-  that was quadratic for large arguments.
-- `docs/design.md` records two field drops that were happening silently:
-  `ToolResult.is_error` on OpenAI Chat and Responses, and a tool call whose
-  arguments did not decode on Anthropic and Gemini (the wire field is an object,
-  so the fragment cannot be carried).
-
-## 0.2.0 - 2026-11-23
+  inside Finch.
 
 ### Added
 
@@ -73,11 +42,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Responses.Connection.create/3`. `capabilities/3` reads no tools.
   `LlmCall.Codec.Conformance` calls the codec callbacks directly, so a request
   handed to one of its assertions must already carry `%LlmCall.ToolSpec{}`
-  entries. `expand/2` is public, so a caller that wants to hold the expanded
-  specs calls `Tools.expand([module], codec)` themselves.
-- New hard dependency `tool_call ~> 0.4`, which requires Erlang/OTP 27.1+ and
-  has no runtime dependencies of its own. The supported floor moves from OTP 27
-  to 27.1.
+  entries.
+- `LlmCall.StreamAssembler.new/1` takes `max_argument_bytes`, 8 MiB by default.
+  Fragments accumulate across events, which the SSE frame cap cannot bound; past
+  the cap a call finalises with `{:too_large, bytes}`, a new variant of
+  `LlmCall.ToolCall.arguments_error`, and `raw_arguments` keeps the prefix that
+  fit.
+- New dependency `tool_call ~> 0.4`, which has no runtime dependencies of its own.
 
 ### Changed
 
@@ -85,11 +56,54 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `:openai_chat` and `:openai_responses` take the schema `ToolCall.emit/3`
   renders for OpenAI, `:gemini_generate_content` the one it renders for Gemini,
   and any other protocol the neutral schema `ToolCall.describe/2` returns. Gemini
-  therefore no longer needs a manual `to_gemini/2` step, and the schema is already
-  in the codec's dialect when the codec validates it.
+  therefore no longer needs a manual `to_gemini/2` step.
+- `LlmCall.HTTP.request/2` and `stream/4` no longer let a transport failure escape.
+  A Finch exception or exit is reported as `reason: :exception`, and a failure that
+  never produced a response is classified by its reason: the connection-level
+  causes a new attempt can fix are `retryable?: true`, where every one of them used
+  to be `false`.
+- Tool-argument fragments are kept as iodata and joined once instead of appended
+  per fragment, which was quadratic for large arguments.
+- `ToolResult.is_error` is dropped on OpenAI Chat and Responses, and a tool call
+  whose arguments did not decode is sent as `%{}` on Anthropic and Gemini. Those
+  protocols have no field for either, so put the failure in the content text and
+  expect to repair a bad arguments fragment without the model seeing it.
+
+### Fixed
+
 - A malformed tool entry, a module that does not `use ToolCall`, and a schema the
-  selected protocol cannot render are `:validation` errors returned by
+  selected protocol cannot render are `:validation` errors from
   `Tools.expand/2`, naming the codec that refused, rather than raises.
+- `poll/3` returns a typed validation error when an operation's `next` is neither
+  `nil` nor an `%EncodedRequest{}`, instead of raising `CaseClauseError`.
+- Gemini streaming no longer reports `stop_reason: :tool_calls` when no call was
+  emitted, an unmappable part arrives as `StreamDelta.Raw` instead of nothing, and
+  a thought part carrying only a signature arrives as `StreamDelta.Thinking`.
+- The OpenAI Responses codec rejects a text, reasoning or tool-argument delta whose
+  payload is not a string, rather than emitting a delta that breaks the documented
+  fold.
+- The Anthropic codec refuses image and document blocks in an assistant turn, and
+  applies the non-empty text rule to text blocks nested in a `tool_result`.
+- A non-2xx response body is capped at 64 KiB, and the error says the body was
+  truncated rather than reporting invalid JSON. A status and `Retry-After` captured
+  before the body failed are kept instead of being discarded with the accumulator.
+- An error message copied from a provider is required to be a string, so a gateway
+  that answers `{"error": {"message": {…}}}` cannot break `%LlmCall.Error{}`.
+- Gemini's Imagen codec reports an empty `predictions` array as a `:provider` error
+  — everything was filtered — instead of `:invalid_response`.
+- A failed MiniMax or Seedance job keeps the codec's own `retryable?` verdict, and
+  Seedance normalizes a numeric submit id instead of refusing it.
+
+### Security
+
+- `inspect` on `%LlmCall.Client{}`, `%LlmCall.HTTP.Request{}` and `%LlmCall.Stream{}`
+  leaves out the parts that carry the resolved credential, so logging one no longer
+  prints the key.
+
+### Compatibility
+
+- The supported floor moves from OTP 27 to 27.1, which `tool_call` requires for
+  `json:format/1`.
 
 ## 0.1.1 - 2026-11-23
 
