@@ -255,26 +255,44 @@ defmodule LlmCall.StreamDeltaAuditTest do
       messages: [%Message{role: :user, content: [%Content.Text{text: "hi"}]}]
     }
 
-    with {:ok, state} <- codec.init_stream(request, %Config{}) do
-      {events, state} = decode_chunks(codec, chunks, state)
+    with {:ok, state} <- codec.init_stream(request, %Config{}),
+         {:ok, events, state} <- decode_chunks(codec, chunks, state) do
       finish(codec, events, state)
     end
   end
 
   defp decode_chunks(codec, chunks, state) do
-    Enum.reduce_while(chunks, {[], state}, fn chunk, {events, state} ->
-      case codec.decode_stream_event(chunk, %Config{}, state) do
-        {:ok, new_events, next} -> {:cont, {events ++ new_events, next}}
-        {:done, next} -> {:halt, {events, next}}
-        {:error, _error} -> {:halt, {events, state}}
-      end
-    end)
+    result =
+      Enum.reduce_while(chunks, {[], state}, fn chunk, {events, state} ->
+        case codec.decode_stream_event(chunk, %Config{}, state) do
+          {:ok, new_events, next} -> {:cont, {events ++ new_events, next}}
+          {:done, next} -> {:halt, {events, next}}
+          # An error return must reach the caller: "never raises" is only half the claim,
+          # and swallowing an {:error, _} here made this audit unable to fail on a codec
+          # that rejects a chunk it should tolerate.
+          {:error, %LlmCall.Error{} = error} -> {:halt, {:failure, error}}
+        end
+      end)
+
+    case result do
+      {:failure, error} -> {:error, error}
+      {events, state} -> {:ok, events, state}
+    end
   end
 
   defp finish(codec, events, state) do
     case codec.finish_stream(state, %Config{}) do
-      {:ok, tail, _state} -> {:ok, Enum.map(events ++ tail, &{&1.type, &1.delta, &1.index})}
-      other -> other
+      {:ok, tail, _state} ->
+        {:ok, Enum.map(events ++ tail, &{&1.type, &1.delta, &1.index})}
+
+      # Deleting the terminal chunk's own discriminator legitimately turns a complete
+      # stream into a truncated one, which this contract reports as an error. The events
+      # decoded so far still stand; the claim under test is that nothing raises.
+      {:error, %LlmCall.Error{kind: :invalid_response}} ->
+        {:ok, Enum.map(events, &{&1.type, &1.delta, &1.index})}
+
+      other ->
+        other
     end
   end
 
@@ -329,14 +347,28 @@ defmodule LlmCall.StreamDeltaAuditTest do
     end
   end
 
+  # A mutation may be tolerated or rejected, but it may not crash, and a rejection must
+  # be the deliberate `:invalid_response` for a payload that cannot be mapped — not some
+  # incidental failure. This is the half an audit can claim: a codec that stops
+  # tolerating a field changes what a chunk field maps to, which the test above pins.
   test "deleting any single chunk field never raises" do
     for %{name: name, codec: codec, model: model, chunks: chunks} <- cases() do
       for {chunk, index} <- Enum.with_index(chunks), path <- paths(chunk) do
         mutated = List.replace_at(chunks, index, delete_at(chunk, path))
 
-        assert {:ok, _events} = run(codec, model, mutated),
-               "#{name}: deleting #{inspect(path)} from chunk #{index} raised or errored; " <>
-                 "a codec must be nil-safe"
+        case run(codec, model, mutated) do
+          {:ok, _events} ->
+            :ok
+
+          {:error, %LlmCall.Error{kind: :invalid_response}} ->
+            :ok
+
+          {:error, other} ->
+            flunk(
+              "#{name}: deleting #{inspect(path)} from chunk #{index} must be tolerated or " <>
+                "rejected as :invalid_response, got: #{inspect(other)}"
+            )
+        end
       end
     end
   end

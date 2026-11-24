@@ -975,7 +975,7 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
                Chat.decode_stream_event(chunk, %Config{}, stream_state())
     end
 
-    test "unknown chunk shapes become Raw message deltas and finish_stream closes the stream once" do
+    test "unknown chunk shapes become Raw deltas, and a stream that never saw [DONE] fails" do
       state = stream_state()
 
       assert {:ok, events, state} =
@@ -988,9 +988,15 @@ defmodule LlmCall.Dialect.OpenAIChatTest do
                }
              ] = events
 
-      assert {:ok, [%LlmCall.StreamEvent{type: :message_stop}], state} =
+      # [DONE] never arrived, so the body was cut short; synthesizing a terminal event
+      # would report a partial answer as a complete one.
+      assert {:error, %Error{kind: :invalid_response, message: message}} =
                Chat.finish_stream(state, %Config{})
 
+      assert message =~ "without [DONE]"
+
+      # Once the terminator has been seen, flushing is a no-op.
+      {:done, state} = Chat.decode_stream_event("[DONE]", %Config{}, state)
       assert {:ok, [], ^state} = Chat.finish_stream(state, %Config{})
     end
   end

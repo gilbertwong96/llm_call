@@ -733,7 +733,15 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
   defp validate_delta(_delta), do: :ok
 
   @impl true
-  def finish_stream(%StreamState{} = state, _config), do: {:ok, [], state}
+  # `message_stop` is the terminator, so a stream that ends without it was cut short.
+  # This codec never synthesized one, which made the truncation silent.
+  def finish_stream(%StreamState{} = state, _config) do
+    if StreamState.data(state).finished? do
+      {:ok, [], state}
+    else
+      {:error, invalid_response("stream ended without message_stop")}
+    end
+  end
 
   defp fetch_blocks(%{"content" => blocks}) when is_list(blocks), do: {:ok, blocks}
   defp fetch_blocks(_term), do: {:error, invalid_response("response has no content blocks")}
