@@ -286,6 +286,28 @@ defmodule LlmCall.StreamTest do
     assert message == "unknown pool: LlmCall.NoSuchPool"
   end
 
+  test "a 429 whose error body dies mid-read keeps its status and Retry-After" do
+    # The status and headers arrived before the connection dropped, so the reducer's
+    # accumulator still holds them; dropping it would report this retryable rate limit as
+    # a bare transport failure.
+    TestHTTP.put_events([
+      {:status, 429},
+      {:headers, [{"retry-after", "3"}]},
+      {:data, ~s({"error":)},
+      {:error, :closed}
+    ])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+
+    assert %Error{
+             kind: :transport,
+             status: 429,
+             retry_after_ms: 3_000,
+             retryable?: true
+           } = HTTP.Error.error(exception)
+  end
+
   test "a body that ends without [DONE] is reported, not completed silently" do
     # The body is well framed but truncated: no terminator ever arrives.
     TestHTTP.put_events([

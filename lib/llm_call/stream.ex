@@ -83,8 +83,21 @@ defmodule LlmCall.Stream do
            &handle_event/2,
            stream.client.http_opts
          ) do
-      {:ok, state} -> finish(state)
-      {:error, reason} -> raise HTTP.Error, error: Error.from_transport(reason)
+      {:ok, state} ->
+        finish(state)
+
+      # The reducer's accumulator survived the failure, so a status and the headers of
+      # an error response are still there: report them instead of losing a `429` and its
+      # `Retry-After` to a connection that died while the error body was being read.
+      {:error, _reason, %{status: status} = state}
+      when is_integer(status) and status not in 200..299 ->
+        raise_http_error(state)
+
+      {:error, reason, _state} ->
+        raise HTTP.Error, error: Error.from_transport(reason)
+
+      {:error, reason} ->
+        raise HTTP.Error, error: Error.from_transport(reason)
     end
   end
 
