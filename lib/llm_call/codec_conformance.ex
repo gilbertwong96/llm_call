@@ -434,13 +434,29 @@ defmodule LlmCall.Codec.Conformance do
 
     assert StreamState.codec(state) == codec
 
-    assert {:ok, events, %StreamState{} = closed} = codec.finish_stream(state, %Config{})
+    # A codec whose protocol has no terminator flushes a tail here; one that has a
+    # terminator rejects a stream that never carried it. Both are legal, and both must
+    # be idempotent.
+    case codec.finish_stream(state, %Config{}) do
+      {:ok, events, %StreamState{} = closed} ->
+        assert is_list(events), "#{inspect(codec)}.finish_stream/2 must return a list of events"
+        Enum.each(events, &Shared.assert_stream_event(&1, inspect(codec)))
 
-    assert is_list(events), "#{inspect(codec)}.finish_stream/2 must return a list of events"
-    Enum.each(events, &Shared.assert_stream_event(&1, inspect(codec)))
+        assert {:ok, [], _state} = codec.finish_stream(closed, %Config{}),
+               "#{inspect(codec)}.finish_stream/2 must be idempotent"
 
-    assert {:ok, [], _state} = codec.finish_stream(closed, %Config{}),
-           "#{inspect(codec)}.finish_stream/2 must be idempotent"
+      {:error, %Error{} = error} ->
+        Shared.assert_error(error, inspect(codec))
+
+        assert {:error, %Error{}} = codec.finish_stream(state, %Config{}),
+               "#{inspect(codec)}.finish_stream/2 must be idempotent"
+
+      other ->
+        flunk(
+          "#{inspect(codec)}.finish_stream/2 must return {:ok, events, state} or " <>
+            "{:error, %LlmCall.Error{}}, got: #{inspect(other)}"
+        )
+    end
 
     :ok
   end
@@ -1115,10 +1131,22 @@ defmodule LlmCall.Codec.Conformance do
     if halted? do
       {events, [], done?}
     else
-      assert {:ok, tail, %StreamState{}} = codec.finish_stream(state, config),
-             "#{label}.finish_stream/2 must return {:ok, events, state}"
+      # A protocol with a terminator may reject a body that never carried it, so an
+      # error here is a legal answer; anything else is a contract violation.
+      case codec.finish_stream(state, config) do
+        {:ok, tail, %StreamState{}} when is_list(tail) ->
+          {events ++ tail, tail, done?}
 
-      {events ++ tail, tail, done?}
+        {:error, %Error{} = error} ->
+          Shared.assert_error(error, label)
+          {events, [], done?}
+
+        other ->
+          flunk(
+            "#{label}.finish_stream/2 must return {:ok, events, state} or " <>
+              "{:error, %LlmCall.Error{}}, got: #{inspect(other)}"
+          )
+      end
     end
   end
 

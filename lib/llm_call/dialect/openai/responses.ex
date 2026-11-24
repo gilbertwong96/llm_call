@@ -784,16 +784,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   end
 
   @impl true
-  def finish_stream(%StreamState{} = state, %Config{} = config) do
+  def finish_stream(%StreamState{} = state, %Config{} = _config) do
     data = StreamState.data(state)
 
+    # `response.completed` is the terminator; without it the body was cut short.
     if data.finished? do
       {:ok, [], state}
     else
-      data = %{data | finished?: true}
-
-      {:ok, [Helpers.event(:message_stop, nil, nil, nil, config)],
-       StreamState.new(__MODULE__, data)}
+      {:error, invalid_response("stream ended without response.completed")}
     end
   end
 

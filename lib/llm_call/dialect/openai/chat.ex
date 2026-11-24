@@ -516,7 +516,12 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   end
 
   @impl true
-  def decode_stream_event("[DONE]", _config, %StreamState{} = state), do: {:done, state}
+  # `[DONE]` is the terminator, so the flag has to be set here: `finish_stream/2` uses
+  # it to tell a finished body from one that was cut short.
+  def decode_stream_event("[DONE]", _config, %StreamState{} = state) do
+    data = StreamState.data(state)
+    {:done, StreamState.new(__MODULE__, %{data | finished?: true})}
+  end
 
   def decode_stream_event(%{"error" => _} = term, %Config{} = config, %StreamState{}) do
     {:error, decode_error(term, config)}
@@ -574,16 +579,16 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   defp valid_tool_call_chunk?(_call), do: false
 
   @impl true
-  def finish_stream(%StreamState{} = state, %Config{} = config) do
+  def finish_stream(%StreamState{} = state, %Config{} = _config) do
     data = StreamState.data(state)
 
+    # The terminator is part of the protocol: a body that ends without `[DONE]` was
+    # cut short, and reporting it as a finished stream would let a partial answer be
+    # billed and stored as a complete one.
     if data.finished? do
       {:ok, [], state}
     else
-      closed = %{data | finished?: true}
-
-      {:ok, [Helpers.event(:message_stop, nil, nil, nil, config)],
-       StreamState.new(__MODULE__, closed)}
+      {:error, invalid_response("stream ended without [DONE]")}
     end
   end
 

@@ -53,6 +53,15 @@ defmodule LlmCall.StreamTest do
       do: {:ok, [%StreamEvent{type: :message_stop}], state}
   end
 
+  defmodule ChatProvider do
+    @moduledoc "Provider wired to the real OpenAI Chat codec, for terminal-event tests."
+
+    use LlmCall.Provider,
+      base_url: "https://api.example.test",
+      auth: :none,
+      codecs: [chat: LlmCall.Dialect.OpenAI.Chat]
+  end
+
   defmodule StreamingProvider do
     @moduledoc "Provider for the streaming tests."
 
@@ -275,6 +284,21 @@ defmodule LlmCall.StreamTest do
              HTTP.Error.error(exception)
 
     assert message == "unknown pool: LlmCall.NoSuchPool"
+  end
+
+  test "a body that ends without [DONE] is reported, not completed silently" do
+    # The body is well framed but truncated: no terminator ever arrives.
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"choices":[{"index":0,"delta":{"content":"Hel"}}]}))}
+    ])
+
+    chat = ChatProvider.client(base_url: TestHTTP.url())
+    assert {:ok, stream} = LlmCall.stream(chat, request())
+    exception = assert_raise HTTP.Error, fn -> Enum.to_list(stream) end
+
+    assert %Error{kind: :invalid_response, message: message} = HTTP.Error.error(exception)
+    assert message =~ "without [DONE]"
   end
 
   test "a non-2xx stream with a non-JSON body reads cleanly" do

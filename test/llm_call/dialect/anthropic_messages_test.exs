@@ -1005,7 +1005,7 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
       assert data["data"]["type"] == "citations_delta"
     end
 
-    test "capture_raw :all keeps raw events and finish_stream emits nothing" do
+    test "capture_raw :all keeps raw events, and an unstopped stream fails to flush" do
       event = Fx.text_stream() |> Enum.at(2)
 
       assert {:ok, [%LlmCall.StreamEvent{raw: ^event}], state} =
@@ -1015,7 +1015,12 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
                  stream_state(%Config{capture_raw: :all})
                )
 
-      assert {:ok, [], ^state} = Messages.finish_stream(state, %Config{})
+      # The fixture never reached `message_stop`, so the body was cut short; this codec
+      # used to end it silently.
+      assert {:error, %Error{kind: :invalid_response, message: message}} =
+               Messages.finish_stream(state, %Config{})
+
+      assert message =~ "without message_stop"
     end
   end
 
