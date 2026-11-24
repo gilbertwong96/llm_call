@@ -32,7 +32,13 @@ defmodule LlmCall.HTTP do
   connection.
   """
   defmodule Request do
-    @moduledoc "One HTTP request, fully resolved by the client."
+    @moduledoc """
+    One HTTP request, fully resolved by the client.
+
+    `inspect` omits `headers`, which carry the credential.
+    """
+
+    @derive {Inspect, except: [:headers]}
 
     @type method :: :get | :post
 
