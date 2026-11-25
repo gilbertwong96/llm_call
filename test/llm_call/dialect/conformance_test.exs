@@ -30,7 +30,7 @@ defmodule LlmCall.Dialect.ConformanceTest do
 
   # Each codec publishes its own event envelope, so the chunk sequence is a
   # fixture concern: a codec's fixture names the stream it can decode.
-  defp codecs do
+  defp streaming_codecs do
     [
       {LlmCall.Dialect.OpenAI.Chat, "gpt-4o", Fixtures.OpenAIChat,
        %{
@@ -55,39 +55,56 @@ defmodule LlmCall.Dialect.ConformanceTest do
     ]
   end
 
+  # Converse ships no streaming callbacks in this phase, so it runs the assertions
+  # that do not need them; `assert_capabilities/3` already proves the flag agrees.
+  defp plain_codecs do
+    [
+      {LlmCall.Dialect.Bedrock.Converse, "anthropic.claude-3-5-sonnet-20241022-v2:0",
+       LlmCall.Fixtures.BedrockConverse}
+    ]
+  end
+
+  defp all_codecs do
+    plain = plain_codecs()
+
+    Enum.map(streaming_codecs(), fn {codec, model, fixtures, _chunks} ->
+      {codec, model, fixtures}
+    end) ++ plain
+  end
+
   test "every reference codec satisfies the metadata contract" do
-    for {codec, model, _fixtures, _chunks} <- codecs() do
+    for {codec, model, _fixtures} <- all_codecs() do
       assert :ok = Conformance.assert_info(codec)
       assert :ok = Conformance.assert_capabilities(codec, request(model), %Config{})
     end
   end
 
   test "every reference codec declares capabilities its validation honours" do
-    for {codec, model, _fixtures, _chunks} <- codecs() do
+    for {codec, model, _fixtures} <- all_codecs() do
       assert :ok = Conformance.assert_capability_consistency(codec, request(model), %Config{})
     end
   end
 
   test "every reference codec asks its provider to stream" do
-    for {codec, model, _fixtures, _chunks} <- codecs() do
+    for {codec, model, _fixtures, _chunks} <- streaming_codecs() do
       assert :ok = Conformance.assert_stream_request(codec, request(model))
     end
   end
 
   test "every reference codec decodes a provider response and error" do
-    for {codec, model, fixtures, _chunks} <- codecs() do
+    for {codec, _model, fixtures} <- all_codecs() do
       assert :ok = Conformance.assert_decode_response(codec, fixtures.text_response())
       assert :ok = Conformance.assert_decode_error(codec, fixtures.error_payload())
       assert :ok = Conformance.assert_invalid_response(codec, %{"not" => "a response"})
-      assert :ok = Conformance.assert_stream_roundtrip(codec, request(model, stream: true))
     end
   end
 
   test "every reference codec streams text events" do
-    for {codec, model, _fixtures, chunks} <- codecs() do
+    for {codec, model, _fixtures, chunks} <- streaming_codecs() do
       streaming = request(model, stream: true)
       text = chunks.text.()
 
+      assert :ok = Conformance.assert_stream_roundtrip(codec, streaming)
       assert :ok = Conformance.assert_stream(codec, streaming, text)
 
       assert :ok = Conformance.assert_stream_capture_raw(codec, streaming, text)
@@ -95,7 +112,7 @@ defmodule LlmCall.Dialect.ConformanceTest do
   end
 
   test "every reference codec assembles streamed tool calls" do
-    for {codec, model, _fixtures, chunks} <- codecs() do
+    for {codec, model, _fixtures, chunks} <- streaming_codecs() do
       assert :ok =
                Conformance.assert_tool_call_assembly(
                  codec,

@@ -5,7 +5,8 @@
       "LlmCall.Dialect.Adapter",
       "LlmCall.Dialect.OpenAI.*",
       "LlmCall.Dialect.Anthropic.*",
-      "LlmCall.Dialect.Gemini.*"
+      "LlmCall.Dialect.Gemini.*",
+      "LlmCall.Dialect.Bedrock.*"
     ],
     media: "LlmCall.Media.*"
   ],

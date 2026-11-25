@@ -39,6 +39,8 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   @codec :bedrock_converse
   @version "2023-09-30"
   @param_keys [:max_tokens, :temperature, :top_p, :stop]
+  @tool_name_pattern ~r/\A[a-zA-Z0-9_-]+\z/
+  @tool_name_max 64
 
   @param_spec %{
     temperature: {:number, 0, 1},
@@ -57,7 +59,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     with :ok <- validate_model(request.model),
          :ok <- validate_unsupported(request),
          :ok <- validate_parts(request.messages),
-         :ok <- validate_tool_choice(request) do
+         :ok <- validate_tools(request.tools, request.tool_choice) do
       Helpers.validate_params_with_spec(request.params, @param_keys, @param_spec, @codec)
     end
   end
@@ -171,13 +173,34 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     end)
   end
 
-  defp validate_tool_choice(%Request{tool_choice: {:allowed, _names}}),
-    do: Helpers.error(@codec, "tool_choice {:allowed, names} is not supported by Converse")
+  defp validate_tools(tools, tool_choice) do
+    Helpers.validate_tools(
+      tools,
+      tool_choice,
+      @codec,
+      &validate_tool_spec/1,
+      &validate_tool_choice/2
+    )
+  end
 
-  defp validate_tool_choice(%Request{tool_choice: :none, tools: [_tool | _rest]}),
-    do: Helpers.error(@codec, "tool_choice :none cannot be expressed while tools are declared")
+  defp validate_tool_spec(%ToolSpec{} = spec) do
+    Helpers.validate_tool_spec(spec, @codec,
+      builtin_tools: false,
+      name_pattern: {@tool_name_pattern, @tool_name_max, "Converse"}
+    )
+  end
 
-  defp validate_tool_choice(_request), do: :ok
+  defp validate_tool_choice(choice, tools) do
+    with :ok <- Helpers.validate_tool_choice(choice, tools, @codec) do
+      case {choice, tools} do
+        {:none, [_tool | _rest]} ->
+          Helpers.error(@codec, "tool_choice :none cannot be expressed while tools are declared")
+
+        _other ->
+          :ok
+      end
+    end
+  end
 
   defp encode_model(model), do: URI.encode(model, &URI.char_unreserved?/1)
 
