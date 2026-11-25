@@ -91,8 +91,8 @@ The client must declare `:images` — `MyApp.OpenAI` above declares only `:chat`
 this returns an error naming the codecs it does declare. The media section below
 shows a provider that declares the image codec.
 
-Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, or
-`{module, function}`. The key is always passed in; nothing reads the environment.
+Auth shapes: `:none`, `:bearer`, `:x_api_key`, `{:header, name}`, `{module, function}`,
+or `{:sigv4, opts}`. The key is always passed in; nothing reads the environment.
 
 `query:` adds URL parameters to every request, for vendors that key on one —
 MiniMax's `GroupId`, Azure OpenAI's `api-version`. A codec's own parameter still
@@ -395,7 +395,7 @@ declares `builtin_tools: :passthrough`:
 
 ## Dialect adapters
 
-Four **reference adapters** — the dialect families the IR is written against:
+Five **reference adapters** — the dialect families the IR is written against:
 
 | Dialect | Module |
 | --- | --- |
@@ -403,6 +403,7 @@ Four **reference adapters** — the dialect families the IR is written against:
 | OpenAI Responses | `LlmCall.Dialect.OpenAI.Responses` |
 | Anthropic Messages | `LlmCall.Dialect.Anthropic.Messages` |
 | Gemini GenerateContent | `LlmCall.Dialect.Gemini.GenerateContent` |
+| Bedrock Converse | `LlmCall.Dialect.Bedrock.Converse` |
 
 And four **vendored media adapters**, which ship with the library but are not part
 of the stable API surface (see `LlmCall.Media`):

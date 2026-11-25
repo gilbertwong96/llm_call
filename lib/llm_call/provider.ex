@@ -109,6 +109,14 @@ defmodule LlmCall.Provider do
   Options: `api_key:`, `base_url:`, `headers:`, `query:`, `http_opts:`,
   `timeout:`, `json_library:`, `config:`, and — for a `{:sigv4, _}` provider —
   `credentials:` and `region:`.
+
+  `credentials:` takes a map with `:access_key_id` and `:secret_access_key`, and
+  optionally `:session_token` and `:expiration`. Any other key is ignored,
+  including the `:region` that `AWSAuth.Credentials` carries: the region comes
+  from this option or the declaration, never from the credentials. The 0-arity
+  function form is called once per request and nothing is cached, so a lookup
+  that reaches out to STS belongs behind the caller's own memoisation and
+  timeout.
   """
   @spec build(module(), keyword()) :: Client.t()
   def build(provider, opts \\ []) do

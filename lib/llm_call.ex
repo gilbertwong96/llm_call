@@ -99,6 +99,11 @@ defmodule LlmCall do
   eagerly, so an invalid request is a tagged error; the HTTP request itself starts
   when the returned `%LlmCall.Stream{}` is reduced.
 
+  A signed provider is signed **here**, not at the first read, so a stream kept
+  around is a signature kept around: AWS accepts one for five minutes, and a
+  stream reduced later fails with `RequestTimeExpired`. Build a stream when you
+  are ready to consume it.
+
   `codec:` names an entry in the provider's `codecs` map (`:chat` by default).
   Events are yielded as `LlmCall.StreamEvent` structs; a failure while reading the
   body raises `LlmCall.HTTP.Error`, because an `Enumerable` cannot return a tuple.
