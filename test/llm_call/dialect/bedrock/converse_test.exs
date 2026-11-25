@@ -326,6 +326,31 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
             }} = Converse.decode_response(payload, %Config{})
   end
 
+  test "prompt-cache token counts are carried into Usage" do
+    payload = %{
+      "output" => %{"message" => %{"role" => "assistant", "content" => [%{"text" => "x"}]}},
+      "stopReason" => "end_turn",
+      "usage" => %{
+        "inputTokens" => 10,
+        "outputTokens" => 2,
+        "totalTokens" => 12,
+        "cacheReadInputTokens" => 300,
+        "cacheWriteInputTokens" => 40
+      }
+    }
+
+    assert {:ok,
+            %Response{
+              usage: %Usage{
+                input_tokens: 10,
+                output_tokens: 2,
+                total_tokens: 12,
+                cache_read_tokens: 300,
+                cache_write_tokens: 40
+              }
+            }} = Converse.decode_response(payload, %Config{})
+  end
+
   test "a toolUse block becomes a ToolCall" do
     payload = %{
       "output" => %{

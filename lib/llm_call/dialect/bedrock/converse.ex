@@ -156,7 +156,9 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     %Usage{
       input_tokens: Helpers.token(usage["inputTokens"]),
       output_tokens: Helpers.token(usage["outputTokens"]),
-      total_tokens: Helpers.token(usage["totalTokens"])
+      total_tokens: Helpers.token(usage["totalTokens"]),
+      cache_read_tokens: Helpers.token(usage["cacheReadInputTokens"]),
+      cache_write_tokens: Helpers.token(usage["cacheWriteInputTokens"])
     }
   end
 
