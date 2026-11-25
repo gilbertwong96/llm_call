@@ -96,14 +96,19 @@ defmodule LlmCall.Provider do
     :http_opts,
     :timeout,
     :json_library,
-    :config
+    :config,
+    :credentials,
+    :region
   ]
+
+  @sigv4_auth_keys [:service, :region]
 
   @doc """
   Builds a `%LlmCall.Client{}` from a provider module's declaration and options.
 
   Options: `api_key:`, `base_url:`, `headers:`, `query:`, `http_opts:`,
-  `timeout:`, `json_library:`, `config:`.
+  `timeout:`, `json_library:`, `config:`, and — for a `{:sigv4, _}` provider —
+  `credentials:` and `region:`.
   """
   @spec build(module(), keyword()) :: Client.t()
   def build(provider, opts \\ []) do
@@ -128,8 +133,62 @@ defmodule LlmCall.Provider do
       query: Map.merge(url_query, query(opts, declaration)),
       http_opts: resolve(:http_opts, opts, declaration, []) |> validate_http_opts!(),
       timeout: resolve(:timeout, opts, declaration, @default_timeout) |> validate_timeout!(),
-      config: config
+      config: config,
+      signer: signer(declaration.auth, opts),
+      credentials: credentials(declaration.auth, opts)
     }
+  end
+
+  defp signer({:sigv4, opts}, client_opts) do
+    %{
+      service: Keyword.fetch!(opts, :service),
+      region: Keyword.get(client_opts, :region) || Keyword.fetch!(opts, :region)
+    }
+  end
+
+  defp signer(_auth, client_opts) do
+    reject_sigv4_option!(client_opts, :region)
+    reject_sigv4_option!(client_opts, :credentials)
+    nil
+  end
+
+  defp reject_sigv4_option!(client_opts, key) do
+    if Keyword.has_key?(client_opts, key) do
+      raise ArgumentError, "#{key} is only used by :sigv4 auth"
+    end
+  end
+
+  defp credentials({:sigv4, _opts}, client_opts) do
+    case Keyword.get(client_opts, :credentials) do
+      nil ->
+        raise ArgumentError, "credentials are required by :sigv4 auth"
+
+      function when is_function(function, 0) ->
+        function
+
+      %{} = map ->
+        validate_credentials!(map)
+
+      other ->
+        raise ArgumentError,
+              "credentials must be a map or a 0-arity function, got: #{inspect(other)}"
+    end
+  end
+
+  defp credentials(_auth, _client_opts), do: nil
+
+  defp validate_credentials!(credentials) do
+    Enum.each([:access_key_id, :secret_access_key], fn key ->
+      case Map.get(credentials, key) do
+        value when is_binary(value) and value != "" ->
+          :ok
+
+        _value ->
+          raise ArgumentError, "credentials require a non-empty #{inspect(key)}"
+      end
+    end)
+
+    credentials
   end
 
   defp headers(declaration, opts) do
@@ -351,6 +410,7 @@ defmodule LlmCall.Provider do
   defp auth_headers(:bearer, key), do: [{"authorization", "Bearer #{require_key(key)}"}]
   defp auth_headers(:x_api_key, key), do: [{"x-api-key", require_key(key)}]
   defp auth_headers({:header, name}, key), do: [{name, require_key(key)}]
+  defp auth_headers({:sigv4, _opts}, _key), do: []
 
   defp auth_headers({module, function}, key) when is_atom(module) and is_atom(function) do
     apply(module, function, [require_key(key)])
@@ -403,12 +463,41 @@ defmodule LlmCall.Provider do
 
   defp validate_auth!({:header, name}) when is_binary(name) and name != "", do: :ok
 
+  defp validate_auth!({:sigv4, opts}) when is_list(opts), do: validate_sigv4_auth!(opts)
+
   defp validate_auth!({module, function}) when is_atom(module) and is_atom(function), do: :ok
 
   defp validate_auth!(auth) do
     raise ArgumentError,
           "provider option :auth must be :none, :bearer, :x_api_key, " <>
-            "{:header, name}, or {module, function}, got: #{inspect(auth)}"
+            "{:header, name}, {:sigv4, opts}, or {module, function}, got: #{inspect(auth)}"
+  end
+
+  defp validate_sigv4_auth!(opts) do
+    unless Keyword.keyword?(opts) do
+      raise ArgumentError, "sigv4 auth options must be a keyword list, got: #{inspect(opts)}"
+    end
+
+    case Keyword.keys(opts) -- @sigv4_auth_keys do
+      [] ->
+        :ok
+
+      [unknown | _rest] ->
+        raise ArgumentError,
+              "sigv4 auth does not accept #{inspect(unknown)}; " <>
+                "accepted: #{inspect(@sigv4_auth_keys)}"
+    end
+
+    Enum.each(@sigv4_auth_keys, fn key ->
+      case Keyword.get(opts, key) do
+        value when is_binary(value) and value != "" ->
+          :ok
+
+        _value ->
+          raise ArgumentError,
+                "sigv4 auth requires #{inspect(key)} to be a non-empty string"
+      end
+    end)
   end
 
   defp validate_codec_names!(codecs) do

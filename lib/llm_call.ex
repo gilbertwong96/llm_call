@@ -317,10 +317,7 @@ defmodule LlmCall do
          %EncodedRequest{method: :get} = encoded,
          call_headers
        ) do
-    with {:ok, url} <- url(client, encoded),
-         {:ok, headers} <- headers(client, encoded, call_headers) do
-      {:ok, HTTP.Request.get(url, headers, client.timeout)}
-    end
+    finish(client, encoded, call_headers, nil)
   end
 
   defp build_http_request(
@@ -328,10 +325,8 @@ defmodule LlmCall do
          %EncodedRequest{method: :post} = encoded,
          call_headers
        ) do
-    with {:ok, body} <- encode_body(client, encoded.body),
-         {:ok, url} <- url(client, encoded),
-         {:ok, headers} <- headers(client, encoded, call_headers) do
-      {:ok, HTTP.Request.post(url, headers, body, client.timeout)}
+    with {:ok, body} <- encode_body(client, encoded.body) do
+      finish(client, encoded, call_headers, body)
     end
   end
 
@@ -339,12 +334,43 @@ defmodule LlmCall do
     {:error, invalid("unsupported request method #{inspect(method)}", :validation)}
   end
 
-  defp url(%Client{} = client, %EncodedRequest{} = encoded) do
-    with :ok <- validate_path(encoded.path),
-         {:ok, query} <- encode_query(Map.merge(client.query, encoded.query)) do
-      {:ok, HTTP.build_url(client.base_url, encoded.path, query)}
+  defp finish(%Client{} = client, %EncodedRequest{} = encoded, call_headers, body) do
+    query = Map.merge(client.query, encoded.query)
+
+    with {:ok, url} <- url(client, encoded, query),
+         {:ok, headers} <- headers(client, encoded, call_headers) do
+      request = %HTTP.Request{
+        method: encoded.method,
+        url: url,
+        headers: headers,
+        body: body,
+        receive_timeout: client.timeout
+      }
+
+      signed(client, request, query)
     end
   end
+
+  defp url(%Client{} = client, %EncodedRequest{} = encoded, query) do
+    with :ok <- validate_path(encoded.path),
+         {:ok, encoded_query} <- encode_query(query) do
+      {:ok, HTTP.build_url(client.base_url, encoded.path, encoded_query)}
+    end
+  end
+
+  defp signed(%Client{signer: nil}, request, _query), do: {:ok, request}
+
+  defp signed(%Client{signer: signer, credentials: credentials}, request, query) do
+    LlmCall.Auth.SigV4.sign(request,
+      service: signer.service,
+      region: signer.region,
+      credentials: resolve_credentials(credentials),
+      query: query
+    )
+  end
+
+  defp resolve_credentials(function) when is_function(function, 0), do: function.()
+  defp resolve_credentials(credentials), do: credentials
 
   defp validate_path(path) when is_binary(path), do: :ok
 

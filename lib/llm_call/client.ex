@@ -35,14 +35,17 @@ defmodule LlmCall.Client do
           query: %{optional(String.t()) => String.t() | integer() | boolean()},
           http_opts: keyword(),
           timeout: timeout(),
-          config: Config.t()
+          config: Config.t(),
+          signer: nil | %{service: String.t(), region: String.t()},
+          credentials: nil | map() | (-> map())
         }
 
   # `headers` holds the resolved credential: `provider.ex` turns `api_key:` into
   # `{"authorization", "Bearer …"}` before the struct is built. `query` can hold one
-  # too, because a base_url query is folded into it. `inspect` is how a value reaches a
-  # log or a bug report, so both are left out of it.
-  @derive {Inspect, except: [:headers, :query]}
+  # too, because a base_url query is folded into it, and `credentials` is the SigV4
+  # secret in whatever form the caller gave it. `inspect` is how a value reaches a log
+  # or a bug report, so all three are left out of it.
+  @derive {Inspect, except: [:headers, :query, :credentials]}
 
   defstruct [
     :provider,
@@ -50,6 +53,8 @@ defmodule LlmCall.Client do
     :base_url,
     :timeout,
     :config,
+    :signer,
+    :credentials,
     headers: [],
     query: %{},
     http_opts: []
