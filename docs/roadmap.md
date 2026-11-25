@@ -36,7 +36,45 @@ depend on each other:
 17. The `LlmCall.WS` behaviour and `LlmCall.WS.Mint`, and the test servers that
     exercise them.
 
-## 2. Further operation families
+## 2. Delivered in 0.2
+
+0.2 turned the streaming and validation edges into contract:
+
+- A stream that ends without its protocol terminator is an error, not a synthesized
+  stop.
+- Header values must be printable ASCII with no leading or trailing whitespace, and
+  an offending `api_key` never reaches the error message.
+- `:pool_strategy` validates against Finch's own contract instead of accepting
+  values Finch does not dispatch on.
+- `Request.tools` accepts a `tool_call` module, and `LlmCall.StreamAssembler` bounds
+  streamed tool-call arguments with `max_argument_bytes`.
+
+## 3. Delivered since 0.2 (unreleased)
+
+This one is an *authentication* family rather than an operation family: a provider
+can now sign what it sends.
+
+- `auth: {:sigv4, service: ..., region: ...}` with `credentials:` (a map or a 0-arity
+  function) and `region:` client options. The signer runs in the transport, after the
+  body is serialized, because the signature covers the bytes that go on the wire. It
+  reproduces AWS's published `ListUsers` vector and adds no runtime dependency.
+- `LlmCall.Dialect.Bedrock.Converse`, the fifth reference adapter: text, tool use and
+  tool results, with consecutive tool results merged into one user turn because
+  Bedrock requires alternating roles.
+- The capability boundary is explicit: images and documents are refused, because
+  Converse takes them inline or from S3 and a boolean `image_input` cannot say
+  "inline only". Making those flags source-aware (`false | :inline | :any`) is its own
+  design, and it would unlock inline images for every inline-only endpoint, not just
+  this one.
+- A `{:sigv4, _}` client is refused by the WebSocket connection instead of
+  handshaking unsigned.
+- `Usage` carries Bedrock's prompt-cache token counters.
+
+Not in it, and deliberately: `ConverseStream` (design §12), `guardrailConfig`, signed
+WebSocket or bidirectional streaming, credential resolution (still a non-goal, design
+§4), and internationalised hosts (refused with a punycode hint).
+
+## 4. Further operation families
 
 0.1 ships two operation families — completion (`LlmCall.Codec`) and media generation
 with its long-running operations (`LlmCall.Media.Codec`) — plus the Responses
@@ -44,7 +82,7 @@ WebSocket transport. Further families follow the same rule as design §25.3.1: *
 operation is a new IR plus a codec behaviour**, and never a new field on `Request`.
 Adding one is therefore additive and does not disturb the IR contract.
 
-### 2.1 What a family costs
+### 4.1 What a family costs
 
 A codec is small; the fixed cost per family is what surrounds it, and it multiplies per
 provider:
@@ -56,13 +94,16 @@ provider:
 
 The suite cost scales with the family's wire surface, not with its importance. An
 embedding suite covers shapes, vector dimensions, usage and errors — no stream, no
-operation state machine, no asset hop — so it is a fraction of the media suite.
+operation state machine, no asset hop — so it is a fraction of the media suite. The
+Bedrock codec is the recent data point: about 300 lines of codec, one fixture set and
+one conformance line, against a signer that took as long as the codec itself — which
+is why it is an auth family and not an operation family.
 
 That cost model is the reason the order below exists: breadth is the wrong thing to buy
 first. The library's claim is a verifiable wire contract, not "every model in every
 modality"; a full-client library already occupies that ground.
 
-### 2.2 Prerequisite: parameterise the family
+### 4.2 Prerequisite: parameterise the family
 
 Completion and media are currently two hand-written pipelines: two behaviours, two
 adapter macros, two conformance skeletons, two client surfaces. Writing a third and
@@ -71,7 +112,7 @@ fourth family by hand multiplies that plumbing. Before family #3, one refactor t
 skeleton, client entry points — with media as its first instance. That is a
 reorganisation, not a feature, and it belongs in a 0.x minor.
 
-### 2.3 Order and verdict
+### 4.3 Order and verdict
 
 | Operation | Canonical shape | New family | Demand | Plan |
 | --- | --- | --- | --- | --- |
@@ -82,7 +123,12 @@ reorganisation, not a feature, and it belongs in a 0.x minor.
 | OCR | image or file in, text out | **no**: `Content.Image` and `Content.File` in a chat request already express it for every multimodal codec | low | documentation; a dedicated endpoint only on demand |
 | Evaluation | "answer named questions about this text/JSON" | **no**: it is an upper-layer abstraction built on chat or structured output, not a provider endpoint | low | never in core |
 
-### 2.4 Criteria for adding a family
+Rerank is the first family the signing work pays for twice: Bedrock's rerank endpoint
+takes the same `{:sigv4, ...}` declaration and the same client, so the family's cost
+there is the codec alone. That is the concrete argument for the auth seam having been
+the right one to build before a third operation family.
+
+### 4.4 Criteria for adding a family
 
 A family enters the core only when all three hold:
 
