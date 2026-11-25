@@ -61,7 +61,7 @@ defmodule LlmCall.Auth.SigV4 do
       else:
         invalid(
           "sigv4: host must be ASCII; supply the punycode form (xn--) for an " <>
-            "internationalized domain"
+            "internationalized domain, for example with :idna.encode/1 from {:idna, \"~> 8.0\"}"
         )
   end
 
