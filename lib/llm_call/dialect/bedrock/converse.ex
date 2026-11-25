@@ -24,12 +24,17 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     Config,
     Content,
     EncodedRequest,
+    Error,
     Message,
     Request,
+    Response,
     ToolCall,
     ToolResult,
-    ToolSpec
+    ToolSpec,
+    Usage
   }
+
+  @behaviour LlmCall.Codec
 
   @codec :bedrock_converse
   @version "2023-09-30"
@@ -42,10 +47,12 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     stop: {:stop, :infinity}
   }
 
+  @impl true
   def info do
     %Codec.Info{name: @codec, protocol: :bedrock_converse, version: @version, ir_version: 1}
   end
 
+  @impl true
   def validate_request(%Request{} = request, _config) do
     with :ok <- validate_model(request.model),
          :ok <- validate_unsupported(request),
@@ -55,6 +62,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     end
   end
 
+  @impl true
   def encode_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_request(request, config) do
       {:ok,
@@ -67,6 +75,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     end
   end
 
+  @impl true
   def capabilities(%Request{}, _config) do
     %Capabilities{
       tools: true,
@@ -82,6 +91,65 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
 
   defp validate_model(model) when is_binary(model) and model != "", do: :ok
   defp validate_model(_model), do: Helpers.error(@codec, "model is required")
+
+  @impl true
+  def decode_response(
+        %{"output" => %{"message" => %{"content" => content}}} = payload,
+        %Config{} = config
+      )
+      when is_list(content) do
+    {:ok,
+     %Response{
+       content: Enum.flat_map(content, &decode_part/1),
+       stop_reason: stop_reason(payload["stopReason"]),
+       usage: decode_usage(payload["usage"]),
+       raw: Helpers.capture_response(config, payload)
+     }}
+  end
+
+  def decode_response(_payload, _config) do
+    {:error,
+     %Error{kind: :invalid_response, message: "#{@codec}: payload is not a Converse response"}}
+  end
+
+  @impl true
+  def decode_error(%{"message" => message} = payload, %Config{} = config)
+      when is_binary(message) do
+    %Error{kind: :provider, message: message, raw: Helpers.capture_response(config, payload)}
+  end
+
+  def decode_error(payload, %Config{} = config) do
+    Helpers.decode_provider_error(payload, config, @codec, [], [])
+  end
+
+  defp decode_part(%{"text" => text}) when is_binary(text), do: [%Content.Text{text: text}]
+
+  defp decode_part(%{"toolUse" => %{"toolUseId" => id, "name" => name} = tool}) do
+    [%ToolCall{id: id, name: name, arguments: tool["input"] || %{}}]
+  end
+
+  defp decode_part(_part), do: []
+
+  defp stop_reason("end_turn"), do: :end_turn
+  defp stop_reason("tool_use"), do: :tool_calls
+  defp stop_reason("max_tokens"), do: :max_tokens
+  defp stop_reason("stop_sequence"), do: :stop_sequence
+  defp stop_reason("content_filtered"), do: :content_filter
+  defp stop_reason("guardrail_intervened"), do: :content_filter
+  defp stop_reason("model_context_window_exceeded"), do: :max_tokens
+  defp stop_reason("malformed_model_output"), do: :error
+  defp stop_reason("malformed_tool_use"), do: :error
+  defp stop_reason(_reason), do: :unknown
+
+  defp decode_usage(%{} = usage) do
+    %Usage{
+      input_tokens: Helpers.token(usage["inputTokens"]),
+      output_tokens: Helpers.token(usage["outputTokens"]),
+      total_tokens: Helpers.token(usage["totalTokens"])
+    }
+  end
+
+  defp decode_usage(_usage), do: nil
 
   defp validate_unsupported(%Request{reasoning: reasoning}) when not is_nil(reasoning),
     do: Helpers.error(@codec, "reasoning is not supported by Converse")
