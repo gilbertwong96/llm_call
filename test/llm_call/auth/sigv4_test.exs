@@ -189,6 +189,34 @@ defmodule LlmCall.Auth.SigV4Test do
     assert header(signed, "host") == "[::1]:4566"
   end
 
+  test "a non-UTC now: signs the UTC instant, not the wall clock" do
+    zoned = %DateTime{
+      ~U[2026-11-24 00:00:00Z]
+      | time_zone: "Asia/Shanghai",
+        zone_abbr: "CST",
+        utc_offset: 28_800,
+        std_offset: 0
+    }
+
+    signed = sign!("https://example.test/x", [], now: zoned)
+
+    assert header(signed, "x-amz-date") == "20261123T160000Z"
+  end
+
+  test "a non-ASCII host is refused with the punycode hint" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             SigV4.sign(signed_request("https://例子.测试/x"), sign_opts())
+
+    assert message =~ "punycode"
+  end
+
+  test "a query value that is not a scalar is refused" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             SigV4.sign(signed_request(), sign_opts(query: %{"a" => [1, 2]}))
+
+    assert message =~ "\"a\""
+  end
+
   test "a path the signer cannot sign verbatim is refused" do
     assert {:error, %Error{kind: :validation, message: message}} =
              SigV4.sign(signed_request("https://example.test/model/a b/converse"), sign_opts())

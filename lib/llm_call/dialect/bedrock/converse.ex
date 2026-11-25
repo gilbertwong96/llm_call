@@ -61,6 +61,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     with :ok <- validate_model(request.model),
          :ok <- validate_unsupported(request),
          :ok <- validate_system(request.system),
+         :ok <- validate_messages(request.messages),
          :ok <- validate_parts(request.messages),
          :ok <- validate_tools(request.tools, request.tool_choice),
          :ok <- validate_provider_options(request, config) do
@@ -173,6 +174,18 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp validate_unsupported(_request), do: :ok
 
   defp validate_system(system), do: Helpers.validate_system(system, @codec)
+
+  defp validate_messages([]),
+    do: Helpers.error(@codec, "messages must contain at least one message")
+
+  defp validate_messages(messages) when is_list(messages) do
+    Helpers.first_error(messages, fn
+      %Message{content: []} -> Helpers.error(@codec, "a message needs at least one content part")
+      %Message{} -> :ok
+    end)
+  end
+
+  defp validate_messages(_messages), do: Helpers.error(@codec, "messages must be a list")
 
   defp validate_parts(messages), do: Helpers.validate_parts(messages, @codec, &validate_part/2)
 
@@ -295,6 +308,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   end
 
   defp system(nil), do: nil
+  defp system([]), do: nil
   defp system(text) when is_binary(text), do: [%{"text" => text}]
 
   defp system(parts) when is_list(parts),

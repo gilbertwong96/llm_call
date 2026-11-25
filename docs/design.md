@@ -1169,6 +1169,11 @@ The boundary stays public for callers that own a transport:
 encode with `LlmCall.encode/3`, serialise `encoded.body`, and issue the request with
 `encoded.method`, `encoded.path`, `encoded.headers` and `encoded.query`.
 
+`encode/3` takes a codec, not a client, so it cannot sign: a provider whose `auth`
+is `{:sigv4, _}` must go through `LlmCall.complete/3` or `LlmCall.stream/3`, or the
+caller signs the assembled request with `LlmCall.Auth.SigV4.sign/2` before sending
+it.
+
 A signed request cannot be exercised in CI: no AWS credentials are there, and the
 published test vector proves the algorithm rather than the endpoint. The manual
 check is a `Converse` call against LocalStack, or a real Bedrock runtime endpoint

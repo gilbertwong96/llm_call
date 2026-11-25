@@ -39,7 +39,8 @@ defmodule LlmCall.Auth.SigV4 do
   def sign(%Request{} = request, opts) do
     with :ok <- validate_url(request.url),
          {:ok, credentials} <- credentials(opts),
-         :ok <- validate_path(request.url) do
+         :ok <- validate_path(request.url),
+         :ok <- validate_query(Keyword.get(opts, :query, %{})) do
       {:ok, signed(request, opts, credentials)}
     end
   end
@@ -47,12 +48,38 @@ defmodule LlmCall.Auth.SigV4 do
   defp validate_url(url) do
     case URI.parse(url) do
       %URI{host: host} when is_binary(host) and host != "" ->
-        :ok
+        validate_host(host)
 
       _uri ->
         invalid("sigv4: request URL must be absolute; it has no host")
     end
   end
+
+  defp validate_host(host) do
+    if ascii?(host),
+      do: :ok,
+      else:
+        invalid(
+          "sigv4: host must be ASCII; supply the punycode form (xn--) for an " <>
+            "internationalized domain"
+        )
+  end
+
+  defp validate_query(query) when is_map(query) do
+    case Enum.find(query, fn {_key, value} -> not scalar?(value) end) do
+      nil ->
+        :ok
+
+      {key, _value} ->
+        invalid(
+          "sigv4: query value for #{inspect(key)} must be a string, atom, number or boolean"
+        )
+    end
+  end
+
+  defp validate_query(_query), do: invalid("sigv4: query must be a map")
+
+  defp scalar?(value), do: is_binary(value) or is_atom(value) or is_number(value)
 
   defp signed(%Request{} = request, opts, credentials) do
     service = Keyword.fetch!(opts, :service)
@@ -60,9 +87,9 @@ defmodule LlmCall.Auth.SigV4 do
     query = Keyword.get(opts, :query, %{})
 
     uri = URI.parse(request.url)
-    now = opts[:now] || DateTime.utc_now()
-    amz_date = amz_date(now)
-    date = Calendar.strftime(now, "%Y%m%d")
+    utc = utc_naive(opts[:now] || DateTime.utc_now())
+    amz_date = Calendar.strftime(utc, "%Y%m%dT%H%M%SZ")
+    date = Calendar.strftime(utc, "%Y%m%d")
     scope = Enum.join([date, region, service, @terminator], "/")
 
     headers =
@@ -174,6 +201,11 @@ defmodule LlmCall.Auth.SigV4 do
     end
   end
 
+  defp utc_naive(%DateTime{} = now) do
+    offset = now.utc_offset + now.std_offset
+    now |> DateTime.to_naive() |> NaiveDateTime.add(-offset, :second)
+  end
+
   defp ascii?(string), do: string |> :binary.bin_to_list() |> Enum.all?(&(&1 < 128))
 
   defp invalid(message), do: {:error, %Error{kind: :validation, message: message}}
@@ -249,8 +281,6 @@ defmodule LlmCall.Auth.SigV4 do
   defp default_port?("http", 80), do: true
   defp default_port?("https", 443), do: true
   defp default_port?(_scheme, _port), do: false
-
-  defp amz_date(now), do: Calendar.strftime(now, "%Y%m%dT%H%M%SZ")
 
   defp absent(""), do: nil
   defp absent(query), do: query

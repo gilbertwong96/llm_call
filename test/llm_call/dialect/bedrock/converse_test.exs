@@ -167,6 +167,27 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
     end
   end
 
+  test "a request with no messages or an empty message is refused" do
+    assert {:error, %Error{kind: :validation, message: empty}} =
+             Converse.encode_request(request("m", messages: []), %Config{})
+
+    assert empty =~ "messages"
+
+    assert {:error, %Error{kind: :validation, message: contentless}} =
+             Converse.encode_request(
+               request("m", messages: [%Message{role: :user, content: []}]),
+               %Config{}
+             )
+
+    assert contentless =~ "content"
+  end
+
+  test "an empty system list is omitted rather than sent empty" do
+    encoded = encode!(request("m", system: []))
+
+    refute Map.has_key?(encoded.body, "system")
+  end
+
   test "a tool call without an id is refused" do
     request =
       request("m",
