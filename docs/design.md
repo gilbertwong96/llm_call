@@ -835,14 +835,14 @@ A `params` key is checked twice: the key must be one the protocol accepts, and
 the value must be one it can send. The second half is per protocol, because the
 same key has different bounds:
 
-| Key | OpenAI Chat / Responses | Anthropic | Gemini |
-| --- | --- | --- | --- |
-| `temperature` | number `0..2` | number `0..1` | number `0..2` |
-| `top_p` | number `0..1` | number `0..1` | number `0..1` |
-| `top_k` | not accepted | integer `>= 0` | integer `>= 0` |
-| `max_tokens` | integer `>= 1` | integer `>= 1`, required | integer `>= 1` |
-| `stop` | string or up to 4 strings | string or string list | string or up to 4 strings |
-| `seed` | integer | not accepted | not accepted |
+| Key | OpenAI Chat / Responses | Anthropic | Gemini | Bedrock Converse |
+| --- | --- | --- | --- | --- |
+| `temperature` | number `0..2` | number `0..1` | number `0..2` | number `0..1` |
+| `top_p` | number `0..1` | number `0..1` | number `0..1` | number `0..1` |
+| `top_k` | not accepted | integer `>= 0` | integer `>= 0` | not accepted |
+| `max_tokens` | integer `>= 1` | integer `>= 1`, required | integer `>= 1` | integer `>= 1` |
+| `stop` | string or up to 4 strings | string or string list | string or up to 4 strings | string or string list |
+| `seed` | integer | not accepted | not accepted | not accepted |
 
 A `nil` value means "provider default" and skips the value check entirely. A
 `max_tokens` upper bound is model-level, not protocol-level, so it is not checked;
@@ -1144,8 +1144,11 @@ An encoded request is an `%LlmCall.EncodedRequest{}` with `method`, `path`, `que
 - `path`, `query`, `headers`, and `body` are protocol-level facts.
 - `body` is a JSON-compatible term, not an encoded JSON string.
 - Headers may include required protocol headers.
-- Headers must not include credentials; authentication is added by the client,
-  from the provider's `auth` shape and the caller's `api_key`.
+- Headers must not include credentials. A header-shaped `auth` (`:bearer`,
+  `:x_api_key`, `{:header, name}`, `{module, function}`) is resolved by the client
+  from `api_key:`. A signing shape (`{:sigv4, opts}`) is applied by the transport
+  after the body is serialized, because the signature covers the bytes that go on
+  the wire; a codec knows about neither.
 - The client prepends the base URL, merges the provider's `query:` under the
   encoded query, and performs JSON encoding with the configured module. The
   provider-level parameters carry vendor facts that are not protocol facts —

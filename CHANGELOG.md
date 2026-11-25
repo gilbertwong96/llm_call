@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- `auth: {:sigv4, service: ..., region: ...}` signs every request with AWS
+  Signature Version 4. Credentials are a client option — `credentials:` takes a
+  map or a 0-arity function that returns one — and `region:` overrides the
+  declared region per client.
+- `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
+  text, tool use and tool results. Images and documents are refused until the
+  capability model can say "inline only"; streaming waits for the event-stream
+  framing it needs.
+
 ## 0.2.0 - 2026-11-24
 
 ### Breaking changes

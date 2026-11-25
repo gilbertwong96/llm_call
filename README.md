@@ -49,7 +49,15 @@ own); everything else is dev/test only.
 ## Providers
 
 A provider is a module you write: endpoint, auth shape, and the codecs it serves.
-There is no built-in catalog — `examples/` carries reference definitions.
+There is no built-in catalog — [`examples/`](https://github.com/gilbertwong96/llm_call/tree/main/examples)
+carries reference definitions. They are compiled in `:dev` and `:test`, so they
+cannot rot, and kept out of the Hex package; the link is how they are reached from
+the docs.
+
+Cryptographic auth is a shape too. `auth: {:sigv4, service: "bedrock", region: "us-east-1"}`
+signs every request from the client's `credentials:` — a map, or a function that
+returns one — and `region:` overrides the declared region per client. Signing runs
+after the body is serialized, in the transport, so a codec never learns it exists.
 
 ```elixir
 defmodule MyApp.Groq do
