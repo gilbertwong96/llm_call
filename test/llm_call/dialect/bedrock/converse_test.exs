@@ -167,6 +167,38 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
     end
   end
 
+  test "a tool call without an id is refused" do
+    request =
+      request("m",
+        messages: [%Message{role: :assistant, content: [%ToolCall{name: "get", arguments: %{}}]}]
+      )
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request, %Config{})
+
+    assert message =~ "tool calls require an id"
+  end
+
+  test "a tool result without content or a call_id is refused" do
+    empty =
+      request("m",
+        messages: [%Message{role: :user, content: [%ToolResult{call_id: "t1", content: []}]}]
+      )
+
+    assert {:error, %Error{kind: :validation, message: empty_message}} =
+             Converse.encode_request(empty, %Config{})
+
+    assert empty_message =~ "content"
+
+    unnamed =
+      request("m", messages: [%Message{role: :user, content: [%ToolResult{content: "ok"}]}])
+
+    assert {:error, %Error{kind: :validation, message: unnamed_message}} =
+             Converse.encode_request(unnamed, %Config{})
+
+    assert unnamed_message =~ "call_id"
+  end
+
   test "a response block this phase does not map is preserved as Content.Raw" do
     thinking = %{"reasoningContent" => %{"reasoningText" => %{"text" => "think"}}}
 

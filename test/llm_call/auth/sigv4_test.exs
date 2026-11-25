@@ -176,6 +176,19 @@ defmodule LlmCall.Auth.SigV4Test do
     assert message =~ ":secret_access_key"
   end
 
+  test "a URL without a host is refused, not crashed on" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             SigV4.sign(signed_request("/relative/path"), sign_opts())
+
+    assert message =~ "host"
+  end
+
+  test "an IPv6 host keeps its brackets in the host header" do
+    signed = sign!("http://[::1]:4566/aws/converse")
+
+    assert header(signed, "host") == "[::1]:4566"
+  end
+
   test "a path the signer cannot sign verbatim is refused" do
     assert {:error, %Error{kind: :validation, message: message}} =
              SigV4.sign(signed_request("https://example.test/model/a b/converse"), sign_opts())

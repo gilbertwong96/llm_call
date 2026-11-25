@@ -177,7 +177,15 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp validate_parts(messages), do: Helpers.validate_parts(messages, @codec, &validate_part/2)
 
   defp validate_part(_role, %Content.Text{}), do: :ok
-  defp validate_part(_role, %ToolCall{}), do: :ok
+  defp validate_part(_role, %ToolCall{id: id}) when is_binary(id) and id != "", do: :ok
+  defp validate_part(_role, %ToolCall{}), do: Helpers.error(@codec, "tool calls require an id")
+
+  defp validate_part(_role, %ToolResult{call_id: id}) when not is_binary(id) or id == "",
+    do: Helpers.error(@codec, "tool results require a call_id")
+
+  defp validate_part(_role, %ToolResult{content: content}) when content in [nil, "", []],
+    do: Helpers.error(@codec, "tool results require content")
+
   defp validate_part(_role, %ToolResult{}), do: :ok
 
   defp validate_part(_role, %Content.Image{}),

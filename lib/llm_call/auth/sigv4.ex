@@ -37,9 +37,20 @@ defmodule LlmCall.Auth.SigV4 do
   """
   @spec sign(Request.t(), keyword()) :: {:ok, Request.t()} | {:error, Error.t()}
   def sign(%Request{} = request, opts) do
-    with {:ok, credentials} <- credentials(opts),
+    with :ok <- validate_url(request.url),
+         {:ok, credentials} <- credentials(opts),
          :ok <- validate_path(request.url) do
       {:ok, signed(request, opts, credentials)}
+    end
+  end
+
+  defp validate_url(url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) and host != "" ->
+        :ok
+
+      _uri ->
+        invalid("sigv4: request URL must be absolute; it has no host")
     end
   end
 
@@ -224,9 +235,15 @@ defmodule LlmCall.Auth.SigV4 do
   defp sha256_hex(data), do: Base.encode16(:crypto.hash(@hash_algorithm, data), case: :lower)
 
   defp host(%URI{host: host, scheme: scheme, port: port}) do
+    authority = format_host(host)
+
     if is_nil(port) or default_port?(scheme, port),
-      do: host,
-      else: host <> ":" <> Integer.to_string(port)
+      do: authority,
+      else: authority <> ":" <> Integer.to_string(port)
+  end
+
+  defp format_host(host) do
+    if String.contains?(host, ":"), do: "[" <> host <> "]", else: host
   end
 
   defp default_port?("http", 80), do: true
