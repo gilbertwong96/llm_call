@@ -2,6 +2,7 @@ defmodule LlmCall.Auth.SigV4Test do
   use ExUnit.Case, async: true
 
   alias LlmCall.Auth.SigV4
+  alias LlmCall.Error
   alias LlmCall.HTTP.Request
 
   @credentials %{
@@ -135,5 +136,82 @@ defmodule LlmCall.Auth.SigV4Test do
 
     assert header(twice, "authorization") == header(once, "authorization")
     assert Enum.count(twice.headers, fn {name, _value} -> name == "host" end) == 1
+  end
+
+  test "a session token is sent and signed" do
+    signed =
+      sign!("https://example.test/model/m/converse", [],
+        credentials: Map.put(@credentials, :session_token, "TOKEN")
+      )
+
+    assert header(signed, "x-amz-security-token") == "TOKEN"
+
+    assert header(signed, "authorization") =~
+             "SignedHeaders=content-type;host;x-amz-date;x-amz-security-token"
+  end
+
+  test "an empty session token is treated as absent" do
+    signed =
+      sign!("https://example.test/model/m/converse", [],
+        credentials: Map.put(@credentials, :session_token, "")
+      )
+
+    refute header(signed, "x-amz-security-token")
+    refute header(signed, "authorization") =~ "x-amz-security-token"
+  end
+
+  test "expired credentials fail before the request is built" do
+    credentials = Map.put(@credentials, :expiration, ~U[2020-01-01 00:00:00Z])
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             SigV4.sign(signed_request(), sign_opts(credentials: credentials))
+
+    assert message =~ "expired"
+  end
+
+  test "a missing credential key is named in the error" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             SigV4.sign(signed_request(), sign_opts(credentials: %{access_key_id: "AKID"}))
+
+    assert message =~ ":secret_access_key"
+  end
+
+  test "a path the signer cannot sign verbatim is refused" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             SigV4.sign(signed_request("https://example.test/model/a b/converse"), sign_opts())
+
+    assert message =~ "space"
+
+    assert {:error, %Error{kind: :validation, message: unicode}} =
+             SigV4.sign(signed_request("https://example.test/model/ü/converse"), sign_opts())
+
+    assert unicode =~ "non-ASCII"
+
+    assert {:error, %Error{kind: :validation, message: fragment}} =
+             SigV4.sign(signed_request("https://example.test/model/a#frag/converse"), sign_opts())
+
+    assert fragment =~ "#"
+  end
+
+  defp signed_request(url \\ "https://example.test/model/m/converse") do
+    %Request{
+      method: :post,
+      url: url,
+      headers: [{"content-type", "application/json"}],
+      body: "x"
+    }
+  end
+
+  defp sign_opts(overrides \\ []) do
+    Keyword.merge(
+      [
+        service: "bedrock",
+        region: "us-east-1",
+        credentials: @credentials,
+        query: %{},
+        now: ~U[2026-11-24 00:00:00Z]
+      ],
+      overrides
+    )
   end
 end

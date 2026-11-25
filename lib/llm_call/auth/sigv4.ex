@@ -20,24 +20,32 @@ defmodule LlmCall.Auth.SigV4 do
   sorted after encoding.
   """
 
+  alias LlmCall.Error
   alias LlmCall.HTTP.Request
 
   @algorithm "AWS4-HMAC-SHA256"
   @terminator "aws4_request"
   @hash_algorithm :sha256
-  @replaced_headers ["host", "x-amz-date", "authorization"]
+  @replaced_headers ["host", "x-amz-date", "x-amz-security-token", "authorization"]
 
   @doc """
   Signs `request` and returns it carrying `host`, `x-amz-date` and `authorization`.
 
   Options: `service:`, `region:`, `credentials:` (a map with `:access_key_id` and
-  `:secret_access_key`), `query:` (the merged query map) and `now:`.
+  `:secret_access_key`, and optionally `:session_token` and `:expiration`), `query:`
+  (the merged query map) and `now:`.
   """
-  @spec sign(Request.t(), keyword()) :: {:ok, Request.t()}
+  @spec sign(Request.t(), keyword()) :: {:ok, Request.t()} | {:error, Error.t()}
   def sign(%Request{} = request, opts) do
+    with {:ok, credentials} <- credentials(opts),
+         :ok <- validate_path(request.url) do
+      {:ok, signed(request, opts, credentials)}
+    end
+  end
+
+  defp signed(%Request{} = request, opts, credentials) do
     service = Keyword.fetch!(opts, :service)
     region = Keyword.fetch!(opts, :region)
-    credentials = Keyword.fetch!(opts, :credentials)
     query = Keyword.get(opts, :query, %{})
 
     uri = URI.parse(request.url)
@@ -50,6 +58,7 @@ defmodule LlmCall.Auth.SigV4 do
       request.headers
       |> Enum.reject(fn {name, _value} -> String.downcase(name) in @replaced_headers end)
       |> Kernel.++([{"host", host(uri)}, {"x-amz-date", amz_date}])
+      |> Kernel.++(token_header(credentials.session_token))
 
     {signed_names, canonical_headers} = canonical_headers(headers)
     canonical_query = canonical_query(query)
@@ -74,13 +83,89 @@ defmodule LlmCall.Auth.SigV4 do
       "#{@algorithm} Credential=#{credentials.access_key_id}/#{scope}, " <>
         "SignedHeaders=#{signed_names}, Signature=#{signature_hex}"
 
-    {:ok,
-     %{
-       request
-       | url: URI.to_string(%{uri | query: absent(canonical_query)}),
-         headers: headers ++ [{"authorization", authorization}]
-     }}
+    %{
+      request
+      | url: URI.to_string(%{uri | query: absent(canonical_query)}),
+        headers: headers ++ [{"authorization", authorization}]
+    }
   end
+
+  defp token_header(nil), do: []
+  defp token_header(token), do: [{"x-amz-security-token", token}]
+
+  defp credentials(opts) do
+    raw = Keyword.get(opts, :credentials)
+    now = opts[:now] || DateTime.utc_now()
+
+    with {:ok, access_key_id} <- credential_field(raw, :access_key_id),
+         {:ok, secret_access_key} <- credential_field(raw, :secret_access_key),
+         {:ok, session_token} <- session_token(raw),
+         :ok <- expiration(raw, now) do
+      {:ok,
+       %{
+         access_key_id: access_key_id,
+         secret_access_key: secret_access_key,
+         session_token: session_token
+       }}
+    end
+  end
+
+  defp credential_field(credentials, key) when is_map(credentials) do
+    case Map.get(credentials, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> invalid("sigv4: credentials require a non-empty #{inspect(key)}")
+    end
+  end
+
+  defp credential_field(_credentials, key) do
+    invalid("sigv4: credentials require a non-empty #{inspect(key)}")
+  end
+
+  defp session_token(credentials) do
+    case Map.get(credentials, :session_token) do
+      nil -> {:ok, nil}
+      "" -> {:ok, nil}
+      token when is_binary(token) -> {:ok, token}
+      _token -> invalid("sigv4: credentials session_token must be a string")
+    end
+  end
+
+  defp expiration(credentials, now) do
+    case Map.get(credentials, :expiration) do
+      nil ->
+        :ok
+
+      %DateTime{} = expiration ->
+        if DateTime.compare(expiration, now) == :gt,
+          do: :ok,
+          else: invalid("sigv4: credentials are expired")
+
+      _expiration ->
+        invalid("sigv4: credentials expiration must be a DateTime")
+    end
+  end
+
+  defp validate_path(url) do
+    path = URI.parse(url).path || "/"
+
+    cond do
+      String.contains?(path, " ") ->
+        invalid("sigv4: request path must be percent-encoded; it contains a space")
+
+      String.contains?(url, "#") ->
+        invalid(~s(sigv4: request path must be percent-encoded; it contains "#"))
+
+      not ascii?(path) ->
+        invalid("sigv4: request path must be percent-encoded; it contains a non-ASCII byte")
+
+      true ->
+        :ok
+    end
+  end
+
+  defp ascii?(string), do: string |> :binary.bin_to_list() |> Enum.all?(&(&1 < 128))
+
+  defp invalid(message), do: {:error, %Error{kind: :validation, message: message}}
 
   defp canonical_headers(headers) do
     selected =
