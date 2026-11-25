@@ -157,7 +157,9 @@ needs. Running it is the caller's loop, not the library's.
 
 The core must not contain:
 
-- API key storage, key lookup, OAuth or AWS signing
+- API key storage, key lookup, OAuth, or credential resolution for AWS. Signing a
+  request with caller-supplied credentials is supported; discovering those
+  credentials (IMDS, ECS, SSO, web identity, shared config) is not.
 - model registry or capability database
 - retry/backoff/rate-limit policy
 - tool execution or callbacks
@@ -1148,7 +1150,9 @@ An encoded request is an `%LlmCall.EncodedRequest{}` with `method`, `path`, `que
   `:x_api_key`, `{:header, name}`, `{module, function}`) is resolved by the client
   from `api_key:`. A signing shape (`{:sigv4, opts}`) is applied by the transport
   after the body is serialized, because the signature covers the bytes that go on
-  the wire; a codec knows about neither.
+  the wire; a codec knows about neither. Credential *resolution* stays out of
+  scope for both: the caller supplies the key, or a 0-arity `credentials:`
+  function that returns fresh ones.
 - The client prepends the base URL, merges the provider's `query:` under the
   encoded query, and performs JSON encoding with the configured module. The
   provider-level parameters carry vendor facts that are not protocol facts —
@@ -1164,6 +1168,12 @@ The boundary stays public for callers that own a transport:
 
 encode with `LlmCall.encode/3`, serialise `encoded.body`, and issue the request with
 `encoded.method`, `encoded.path`, `encoded.headers` and `encoded.query`.
+
+A signed request cannot be exercised in CI: no AWS credentials are there, and the
+published test vector proves the algorithm rather than the endpoint. The manual
+check is a `Converse` call against LocalStack, or a real Bedrock runtime endpoint
+with an IAM role, asserting that `403` does not appear and that `x-amz-date` and
+`authorization` reach the server.
 
 ## 12. Streaming
 

@@ -49,17 +49,21 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     stop: {:stop, :infinity}
   }
 
+  @namespaces [:bedrock]
+
   @impl true
   def info do
     %Codec.Info{name: @codec, protocol: :bedrock_converse, version: @version, ir_version: 1}
   end
 
   @impl true
-  def validate_request(%Request{} = request, _config) do
+  def validate_request(%Request{} = request, %Config{} = config) do
     with :ok <- validate_model(request.model),
          :ok <- validate_unsupported(request),
+         :ok <- validate_system(request.system),
          :ok <- validate_parts(request.messages),
-         :ok <- validate_tools(request.tools, request.tool_choice) do
+         :ok <- validate_tools(request.tools, request.tool_choice),
+         :ok <- validate_provider_options(request, config) do
       Helpers.validate_params_with_spec(request.params, @param_keys, @param_spec, @codec)
     end
   end
@@ -130,6 +134,10 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     [%ToolCall{id: id, name: name, arguments: tool["input"] || %{}}]
   end
 
+  defp decode_part(part) when is_map(part) do
+    [%Content.Raw{type: part |> Map.keys() |> Enum.sort() |> List.first(), data: part}]
+  end
+
   defp decode_part(_part), do: []
 
   defp stop_reason("end_turn"), do: :end_turn
@@ -164,13 +172,46 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
 
   defp validate_unsupported(_request), do: :ok
 
-  defp validate_parts(messages) do
-    Helpers.first_error(Enum.flat_map(messages, & &1.content), fn
-      %Content.Image{} -> Helpers.error(@codec, "Content.Image parts are not supported")
-      %Content.File{} -> Helpers.error(@codec, "Content.File parts are not supported")
-      %Content.Video{} -> Helpers.error(@codec, "Content.Video parts are not supported")
-      _part -> :ok
-    end)
+  defp validate_system(system), do: Helpers.validate_system(system, @codec)
+
+  defp validate_parts(messages), do: Helpers.validate_parts(messages, @codec, &validate_part/2)
+
+  defp validate_part(_role, %Content.Text{}), do: :ok
+  defp validate_part(_role, %ToolCall{}), do: :ok
+  defp validate_part(_role, %ToolResult{}), do: :ok
+
+  defp validate_part(_role, %Content.Image{}),
+    do: Helpers.error(@codec, "Content.Image parts are not supported")
+
+  defp validate_part(_role, %Content.File{}),
+    do: Helpers.error(@codec, "Content.File parts are not supported")
+
+  defp validate_part(_role, %Content.Video{}),
+    do: Helpers.error(@codec, "Content.Video parts are not supported")
+
+  defp validate_part(_role, %Content.Thinking{}),
+    do: Helpers.error(@codec, "Content.Thinking parts are not supported")
+
+  defp validate_part(_role, %Content.Raw{}),
+    do: Helpers.error(@codec, "Content.Raw parts are not supported")
+
+  defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
+
+  defp validate_provider_options(%Request{} = request, %Config{} = config) do
+    with :ok <-
+           Helpers.validate_option_map(
+             request.provider_options,
+             @codec,
+             "provider_options",
+             @namespaces
+           ) do
+      Helpers.validate_option_map(
+        config.default_provider_options,
+        @codec,
+        "default_provider_options",
+        @namespaces
+      )
+    end
   end
 
   defp validate_tools(tools, tool_choice) do

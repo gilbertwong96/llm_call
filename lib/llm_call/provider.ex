@@ -140,10 +140,10 @@ defmodule LlmCall.Provider do
   end
 
   defp signer({:sigv4, opts}, client_opts) do
-    %{
-      service: Keyword.fetch!(opts, :service),
-      region: Keyword.get(client_opts, :region) || Keyword.fetch!(opts, :region)
-    }
+    region = Keyword.get(client_opts, :region) || Keyword.fetch!(opts, :region)
+    validate_region!(region)
+
+    %{service: Keyword.fetch!(opts, :service), region: region}
   end
 
   defp signer(_auth, client_opts) do
@@ -151,6 +151,11 @@ defmodule LlmCall.Provider do
     reject_sigv4_option!(client_opts, :credentials)
     nil
   end
+
+  defp validate_region!(region) when is_binary(region) and region != "", do: :ok
+
+  defp validate_region!(_region),
+    do: raise(ArgumentError, "region must be a non-empty string")
 
   defp reject_sigv4_option!(client_opts, key) do
     if Keyword.has_key?(client_opts, key) do
@@ -169,9 +174,8 @@ defmodule LlmCall.Provider do
       %{} = map ->
         validate_credentials!(map)
 
-      other ->
-        raise ArgumentError,
-              "credentials must be a map or a 0-arity function, got: #{inspect(other)}"
+      _other ->
+        raise ArgumentError, "credentials must be a map or a 0-arity function"
     end
   end
 

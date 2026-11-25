@@ -150,12 +150,14 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
       assert message =~ name
     end
 
-    for part <- [
-          %Content.Image{source: {:url, "https://x/i.png"}},
-          %Content.File{source: {:base64, "QQ=="}, media_type: "application/pdf"},
-          %Content.Video{source: {:url, "https://x/v.mp4"}}
+    for {part, role} <- [
+          {%Content.Image{source: {:url, "https://x/i.png"}}, :user},
+          {%Content.File{source: {:base64, "QQ=="}, media_type: "application/pdf"}, :user},
+          {%Content.Video{source: {:url, "https://x/v.mp4"}}, :user},
+          {%Content.Thinking{text: "thinking"}, :assistant},
+          {%Content.Raw{type: "reasoning", data: %{}}, :assistant}
         ] do
-      request = request("m", messages: [%Message{role: :user, content: [part]}])
+      request = request("m", messages: [%Message{role: role, content: [part]}])
       name = "Content." <> (part.__struct__ |> Module.split() |> List.last())
 
       assert {:error, %Error{kind: :validation, message: message}} =
@@ -163,6 +165,38 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
 
       assert message =~ name
     end
+  end
+
+  test "a response block this phase does not map is preserved as Content.Raw" do
+    thinking = %{"reasoningContent" => %{"reasoningText" => %{"text" => "think"}}}
+
+    payload = %{
+      "output" => %{
+        "message" => %{
+          "role" => "assistant",
+          "content" => [%{"text" => "x"}, thinking]
+        }
+      },
+      "stopReason" => "end_turn"
+    }
+
+    assert {:ok, %Response{content: [%Content.Text{text: "x"}, %Content.Raw{} = raw]}} =
+             Converse.decode_response(payload, %Config{})
+
+    assert raw.type == "reasoningContent"
+    assert raw.data == thinking
+  end
+
+  test "an unknown provider_options namespace or a non-map value is refused" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", provider_options: %{openai: %{}}), %Config{})
+
+    assert message =~ "openai"
+
+    assert {:error, %Error{kind: :validation, message: non_map}} =
+             Converse.encode_request(request("m", provider_options: %{bedrock: "x"}), %Config{})
+
+    assert non_map =~ "bedrock"
   end
 
   test "capabilities describe exactly what the phase supports" do

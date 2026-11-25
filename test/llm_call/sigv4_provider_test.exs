@@ -117,6 +117,27 @@ defmodule LlmCall.SigV4ProviderTest do
     end
   end
 
+  test "region: must be a non-empty string" do
+    for region <- ["", %{}, 1] do
+      assert_raise ArgumentError, ~r/region must be a non-empty string/, fn ->
+        TestSigV4Provider.client(credentials: @credentials, region: region)
+      end
+    end
+  end
+
+  test "a credentials value is never echoed in the error message" do
+    error =
+      assert_raise ArgumentError, fn ->
+        TestSigV4Provider.client(
+          credentials: [access_key_id: "AKID", secret_access_key: "S3CR3T"]
+        )
+      end
+
+    refute error.message =~ "S3CR3T"
+    refute error.message =~ "AKID"
+    assert error.message =~ "0-arity function"
+  end
+
   test "a path prefix and a non-default port are part of what is signed" do
     respond()
 
