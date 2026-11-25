@@ -57,6 +57,15 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
       codecs: [chat: LlmCall.Dialect.OpenAI.Responses]
   end
 
+  defmodule SigV4WSProvider do
+    @moduledoc false
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1",
+      auth: {:sigv4, service: "bedrock", region: "us-east-1"},
+      codecs: [chat: LlmCall.Dialect.OpenAI.Responses]
+  end
+
   setup do
     TestWSServer.start(mode: :responses)
     on_exit(&TestWSServer.stop/0)
@@ -598,5 +607,17 @@ defmodule LlmCall.Dialect.OpenAIResponsesConnectionTest do
   test "a missing client is rejected at start" do
     Process.flag(:trap_exit, true)
     assert {:error, :client_required} = Connection.start_link(client: nil)
+  end
+
+  test "a SigV4 client is refused at start, because the handshake cannot be signed" do
+    Process.flag(:trap_exit, true)
+
+    client =
+      SigV4WSProvider.client(
+        base_url: "http://127.0.0.1",
+        credentials: %{access_key_id: "AKID", secret_access_key: "S"}
+      )
+
+    assert {:error, :sigv4_websocket_unsupported} = Connection.start_link(client: client)
   end
 end

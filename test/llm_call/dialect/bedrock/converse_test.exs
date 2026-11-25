@@ -188,6 +188,50 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
     refute Map.has_key?(encoded.body, "system")
   end
 
+  test "consecutive tool results are merged into one user turn" do
+    encoded =
+      encode!(
+        request("m",
+          messages: [
+            %Message{role: :user, content: [%Content.Text{text: "two lookups"}]},
+            %Message{
+              role: :assistant,
+              content: [
+                %ToolCall{id: "t1", name: "get", arguments: %{"a" => 1}},
+                %ToolCall{id: "t2", name: "get", arguments: %{"a" => 2}}
+              ]
+            },
+            %Message{role: :user, content: [%ToolResult{call_id: "t1", content: "one"}]},
+            %Message{role: :user, content: [%ToolResult{call_id: "t2", content: "two"}]}
+          ]
+        )
+      )
+
+    assert [%{"role" => "user"}, %{"role" => "assistant"}, %{"role" => "user"} = merged] =
+             encoded.body["messages"]
+
+    assert [%{"toolResult" => %{"toolUseId" => "t1"}}, %{"toolResult" => %{"toolUseId" => "t2"}}] =
+             merged["content"]
+  end
+
+  test "tool parameters must be a JSON schema object" do
+    nil_parameters = %ToolSpec{name: "get", parameters: nil}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", tools: [nil_parameters]), %Config{})
+
+    assert message =~ "parameters"
+
+    assert {:ok, encoded} =
+             Converse.encode_request(
+               request("m", tools: [%ToolSpec{name: "get", parameters: %{}}]),
+               %Config{}
+             )
+
+    assert [%{"toolSpec" => %{"inputSchema" => %{"json" => %{}}}}] =
+             encoded.body["toolConfig"]["tools"]
+  end
+
   test "a tool call without an id is refused" do
     request =
       request("m",

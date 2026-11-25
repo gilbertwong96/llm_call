@@ -192,6 +192,9 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
     if LlmCall.HTTP.valid_headers?(headers), do: :ok, else: {:error, :invalid_headers}
   end
 
+  defp validate_client(%Client{signer: signer}) when not is_nil(signer),
+    do: {:error, :sigv4_websocket_unsupported}
+
   defp validate_client(%Client{}), do: :ok
   defp validate_client(_client), do: {:error, :client_required}
 

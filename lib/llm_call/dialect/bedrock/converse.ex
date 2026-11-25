@@ -246,11 +246,18 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   end
 
   defp validate_tool_spec(%ToolSpec{} = spec) do
-    Helpers.validate_tool_spec(spec, @codec,
-      builtin_tools: false,
-      name_pattern: {@tool_name_pattern, @tool_name_max, "Converse"}
-    )
+    with :ok <- validate_tool_parameters(spec.parameters) do
+      Helpers.validate_tool_spec(spec, @codec,
+        builtin_tools: false,
+        name_pattern: {@tool_name_pattern, @tool_name_max, "Converse"}
+      )
+    end
   end
+
+  defp validate_tool_parameters(parameters) when is_map(parameters), do: :ok
+
+  defp validate_tool_parameters(_parameters),
+    do: Helpers.error(@codec, "tool parameters must be a JSON schema object")
 
   defp validate_tool_choice(choice, tools) do
     with :ok <- Helpers.validate_tool_choice(choice, tools, @codec) do
@@ -274,7 +281,30 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     |> Helpers.maybe_put("additionalModelRequestFields", additional_fields(request, config))
   end
 
-  defp messages(messages, config), do: Enum.map(messages, &message(&1, config))
+  defp messages(messages, config) do
+    messages
+    |> Enum.map(&message(&1, config))
+    |> merge_tool_results()
+  end
+
+  defp merge_tool_results(encoded) do
+    encoded
+    |> Enum.reduce([], fn
+      %{"role" => "user", "content" => current} = message,
+      [%{"role" => "user", "content" => previous} = merged | rest] ->
+        if tool_results?(previous) and tool_results?(current),
+          do: [%{merged | "content" => previous ++ current} | rest],
+          else: [message, merged | rest]
+
+      message, acc ->
+        [message | acc]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp tool_results?(blocks) do
+    blocks != [] and Enum.all?(blocks, fn block -> Map.has_key?(block, "toolResult") end)
+  end
 
   defp message(%Message{role: role, content: content}, config) do
     %{"role" => role_name(role), "content" => Enum.map(content, &part(&1, config))}
