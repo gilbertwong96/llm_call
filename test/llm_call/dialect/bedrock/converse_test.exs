@@ -128,11 +128,90 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
     refute Map.has_key?(automatic.body["toolConfig"], "toolChoice")
   end
 
-  test "provider_options.bedrock reaches additionalModelRequestFields" do
+  test "provider_options.bedrock lands at the top level of the Converse request" do
     encoded =
-      encode!(request("m", provider_options: %{bedrock: %{"top_k" => 200}}))
+      encode!(
+        request("m",
+          provider_options: %{bedrock: %{"guardrailConfig" => %{"guardrailIdentifier" => "gr-1"}}}
+        )
+      )
+
+    assert encoded.body["guardrailConfig"] == %{"guardrailIdentifier" => "gr-1"}
+    refute Map.has_key?(encoded.body, "additionalModelRequestFields")
+  end
+
+  test "additionalModelRequestFields is one more top-level field, written nested" do
+    encoded =
+      encode!(
+        request("m",
+          provider_options: %{bedrock: %{"additionalModelRequestFields" => %{"top_k" => 200}}}
+        )
+      )
 
     assert encoded.body["additionalModelRequestFields"] == %{"top_k" => 200}
+  end
+
+  test "default_provider_options are merged under the request's" do
+    config = %Config{
+      default_provider_options: %{bedrock: %{"performanceConfig" => %{"latency" => "optimized"}}}
+    }
+
+    encoded =
+      Converse.encode_request(
+        request("m", provider_options: %{bedrock: %{"requestMetadata" => %{"k" => "v"}}}),
+        config
+      )
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} = encoded
+    assert body["performanceConfig"] == %{"latency" => "optimized"}
+    assert body["requestMetadata"] == %{"k" => "v"}
+  end
+
+  test "a default namespace for another provider is not this codec's business" do
+    config = %Config{default_provider_options: %{openai: %{"user" => "u"}}}
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             Converse.encode_request(request("m"), config)
+
+    refute Map.has_key?(body, "user")
+  end
+
+  test "a native option may not replace a canonical envelope key" do
+    for {key, value} <- [
+          {"messages", []},
+          {"system", [%{"text" => "x"}]},
+          {"inferenceConfig", %{"maxTokens" => 1}},
+          {"toolConfig", %{}},
+          {"inferenceconfig", %{}}
+        ] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               Converse.encode_request(
+                 request("m", provider_options: %{bedrock: %{key => value}}),
+                 %Config{}
+               )
+
+      assert message =~ key
+      assert message =~ "canonical"
+    end
+  end
+
+  test "a known native option is type-checked, an unknown one passes" do
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(
+               request("m", provider_options: %{bedrock: %{"guardrailConfig" => "nope"}}),
+               %Config{}
+             )
+
+    assert message =~ "guardrailConfig"
+    assert message =~ "a map"
+
+    assert {:ok, %LlmCall.EncodedRequest{body: body}} =
+             Converse.encode_request(
+               request("m", provider_options: %{bedrock: %{"futureField" => "x"}}),
+               %Config{}
+             )
+
+    assert body["futureField"] == "x"
   end
 
   test "the codec refuses what Converse cannot express, by name" do

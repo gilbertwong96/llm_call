@@ -14,6 +14,20 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   than dropped: Converse takes them inline (`bytes`) or from S3 and has no URL
   source, and a capability flag that said `true` would promise a shape the codec
   must reject.
+
+  ## Native options
+
+  `provider_options.bedrock` is merged into the **top level** of the Converse
+  request, the rule the OpenAI, Anthropic and Gemini codecs already follow. That
+  is what makes `guardrailConfig`, `performanceConfig`, `requestMetadata` and
+  `promptVariables` reachable, and `additionalModelRequestFields` is one more
+  top-level field rather than a special case:
+
+      provider_options: %{bedrock: %{"additionalModelRequestFields" => %{"top_k" => 200}}}
+
+  The canonical envelope keys — `messages`, `system`, `inferenceConfig`,
+  `toolConfig` — are reserved: an option that would replace one is a
+  `:validation` error, never a silent override.
   """
 
   alias LlmCall.Dialect.Helpers
@@ -50,6 +64,17 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   }
 
   @namespaces [:bedrock]
+
+  @envelope_keys ~w(messages system inferenceconfig toolconfig)
+
+  @native_options %{
+    "guardrailConfig" => :map,
+    "performanceConfig" => :map,
+    "requestMetadata" => :map,
+    "promptVariables" => :map,
+    "additionalModelRequestFields" => :map,
+    "additionalModelResponseFieldPaths" => :list
+  }
 
   @impl true
   def info do
@@ -221,21 +246,41 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
 
   defp validate_provider_options(%Request{} = request, %Config{} = config) do
+    request_options = Map.get(request.provider_options, :bedrock, %{})
+    default_options = Map.get(config.default_provider_options, :bedrock, %{})
+
     with :ok <-
            Helpers.validate_option_map(
              request.provider_options,
              @codec,
              "provider_options",
              @namespaces
-           ) do
-      Helpers.validate_option_map(
-        config.default_provider_options,
-        @codec,
-        "default_provider_options",
-        @namespaces
-      )
+           ),
+         # A default map is application-wide and legitimately carries namespaces for
+         # other providers, so only the one this codec reads is checked.
+         :ok <-
+           Helpers.validate_option_map(
+             config.default_provider_options,
+             @codec,
+             "default_provider_options",
+             @namespaces,
+             strict?: false
+           ),
+         :ok <- validate_native_options(request_options, "provider_options") do
+      validate_native_options(default_options, "default_provider_options")
     end
   end
+
+  # A native option may add a Converse field or override one the codec does not
+  # produce, but it may not replace the envelope the canonical IR owns.
+  defp validate_native_options(options, label) when is_map(options) do
+    with :ok <- Helpers.validate_option_keys(options, @envelope_keys, @codec) do
+      Helpers.validate_native_options(options, @native_options, @codec, label)
+    end
+  end
+
+  defp validate_native_options(_options, label),
+    do: Helpers.error(@codec, "#{label} must be a map")
 
   defp validate_tools(tools, tool_choice) do
     Helpers.validate_tools(
@@ -280,7 +325,13 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     |> Helpers.maybe_put("system", system(request.system))
     |> Helpers.maybe_put("inferenceConfig", inference_config(request.params))
     |> Helpers.maybe_put("toolConfig", tool_config(request.tools, request.tool_choice))
-    |> Helpers.maybe_put("additionalModelRequestFields", additional_fields(request, config))
+    |> Config.deep_merge(provider_options(request, config))
+  end
+
+  defp provider_options(%Request{} = request, %Config{} = config) do
+    request
+    |> Config.provider_options(config)
+    |> Map.get(:bedrock, %{})
   end
 
   defp messages(messages, config) do
@@ -381,14 +432,6 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp tool_choice_wire(:required), do: %{"any" => %{}}
   defp tool_choice_wire({:tool, name}), do: %{"tool" => %{"name" => name}}
 
-  defp additional_fields(%Request{} = request, %Config{} = config) do
-    request
-    |> Config.provider_options(config)
-    |> Map.get(:bedrock)
-    |> absent_if_empty()
-  end
-
-  defp absent_if_empty(nil), do: nil
   defp absent_if_empty(map) when is_map(map) and map_size(map) == 0, do: nil
   defp absent_if_empty(value), do: value
 end

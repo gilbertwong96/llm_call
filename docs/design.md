@@ -1136,7 +1136,20 @@ OpenAI Responses (`access_programs`, `store`, `previous_response_id`, `include`,
 `safety_identifier`, `prompt_cache_key`), OpenAI Chat (`logprobs`, `top_logprobs`,
 `logit_bias`, `stream_options`, `parallel_tool_calls`, `service_tier`, `user`,
 `store`, `metadata`, `prediction`, `modalities`, `audio`, `web_search_options`),
-Anthropic Messages, and Gemini GenerateContent.
+Anthropic Messages, Gemini GenerateContent, and Bedrock Converse
+(`guardrailConfig`, `performanceConfig`, `requestMetadata`, `promptVariables`,
+`additionalModelRequestFields`, `additionalModelResponseFieldPaths`).
+
+A protocol namespace lands at the **top level** of the wire object, and the
+canonical envelope keys are reserved: a native option that would replace
+`messages`, `model`, `input` or `inferenceConfig` is a `:validation` error, not a
+silent override (§25.3.7). Nesting follows the wire format rather than a special
+case — Converse's `additionalModelRequestFields` is a top-level field whose value
+is a map, so it is written
+`provider_options: %{bedrock: %{"additionalModelRequestFields" => ...}}` and the
+codec needs no branch for it. This is the rule that keeps a provider's top-level
+fields reachable without inventing a canonical concept for each one: a guardrail
+is not an IR field, and it does not need to become one to be sent.
 
 ## 11. Encoded request boundary
 

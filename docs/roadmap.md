@@ -69,8 +69,13 @@ can now sign what it sends.
 - A `{:sigv4, _}` client is refused by the WebSocket connection instead of
   handshaking unsigned.
 - `Usage` carries Bedrock's prompt-cache token counters.
+- `provider_options.bedrock` lands at the top level of the Converse request instead
+  of inside `additionalModelRequestFields`, and the canonical envelope keys are
+  reserved. That is what makes `guardrailConfig`, `performanceConfig`,
+  `requestMetadata` and `promptVariables` reachable;
+  `additionalModelRequestFields` is written nested, as it appears on the wire.
 
-Not in it, and deliberately: `ConverseStream` (design §12), `guardrailConfig`, signed
+Not in it, and deliberately: `ConverseStream` (design §12), signed
 WebSocket or bidirectional streaming, credential resolution (still a non-goal, design
 §4), and internationalised hosts (refused with a punycode hint).
 
