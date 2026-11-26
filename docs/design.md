@@ -504,6 +504,22 @@ it), and a `media_type` must be a `type/subtype` rather than free text. A codec
 with no wire field for a part still reports the payload problem first, because
 payload validation runs before the per-codec shape check.
 
+`source()` names the bytes in one of five ways, and which ones a codec accepts is
+declared per part by `LlmCall.Capabilities.Input`:
+
+| Form | Meaning |
+| --- | --- |
+| `"https://…"` (bare string) | the shorthand the HTTP dialects read as a URL |
+| `{:url, url}` | a URL the provider fetches |
+| `{:base64, data}` | the bytes travel in the request |
+| `{:uri, uri}` | a location **only the provider can resolve** — `s3://` for Converse, `gs://` or a Files API URI for Gemini |
+| `{:file_id, id}` | an opaque id the provider issued (an uploaded file) |
+
+`{:url, _}` and `{:uri, _}` are separate because they are different questions: a
+codec that fetches arbitrary URLs is not the same as one that resolves a location
+in its own account, and Converse is the latter. Collapsing them would have made
+the declaration wrong again, one layer down.
+
 `Raw` is an escape hatch for provider-specific blocks that the codec does not
 understand. It must be preserved in canonical responses and rendered back when
 possible.
@@ -810,7 +826,7 @@ fabricated local guess.
 | `parallel_tool_calls`, `tool_choice` | boolean | |
 | `structured_output` | `:none` / `:json_object` / `:json_schema` | |
 | `modalities` | list of `:text`, `:image`, `:video` | |
-| `image_input`, `file_input` | `%LlmCall.Capabilities.Input{}` | which source kinds the protocol accepts: `inline` (`{:base64, data}`), `url` (`{:url, url}` or a bare string), `file` (`{:file_id, id}`) |
+| `image_input`, `file_input` | `%LlmCall.Capabilities.Input{}` | which source kinds the protocol accepts: `inline` (`{:base64, data}`), `url` (`{:url, url}` or a bare string), `uri` (`{:uri, uri}` — an `s3://` or `gs://` location only the provider can resolve), `file` (`{:file_id, id}`) |
 | `reasoning` | `%LlmCall.Reasoning.Capabilities{}` | `supported`, `efforts`, `default_effort`, `budget_tokens`, `adaptive`, `summary` |
 | `streaming_tool_calls`, `streaming` | boolean | |
 | `prompt_cache` | boolean | the protocol **reports** cache accounting in `Usage` |
@@ -905,7 +921,7 @@ Four unions are closed, and changing one is an IR change:
 | --- | --- | --- |
 | `LlmCall.Request` | model, system, messages, tools, tool_choice, output, modalities, reasoning, params, provider_options, stream | §8.1 |
 | `LlmCall.Message` | role and a list of content parts | §8.2 |
-| `LlmCall.Content.Text` / `.Image` / `.File` / `.Video` / `.Thinking` / `.Raw` | one content part each; a `source()` is a string, `{:url, _}`, `{:base64, _}` or `{:file_id, _}` | §8.3 |
+| `LlmCall.Content.Text` / `.Image` / `.File` / `.Video` / `.Thinking` / `.Raw` | one content part each; a `source()` is a string, `{:url, _}`, `{:base64, _}`, `{:uri, _}` or `{:file_id, _}` | §8.3 |
 | `LlmCall.Reasoning` / `LlmCall.Reasoning.Capabilities` | effort, budget_tokens, summary, provider_options; what a protocol supports | §8.3.1 |
 | `LlmCall.ToolSpec` / `.ToolCall` / `.ToolResult` | tool wire data; schema derived from `tool_call`, never dispatch | §8.4–§8.6 |
 | `LlmCall.Response` | id, model, content, stop_reason, usage, raw | §8.7 |

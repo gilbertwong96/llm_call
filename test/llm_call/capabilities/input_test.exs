@@ -7,19 +7,34 @@ defmodule LlmCall.Capabilities.InputTest do
   test "the default accepts nothing, which is what false meant before" do
     assert Input.kinds(%Input{}) == []
 
-    assert %Input{inline: false, url: false, file: false} = %Capabilities{}.image_input
-    assert %Input{inline: false, url: false, file: false} = %Capabilities{}.file_input
+    assert %Input{inline: false, url: false, uri: false, file: false} =
+             %Capabilities{}.image_input
+
+    assert %Input{inline: false, url: false, uri: false, file: false} =
+             %Capabilities{}.file_input
   end
 
   test "kinds are listed in canonical order, not declaration order" do
     assert Input.kinds(%Input{file: true, inline: true}) == [:inline, :file]
     assert Input.kinds(%Input{url: true, file: true, inline: true}) == [:inline, :url, :file]
+
+    assert Input.kinds(%Input{file: true, uri: true, url: true, inline: true}) ==
+             [:inline, :url, :uri, :file]
   end
 
   test "each canonical source maps to exactly one kind" do
     assert Input.kind({:base64, "AA=="}) == :inline
     assert Input.kind({:url, "https://example.test/i.png"}) == :url
+    assert Input.kind({:uri, "s3://bucket/i.png"}) == :uri
     assert Input.kind({:file_id, "file-abc"}) == :file
+  end
+
+  # A URL is something any client could fetch; an s3:// or gs:// URI is only reachable
+  # by the provider, so the two must not collapse into one kind.
+  test "a provider URI is not a url" do
+    assert Input.accepts?(%Input{uri: true}, {:uri, "s3://bucket/i.png"})
+    refute Input.accepts?(%Input{url: true}, {:uri, "s3://bucket/i.png"})
+    refute Input.accepts?(%Input{uri: true}, {:url, "https://example.test/i.png"})
   end
 
   # The bare string is the shorthand the HTTP codecs already read as a URL, so it must

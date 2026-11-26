@@ -10,12 +10,13 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   ARNs carry `/`, so the ID is percent-encoded here and signed verbatim by the
   transport.
 
-  This phase carries text, tool use, and inline images and documents. A part whose
-  bytes travel with the request is encoded (`source.bytes`); a part that names a
-  provider-owned location is refused, because the canonical IR has no source for one
-  — Converse can point at S3, and nothing here can say so without inventing a
-  convention every other codec would have to learn. `capabilities/2` reports exactly
-  that: `image_input` and `file_input` accept `:inline` and nothing else.
+  This phase carries text, tool use, images and documents, in both the inline and the
+  S3 form. A part whose bytes travel with the request is encoded (`source.bytes`); a
+  `{:uri, "s3://…"}` part becomes `s3Location`, which is what `{:uri, _}` is for — a
+  location only Bedrock can resolve. Anything else, including an `https://` URL, is
+  refused locally: sending it is a `400` from the service. `capabilities/2` reports
+  exactly that: `image_input` and `file_input` accept `:inline` and `:uri`, and
+  neither `:url` nor `:file`.
 
   ## Native options
 
@@ -162,8 +163,8 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       tool_choice: true,
       structured_output: :none,
       modalities: [:text],
-      image_input: %LlmCall.Capabilities.Input{inline: true},
-      file_input: %LlmCall.Capabilities.Input{inline: true},
+      image_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
+      file_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
       streaming: true,
       stateful: false
     }
@@ -432,29 +433,27 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   # Converse carries the bytes itself (`source.bytes`) or points at S3. The canonical
   # IR has no provider-owned-URI source, so only inline is reachable; saying so here
   # is better than letting a caller assemble a part the API would reject.
-  defp validate_part(_role, %Content.Image{source: {:base64, data}, media_type: media_type})
-       when is_binary(data) do
-    case Map.fetch(@image_formats, media_type) do
-      {:ok, _format} -> :ok
-      :error -> Helpers.error(@codec, image_format_message(media_type))
+  defp validate_part(_role, %Content.Image{source: source} = image) when is_tuple(source) do
+    # The source is the coarser mistake, so it is named first: reporting a missing
+    # media_type for a part the protocol cannot carry at all tells the caller the wrong
+    # thing to fix.
+    with :ok <- validate_source(source) do
+      validate_image_format(image)
+    end
+  end
+
+  defp validate_part(_role, %Content.File{source: source} = file) when is_tuple(source) do
+    with :ok <- validate_source(source),
+         :ok <- validate_document_name(file) do
+      validate_document_format(file)
     end
   end
 
   defp validate_part(_role, %Content.Image{source: source}),
-    do: Helpers.error(@codec, inline_only("Image", source))
-
-  defp validate_part(_role, %Content.File{source: {:base64, data}} = file) when is_binary(data) do
-    with :ok <- validate_document_name(file),
-         {:ok, _format} <- Map.fetch(@document_formats, file.media_type) do
-      :ok
-    else
-      :error -> Helpers.error(@codec, document_format_message(file.media_type))
-      error -> error
-    end
-  end
+    do: Helpers.error(@codec, unsupported_source("Image", source))
 
   defp validate_part(_role, %Content.File{source: source}),
-    do: Helpers.error(@codec, inline_only("File", source))
+    do: Helpers.error(@codec, unsupported_source("File", source))
 
   defp validate_part(_role, %Content.Video{}),
     do: Helpers.error(@codec, "Content.Video parts are not supported")
@@ -473,6 +472,33 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp validate_document_name(_file),
     do: Helpers.error(@codec, "Content.File needs filename, which Converse sends as name")
 
+  defp validate_image_format(%Content.Image{media_type: media_type}) do
+    case Map.fetch(@image_formats, media_type) do
+      {:ok, _format} -> :ok
+      :error -> Helpers.error(@codec, image_format_message(media_type))
+    end
+  end
+
+  defp validate_document_format(%Content.File{media_type: media_type}) do
+    case Map.fetch(@document_formats, media_type) do
+      {:ok, _format} -> :ok
+      :error -> Helpers.error(@codec, document_format_message(media_type))
+    end
+  end
+
+  # Converse carries the bytes itself, or points at an S3 object. Nothing else: an
+  # https URL there is a 400 from the service, so it is refused here with the scheme
+  # named rather than sent and failed.
+  defp validate_source({:base64, data}) when is_binary(data), do: :ok
+  defp validate_source({:uri, "s3://" <> rest}) when byte_size(rest) > 0, do: :ok
+
+  defp validate_source({:uri, uri}) when is_binary(uri),
+    do: Helpers.error(@codec, "a provider URI must be s3:// for Converse, got: #{inspect(uri)}")
+
+  defp validate_source(source), do: Helpers.error(@codec, unsupported_source("Image", source))
+
+  defp accepted(formats), do: formats |> Map.keys() |> Enum.sort() |> Enum.join(", ")
+
   defp image_format_message(media_type) do
     "Content.Image media_type #{inspect(media_type)} is not one Converse accepts " <>
       "(#{accepted(@image_formats)})"
@@ -483,12 +509,10 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       "(#{accepted(@document_formats)})"
   end
 
-  defp inline_only(part, source) do
-    "Content.#{part} source #{inspect(source)} is not supported; " <>
-      "Converse takes the bytes inline (media_type plus {:base64, data})"
+  defp unsupported_source(part, source) do
+    "Content.#{part} source #{inspect(source)} is not supported; Converse takes " <>
+      "{:base64, data} or {:uri, \"s3://...\"}"
   end
-
-  defp accepted(formats), do: formats |> Map.keys() |> Enum.sort() |> Enum.join(", ")
 
   defp validate_provider_options(%Request{} = request, %Config{} = config) do
     request_options = Map.get(request.provider_options, :bedrock, %{})
@@ -622,12 +646,31 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     }
   end
 
+  defp part(%Content.Image{source: {:uri, uri}, media_type: media_type}, _config) do
+    %{
+      "image" => %{
+        "format" => Map.fetch!(@image_formats, media_type),
+        "source" => %{"s3Location" => %{"uri" => uri}}
+      }
+    }
+  end
+
   defp part(%Content.File{source: {:base64, data}} = file, _config) do
     %{
       "document" => %{
         "format" => Map.fetch!(@document_formats, file.media_type),
         "name" => file.filename,
         "source" => %{"bytes" => data}
+      }
+    }
+  end
+
+  defp part(%Content.File{source: {:uri, uri}} = file, _config) do
+    %{
+      "document" => %{
+        "format" => Map.fetch!(@document_formats, file.media_type),
+        "name" => file.filename,
+        "source" => %{"s3Location" => %{"uri" => uri}}
       }
     }
   end

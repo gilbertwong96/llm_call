@@ -42,6 +42,7 @@ defmodule LlmCall.Codec.Conformance do
     image: %{
       inline: %Content.Image{source: {:base64, "AA=="}, media_type: "image/png"},
       url: %Content.Image{source: {:url, "https://example.com/i.png"}},
+      uri: %Content.Image{source: {:uri, "s3://bucket/i.png"}, media_type: "image/png"},
       file: %Content.Image{source: {:file_id, "file-abc"}}
     },
     file: %{
@@ -51,6 +52,11 @@ defmodule LlmCall.Codec.Conformance do
         filename: "d.pdf"
       },
       url: %Content.File{source: {:url, "https://example.com/d.pdf"}},
+      uri: %Content.File{
+        source: {:uri, "s3://bucket/d.pdf"},
+        media_type: "application/pdf",
+        filename: "d.pdf"
+      },
       file: %Content.File{source: {:file_id, "file-abc"}}
     }
   }
@@ -806,7 +812,7 @@ defmodule LlmCall.Codec.Conformance do
   end
 
   defp check_input_sources(codec, request, config, %Input{} = declaration, kind, label) do
-    for source_kind <- Input.kinds(%Input{inline: true, url: true, file: true}) do
+    for source_kind <- Input.kinds(%Input{inline: true, url: true, uri: true, file: true}) do
       declared? = source_kind in Input.kinds(declaration)
 
       check_part_support(

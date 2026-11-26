@@ -33,6 +33,23 @@ defmodule LlmCall.Dialect.AnthropicMessagesTest do
     )
   end
 
+  # `encode_source/2` cannot encode a provider URI, so the validator must not accept
+  # one: it used to let any document source through and crash on the way out.
+  test "a document with a source the codec cannot encode is refused" do
+    file = %Content.File{
+      source: {:uri, "s3://bucket/d.pdf"},
+      media_type: "application/pdf",
+      filename: "d.pdf"
+    }
+
+    request = text_request(messages: [%Message{role: :user, content: [file]}])
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Messages.validate_request(request, %Config{})
+
+    assert message =~ "document source"
+  end
+
   # §8.2: Anthropic's `input` is an object, so a fragment that did not decode cannot
   # be written. The documented behaviour is `%{}`, not a rejected replay.
   test "images and files in an assistant turn are refused locally" do

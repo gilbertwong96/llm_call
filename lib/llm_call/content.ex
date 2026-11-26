@@ -90,6 +90,7 @@ defmodule LlmCall.Content do
           | {:url, String.t()}
           | {:base64, String.t()}
           | {:file_id, String.t()}
+          | {:uri, String.t()}
 
   @type part ::
           %LlmCall.Content.Text{text: String.t()}

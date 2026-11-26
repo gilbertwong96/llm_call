@@ -381,8 +381,8 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
              tool_choice: true,
              structured_output: :none,
              modalities: [:text],
-             image_input: %LlmCall.Capabilities.Input{inline: true},
-             file_input: %LlmCall.Capabilities.Input{inline: true},
+             image_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
+             file_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
              streaming: true,
              stateful: false
            } = Converse.capabilities(request("m"), %Config{})
@@ -529,14 +529,54 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
 
   # `s3Location` exists on the wire, but the canonical IR has no provider-owned-URI
   # source, so a caller cannot reach it and the codec says so rather than guessing.
-  test "a provider file id is refused, because the IR cannot express an S3 location" do
-    image = %Content.Image{source: {:file_id, "s3://bucket/key.png"}}
+  test "a provider file id is refused, because Converse has no such source" do
+    image = %Content.Image{source: {:file_id, "file-abc"}}
 
     assert {:error, %Error{kind: :validation, message: message}} =
              Converse.encode_request(request("m", messages: user_turn(image)), %Config{})
 
     assert message =~ "Content.Image"
     assert message =~ "not supported"
+  end
+
+  # `s3Location` is on the wire, and the canonical IR can now say "a URI the provider
+  # resolves" without pretending it is a URL anyone can fetch.
+  test "a provider URI reaches s3Location, and is not sent as a URL" do
+    image = %Content.Image{source: {:uri, "s3://my-bucket/i.png"}, media_type: "image/png"}
+    encoded = encode!(request("m", messages: user_turn(image)))
+
+    assert [%{"content" => [%{"image" => image_block}]}] = content_parts(encoded)
+
+    assert image_block == %{
+             "format" => "png",
+             "source" => %{"s3Location" => %{"uri" => "s3://my-bucket/i.png"}}
+           }
+  end
+
+  test "a document from S3 carries its name and format too" do
+    file = %Content.File{
+      source: {:uri, "s3://my-bucket/q3.pdf"},
+      media_type: "application/pdf",
+      filename: "q3.pdf"
+    }
+
+    encoded = encode!(request("m", messages: user_turn(file)))
+    assert [%{"content" => [%{"document" => document}]}] = content_parts(encoded)
+
+    assert document["name"] == "q3.pdf"
+    assert document["format"] == "pdf"
+    assert document["source"] == %{"s3Location" => %{"uri" => "s3://my-bucket/q3.pdf"}}
+  end
+
+  # Converse resolves `s3://` and nothing else; an https URL there is a 400 from the
+  # service, so the codec refuses it locally and names the scheme it wants.
+  test "a provider URI in a scheme Converse cannot resolve is refused" do
+    image = %Content.Image{source: {:uri, "https://example.test/i.png"}, media_type: "image/png"}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", messages: user_turn(image)), %Config{})
+
+    assert message =~ "s3://"
   end
 
   test "a document without a filename is refused, because Converse requires name" do

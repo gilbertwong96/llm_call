@@ -64,13 +64,16 @@ binary framing it streams in, and observability for every call.
   Bedrock requires alternating roles.
 - The capability boundary is explicit, and now per source: `image_input` and
   `file_input` are `LlmCall.Capabilities.Input` records naming the kinds a codec
-  accepts (`inline`, `url`, `file`), so a codec that takes bytes but not a URL can say
-  so. Conformance derives its sample part from the declaration instead of a hard-coded
-  URL image, which is what makes the declaration checkable.
-- Converse carries inline images and documents (`source.bytes`), with the media type
-  mapped to Converse's `format` enum and a document's `filename` sent as `name`. A
-  provider-owned location is refused: Converse can point at S3, and the canonical IR
-  has no source for one.
+  accepts (`inline`, `url`, `uri`, `file`), so a codec that takes bytes but not a URL
+  can say so. Conformance derives its sample part from the declaration instead of a
+  hard-coded URL image, which is what makes the declaration checkable.
+- `{:uri, uri}` is a canonical source for a location only the provider can resolve,
+  distinct from a URL the provider fetches. It is what makes Converse's `s3Location`
+  reachable.
+- Converse carries images and documents inline (`source.bytes`) and from S3
+  (`s3Location`), with the media type mapped to Converse's `format` enum and a
+  document's `filename` sent as `name`. An `https://` source is refused locally,
+  because the service would answer `400`.
 - A `{:sigv4, _}` client is refused by the WebSocket connection instead of
   handshaking unsigned.
 - `Usage` carries Bedrock's prompt-cache token counters.

@@ -484,7 +484,20 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
        ),
        do: Helpers.error(@codec, "base64 document requires media_type")
 
-  defp validate_part_shape(_role, %Content.File{}, _json), do: :ok
+  # `encode_source/2` handles exactly these four forms; a source it cannot encode must
+  # not pass validation, or the request crashes on the way out.
+  defp validate_part_shape(_role, %Content.File{source: {:base64, _data}}, _json), do: :ok
+  defp validate_part_shape(_role, %Content.File{source: {:url, _url}}, _json), do: :ok
+
+  defp validate_part_shape(_role, %Content.File{source: {:file_id, _file_id}}, _json),
+    do: :ok
+
+  defp validate_part_shape(_role, %Content.File{source: source}, _json) when is_binary(source),
+    do: :ok
+
+  defp validate_part_shape(_role, %Content.File{source: source}, _json),
+    do: Helpers.error(@codec, "document source #{inspect(source)} is not supported")
+
   defp validate_part_shape(_role, %Content.Raw{data: %{}}, _json), do: :ok
 
   defp validate_part_shape(_role, %Content.Raw{}, _json),

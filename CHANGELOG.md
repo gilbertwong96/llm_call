@@ -21,8 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   map or a 0-arity function that returns one — and `region:` overrides the
   declared region per client.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
-  text, tool use, inline images and documents, on `/converse` and on `/converse-stream`
-  alike. A streamed call maps `contentBlock*` and `messageStop` onto the IR stream
+  text, tool use, images and documents inline or from S3, on `/converse` and on
+  `/converse-stream` alike. A streamed call maps `contentBlock*` and `messageStop` onto the IR stream
   events; because Bedrock sends usage *after* `messageStop`, the `:message_stop`
   terminator is flushed when the body ends, and a stream that never reaches
   `messageStop` is an `:invalid_response` rather than a quietly truncated one.
@@ -41,6 +41,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drive `LlmCall.Stream`, which no longer knows what a body chunk is. The four SSE
   codecs are untouched; a protocol framed as event stream declares
   `LlmCall.EventStream`.
+- `{:uri, uri}` is a canonical content source for a location only the provider can
+  resolve (`s3://` for Converse), as distinct from `{:url, _}`, which the provider
+  fetches over HTTP. `LlmCall.Capabilities.Input` gained the matching `uri` kind.
+- Anthropic's document validation accepts exactly the sources it can encode. Its
+  catch-all accepted any source, including one `encode_source/2` has no clause for;
+  the per-source conformance check found it.
 - The conformance suite derives its sample part from the declared sources instead of
   always sending a URL image, so `capabilities/2` and `validate_request/2` cannot
   disagree about a source kind nobody checks.

@@ -14,8 +14,14 @@ defmodule LlmCall.Capabilities.Input do
   | Kind | Canonical source | Who resolves it |
   | --- | --- | --- |
   | `:inline` | `{:base64, data}` | the bytes travel in the request |
-  | `:url` | `{:url, url}`, or a bare string | the provider fetches it |
-  | `:file` | `{:file_id, id}` | the provider resolves a reference it already holds |
+  | `:url` | `{:url, url}`, or a bare string | the provider fetches it over HTTP |
+  | `:uri` | `{:uri, uri}` | the provider resolves a URI in **its own** namespace (`s3://`, `gs://`) |
+  | `:file` | `{:file_id, id}` | the provider resolves an opaque id it issued |
+
+  `:url` and `:uri` are separate because they answer different questions. An HTTP URL
+  is something any client could fetch; an `s3://` or `gs://` URI is only reachable by
+  the provider, in its own account. A codec that accepts one and not the other can
+  now say so, and one that accepts neither stops claiming it accepts both.
 
   The default accepts nothing, which is what `false` meant before. `accepts?/2`
   answers the question for a concrete part, and `kinds/1` lists what a declaration
@@ -27,13 +33,18 @@ defmodule LlmCall.Capabilities.Input do
   """
 
   @typedoc "One way of naming the bytes of a part."
-  @type kind :: :inline | :url | :file
+  @type kind :: :inline | :url | :uri | :file
 
-  @type t :: %__MODULE__{inline: boolean(), url: boolean(), file: boolean()}
+  @type t :: %__MODULE__{
+          inline: boolean(),
+          url: boolean(),
+          uri: boolean(),
+          file: boolean()
+        }
 
-  defstruct inline: false, url: false, file: false
+  defstruct inline: false, url: false, uri: false, file: false
 
-  @kinds [:inline, :url, :file]
+  @kinds [:inline, :url, :uri, :file]
 
   @doc "The kinds a declaration accepts, in canonical order."
   @spec kinds(t()) :: [kind()]
@@ -51,6 +62,7 @@ defmodule LlmCall.Capabilities.Input do
   @spec kind(LlmCall.Content.source()) :: kind()
   def kind({:base64, _data}), do: :inline
   def kind({:url, _url}), do: :url
+  def kind({:uri, _uri}), do: :uri
   def kind({:file_id, _id}), do: :file
   def kind(url) when is_binary(url), do: :url
 end

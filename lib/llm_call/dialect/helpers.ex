@@ -542,7 +542,7 @@ defmodule LlmCall.Dialect.Helpers do
   defp validate_source(source, _label, _codec) when is_binary(source) and source != "", do: :ok
 
   defp validate_source({kind, value}, _label, _codec)
-       when kind in [:url, :base64, :file_id] and is_binary(value) and value != "",
+       when kind in [:url, :base64, :file_id, :uri] and is_binary(value) and value != "",
        do: :ok
 
   defp validate_source(_source, label, codec),
