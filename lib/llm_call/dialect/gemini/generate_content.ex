@@ -693,8 +693,8 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
       tool_choice: true,
       structured_output: :json_schema,
       modalities: [:text, :image],
-      image_input: true,
-      file_input: true,
+      image_input: %LlmCall.Capabilities.Input{inline: true, url: true},
+      file_input: %LlmCall.Capabilities.Input{inline: true, url: true},
       reasoning: %ReasoningCapabilities{
         supported: true,
         efforts: [:none, :low, :high],

@@ -810,7 +810,7 @@ fabricated local guess.
 | `parallel_tool_calls`, `tool_choice` | boolean | |
 | `structured_output` | `:none` / `:json_object` / `:json_schema` | |
 | `modalities` | list of `:text`, `:image`, `:video` | |
-| `image_input`, `file_input` | boolean | |
+| `image_input`, `file_input` | `%LlmCall.Capabilities.Input{}` | which source kinds the protocol accepts: `inline` (`{:base64, data}`), `url` (`{:url, url}` or a bare string), `file` (`{:file_id, id}`) |
 | `reasoning` | `%LlmCall.Reasoning.Capabilities{}` | `supported`, `efforts`, `default_effort`, `budget_tokens`, `adaptive`, `summary` |
 | `streaming_tool_calls`, `streaming` | boolean | |
 | `prompt_cache` | boolean | the protocol **reports** cache accounting in `Usage` |

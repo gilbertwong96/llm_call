@@ -36,6 +36,9 @@ defmodule LlmCall.Capabilities do
 
   `prompt_cache` is a reporting capability, not a request one: see the
   "Reporting versus controlling" section.
+
+  `image_input` and `file_input` name the source kinds the codec accepts — see
+  `LlmCall.Capabilities.Input`.
   """
   @type t :: %__MODULE__{
           tools: boolean(),
@@ -44,8 +47,8 @@ defmodule LlmCall.Capabilities do
           tool_choice: boolean(),
           structured_output: :none | :json_object | :json_schema,
           modalities: [LlmCall.modality()],
-          image_input: boolean(),
-          file_input: boolean(),
+          image_input: LlmCall.Capabilities.Input.t(),
+          file_input: LlmCall.Capabilities.Input.t(),
           reasoning: LlmCall.Reasoning.Capabilities.t() | nil,
           streaming_tool_calls: boolean(),
           prompt_cache: boolean(),
@@ -59,8 +62,8 @@ defmodule LlmCall.Capabilities do
             tool_choice: false,
             structured_output: :none,
             modalities: [:text],
-            image_input: false,
-            file_input: false,
+            image_input: %LlmCall.Capabilities.Input{},
+            file_input: %LlmCall.Capabilities.Input{},
             reasoning: nil,
             streaming_tool_calls: false,
             prompt_cache: false,

@@ -585,8 +585,8 @@ defmodule LlmCall.Dialect.OpenAIResponsesTest do
              tools: true,
              builtin_tools: :passthrough,
              structured_output: :json_schema,
-             image_input: true,
-             file_input: true,
+             image_input: %LlmCall.Capabilities.Input{inline: true, url: true, file: true},
+             file_input: %LlmCall.Capabilities.Input{inline: true, url: true, file: true},
              stateful: true,
              streaming: true
            } = Responses.capabilities(text_request(), %Config{})

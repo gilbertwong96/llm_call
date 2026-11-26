@@ -32,8 +32,28 @@ defmodule LlmCall.Codec.Conformance do
     ToolSpec
   }
 
+  alias LlmCall.Capabilities.Input
   alias LlmCall.Conformance, as: Shared
   alias LlmCall.Reasoning.Capabilities, as: ReasoningCapabilities
+
+  # One representative per source kind. A base64 part needs its media_type, and
+  # Converse needs a document name, so the samples carry both.
+  @input_samples %{
+    image: %{
+      inline: %Content.Image{source: {:base64, "AA=="}, media_type: "image/png"},
+      url: %Content.Image{source: {:url, "https://example.com/i.png"}},
+      file: %Content.Image{source: {:file_id, "file-abc"}}
+    },
+    file: %{
+      inline: %Content.File{
+        source: {:base64, "AA=="},
+        media_type: "application/pdf",
+        filename: "d.pdf"
+      },
+      url: %Content.File{source: {:url, "https://example.com/d.pdf"}},
+      file: %Content.File{source: {:file_id, "file-abc"}}
+    }
+  }
 
   @reasoning_levels [:none, :minimal, :low, :medium, :high, :xhigh, :max]
   @reasoning_summaries [:auto, :concise, :detailed]
@@ -625,23 +645,8 @@ defmodule LlmCall.Codec.Conformance do
     check_output(codec, request, config, capabilities.structured_output)
     check_modalities(codec, request, config, capabilities.modalities)
 
-    check_part_support(
-      codec,
-      request,
-      config,
-      capabilities.image_input,
-      %Content.Image{source: {:url, "https://example.com/i.png"}},
-      "image_input"
-    )
-
-    check_part_support(
-      codec,
-      request,
-      config,
-      capabilities.file_input,
-      %Content.File{source: {:url, "https://example.com/d.pdf"}},
-      "file_input"
-    )
+    check_input_sources(codec, request, config, capabilities.image_input, :image, "image_input")
+    check_input_sources(codec, request, config, capabilities.file_input, :file, "file_input")
 
     check_reasoning(codec, request, config, capabilities.reasoning)
 
@@ -798,6 +803,27 @@ defmodule LlmCall.Codec.Conformance do
     end
 
     :ok
+  end
+
+  defp check_input_sources(codec, request, config, %Input{} = declaration, kind, label) do
+    for source_kind <- Input.kinds(%Input{inline: true, url: true, file: true}) do
+      declared? = source_kind in Input.kinds(declaration)
+
+      check_part_support(
+        codec,
+        request,
+        config,
+        declared?,
+        @input_samples[kind][source_kind],
+        "#{label}.#{source_kind}"
+      )
+    end
+
+    :ok
+  end
+
+  defp check_input_sources(_codec, _request, _config, other, _kind, label) do
+    flunk("Capabilities.#{label} must be an LlmCall.Capabilities.Input, got: #{inspect(other)}")
   end
 
   defp check_part_support(codec, request, config, true, part, label) do

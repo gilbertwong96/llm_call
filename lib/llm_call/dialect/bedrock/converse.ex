@@ -10,10 +10,12 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   ARNs carry `/`, so the ID is percent-encoded here and signed verbatim by the
   transport.
 
-  This phase carries text and tool use. Images and documents are refused rather
-  than dropped: Converse takes them inline (`bytes`) or from S3 and has no URL
-  source, and a capability flag that said `true` would promise a shape the codec
-  must reject.
+  This phase carries text, tool use, and inline images and documents. A part whose
+  bytes travel with the request is encoded (`source.bytes`); a part that names a
+  provider-owned location is refused, because the canonical IR has no source for one
+  — Converse can point at S3, and nothing here can say so without inventing a
+  convention every other codec would have to learn. `capabilities/2` reports exactly
+  that: `image_input` and `file_input` accept `:inline` and nothing else.
 
   ## Native options
 
@@ -81,6 +83,25 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
 
   @namespaces [:bedrock]
 
+  @image_formats %{
+    "image/png" => "png",
+    "image/jpeg" => "jpeg",
+    "image/gif" => "gif",
+    "image/webp" => "webp"
+  }
+
+  @document_formats %{
+    "application/pdf" => "pdf",
+    "text/csv" => "csv",
+    "application/msword" => "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+    "application/vnd.ms-excel" => "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+    "text/html" => "html",
+    "text/plain" => "txt",
+    "text/markdown" => "md"
+  }
+
   @envelope_keys ~w(messages system inferenceconfig toolconfig)
 
   @native_options %{
@@ -141,8 +162,8 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       tool_choice: true,
       structured_output: :none,
       modalities: [:text],
-      image_input: false,
-      file_input: false,
+      image_input: %LlmCall.Capabilities.Input{inline: true},
+      file_input: %LlmCall.Capabilities.Input{inline: true},
       streaming: true,
       stateful: false
     }
@@ -408,11 +429,32 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
 
   defp validate_part(_role, %ToolResult{}), do: :ok
 
-  defp validate_part(_role, %Content.Image{}),
-    do: Helpers.error(@codec, "Content.Image parts are not supported")
+  # Converse carries the bytes itself (`source.bytes`) or points at S3. The canonical
+  # IR has no provider-owned-URI source, so only inline is reachable; saying so here
+  # is better than letting a caller assemble a part the API would reject.
+  defp validate_part(_role, %Content.Image{source: {:base64, data}, media_type: media_type})
+       when is_binary(data) do
+    case Map.fetch(@image_formats, media_type) do
+      {:ok, _format} -> :ok
+      :error -> Helpers.error(@codec, image_format_message(media_type))
+    end
+  end
 
-  defp validate_part(_role, %Content.File{}),
-    do: Helpers.error(@codec, "Content.File parts are not supported")
+  defp validate_part(_role, %Content.Image{source: source}),
+    do: Helpers.error(@codec, inline_only("Image", source))
+
+  defp validate_part(_role, %Content.File{source: {:base64, data}} = file) when is_binary(data) do
+    with :ok <- validate_document_name(file),
+         {:ok, _format} <- Map.fetch(@document_formats, file.media_type) do
+      :ok
+    else
+      :error -> Helpers.error(@codec, document_format_message(file.media_type))
+      error -> error
+    end
+  end
+
+  defp validate_part(_role, %Content.File{source: source}),
+    do: Helpers.error(@codec, inline_only("File", source))
 
   defp validate_part(_role, %Content.Video{}),
     do: Helpers.error(@codec, "Content.Video parts are not supported")
@@ -424,6 +466,29 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     do: Helpers.error(@codec, "Content.Raw parts are not supported")
 
   defp validate_part(_role, _part), do: Helpers.error(@codec, "unsupported content part")
+
+  defp validate_document_name(%Content.File{filename: name}) when is_binary(name) and name != "",
+    do: :ok
+
+  defp validate_document_name(_file),
+    do: Helpers.error(@codec, "Content.File needs filename, which Converse sends as name")
+
+  defp image_format_message(media_type) do
+    "Content.Image media_type #{inspect(media_type)} is not one Converse accepts " <>
+      "(#{accepted(@image_formats)})"
+  end
+
+  defp document_format_message(media_type) do
+    "Content.File media_type #{inspect(media_type)} is not one Converse accepts " <>
+      "(#{accepted(@document_formats)})"
+  end
+
+  defp inline_only(part, source) do
+    "Content.#{part} source #{inspect(source)} is not supported; " <>
+      "Converse takes the bytes inline (media_type plus {:base64, data})"
+  end
+
+  defp accepted(formats), do: formats |> Map.keys() |> Enum.sort() |> Enum.join(", ")
 
   defp validate_provider_options(%Request{} = request, %Config{} = config) do
     request_options = Map.get(request.provider_options, :bedrock, %{})
@@ -547,6 +612,25 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp role_name(_role), do: "user"
 
   defp part(%Content.Text{text: text}, _config), do: %{"text" => text}
+
+  defp part(%Content.Image{source: {:base64, data}, media_type: media_type}, _config) do
+    %{
+      "image" => %{
+        "format" => Map.fetch!(@image_formats, media_type),
+        "source" => %{"bytes" => data}
+      }
+    }
+  end
+
+  defp part(%Content.File{source: {:base64, data}} = file, _config) do
+    %{
+      "document" => %{
+        "format" => Map.fetch!(@document_formats, file.media_type),
+        "name" => file.filename,
+        "source" => %{"bytes" => data}
+      }
+    }
+  end
 
   defp part(%ToolCall{id: id, name: name, arguments: arguments, raw_arguments: raw}, config) do
     input = arguments || Helpers.decode_raw_arguments(raw, config.json) || %{}

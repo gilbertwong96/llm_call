@@ -381,8 +381,8 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
              tool_choice: true,
              structured_output: :none,
              modalities: [:text],
-             image_input: false,
-             file_input: false,
+             image_input: %LlmCall.Capabilities.Input{inline: true},
+             file_input: %LlmCall.Capabilities.Input{inline: true},
              streaming: true,
              stateful: false
            } = Converse.capabilities(request("m"), %Config{})
@@ -479,5 +479,78 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
 
   test "a payload that is not a Converse response is an invalid_response" do
     assert {:error, %Error{kind: :invalid_response}} = Converse.decode_response(%{}, %Config{})
+  end
+
+  test "an image with inline bytes encodes to a Converse image block" do
+    image = %Content.Image{source: {:base64, "iVBORw0="}, media_type: "image/png"}
+    encoded = encode!(request("m", messages: user_turn(image)))
+
+    assert [%{"content" => [%{"image" => image_block}]}] = content_parts(encoded)
+    assert image_block == %{"format" => "png", "source" => %{"bytes" => "iVBORw0="}}
+  end
+
+  test "a document with inline bytes carries its format and its name" do
+    file = %Content.File{
+      source: {:base64, "JVBERi0="},
+      media_type: "application/pdf",
+      filename: "quarterly.pdf"
+    }
+
+    encoded = encode!(request("m", messages: user_turn(file)))
+
+    assert [%{"content" => [%{"document" => document}]}] = content_parts(encoded)
+
+    assert document == %{
+             "format" => "pdf",
+             "name" => "quarterly.pdf",
+             "source" => %{"bytes" => "JVBERi0="}
+           }
+  end
+
+  test "an image media_type Converse does not accept is refused by name" do
+    image = %Content.Image{source: {:base64, "AA=="}, media_type: "image/tiff"}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", messages: user_turn(image)), %Config{})
+
+    assert message =~ "Content.Image"
+    assert message =~ "image/tiff"
+    assert message =~ "image/png"
+  end
+
+  test "a base64 image without a media_type is refused" do
+    image = %Content.Image{source: {:base64, "AA=="}}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", messages: user_turn(image)), %Config{})
+
+    assert message =~ "media_type"
+  end
+
+  # `s3Location` exists on the wire, but the canonical IR has no provider-owned-URI
+  # source, so a caller cannot reach it and the codec says so rather than guessing.
+  test "a provider file id is refused, because the IR cannot express an S3 location" do
+    image = %Content.Image{source: {:file_id, "s3://bucket/key.png"}}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", messages: user_turn(image)), %Config{})
+
+    assert message =~ "Content.Image"
+    assert message =~ "not supported"
+  end
+
+  test "a document without a filename is refused, because Converse requires name" do
+    file = %Content.File{source: {:base64, "AA=="}, media_type: "application/pdf"}
+
+    assert {:error, %Error{kind: :validation, message: message}} =
+             Converse.encode_request(request("m", messages: user_turn(file)), %Config{})
+
+    assert message =~ "filename"
+  end
+
+  defp user_turn(part), do: [%Message{role: :user, content: [part]}]
+
+  defp content_parts(encoded) do
+    encoded.body["messages"]
   end
 end

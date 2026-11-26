@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Breaking changes
+
+- `Capabilities.image_input` and `file_input` are `%LlmCall.Capabilities.Input{}`
+  records instead of booleans. A boolean could not say "bytes yes, URL no", which is
+  what Converse, Anthropic and Gemini actually accept, so the declaration was wrong
+  for one of them whichever value it held. `%Input{}` accepts nothing, which is what
+  `false` meant; `Input.accepts?/2` answers the question for a concrete part.
+
 ### Added
 
 - `auth: {:sigv4, service: ..., region: ...}` signs every request with AWS
@@ -13,12 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   map or a 0-arity function that returns one — and `region:` overrides the
   declared region per client.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
-  text, tool use and tool results, on `/converse` and on `/converse-stream` alike.
-  Images and documents are refused until the capability model can say "inline only".
-  A streamed call maps `contentBlock*` and `messageStop` onto the IR stream events;
-  because Bedrock sends usage *after* `messageStop`, the `:message_stop` terminator is
-  flushed when the body ends, and a stream that never reaches `messageStop` is an
-  `:invalid_response` rather than a quietly truncated one.
+  text, tool use, inline images and documents, on `/converse` and on `/converse-stream`
+  alike. A streamed call maps `contentBlock*` and `messageStop` onto the IR stream
+  events; because Bedrock sends usage *after* `messageStop`, the `:message_stop`
+  terminator is flushed when the body ends, and a stream that never reaches
+  `messageStop` is an `:invalid_response` rather than a quietly truncated one.
 - `provider_options.bedrock` is merged into the top level of the Converse request,
   the rule the other codecs follow, so `guardrailConfig` and Bedrock's other
   top-level fields are reachable. The canonical envelope keys are reserved and a
@@ -34,6 +41,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drive `LlmCall.Stream`, which no longer knows what a body chunk is. The four SSE
   codecs are untouched; a protocol framed as event stream declares
   `LlmCall.EventStream`.
+- The conformance suite derives its sample part from the declared sources instead of
+  always sending a URL image, so `capabilities/2` and `validate_request/2` cannot
+  disagree about a source kind nobody checks.
 - Telemetry: `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` events
   carry the operation, provider, codec and model; `:stop` adds the outcome, the
   status, and the token counts as measurements, and a stream reports `:first_event`

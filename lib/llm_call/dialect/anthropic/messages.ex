@@ -633,8 +633,10 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
       tool_choice: true,
       structured_output: :none,
       modalities: [:text],
-      image_input: true,
-      file_input: true,
+      # An image takes bytes or a URL; Anthropic has no file source for one.
+      image_input: %LlmCall.Capabilities.Input{inline: true, url: true},
+      # A document takes all three, including a Files API id.
+      file_input: %LlmCall.Capabilities.Input{inline: true, url: true, file: true},
       reasoning: %ReasoningCapabilities{
         supported: true,
         efforts: [:none],

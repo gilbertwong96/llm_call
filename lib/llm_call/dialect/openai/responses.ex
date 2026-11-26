@@ -523,8 +523,8 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
       tool_choice: true,
       structured_output: :json_schema,
       modalities: [:text],
-      image_input: true,
-      file_input: true,
+      image_input: %LlmCall.Capabilities.Input{inline: true, url: true, file: true},
+      file_input: %LlmCall.Capabilities.Input{inline: true, url: true, file: true},
       reasoning: %ReasoningCapabilities{
         supported: true,
         efforts: @efforts,

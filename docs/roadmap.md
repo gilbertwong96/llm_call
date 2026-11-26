@@ -62,11 +62,15 @@ binary framing it streams in, and observability for every call.
 - `LlmCall.Dialect.Bedrock.Converse`, the fifth reference adapter: text, tool use and
   tool results, with consecutive tool results merged into one user turn because
   Bedrock requires alternating roles.
-- The capability boundary is explicit: images and documents are refused, because
-  Converse takes them inline or from S3 and a boolean `image_input` cannot say
-  "inline only". Making those flags source-aware (`false | :inline | :any`) is its own
-  design, and it would unlock inline images for every inline-only endpoint, not just
-  this one.
+- The capability boundary is explicit, and now per source: `image_input` and
+  `file_input` are `LlmCall.Capabilities.Input` records naming the kinds a codec
+  accepts (`inline`, `url`, `file`), so a codec that takes bytes but not a URL can say
+  so. Conformance derives its sample part from the declaration instead of a hard-coded
+  URL image, which is what makes the declaration checkable.
+- Converse carries inline images and documents (`source.bytes`), with the media type
+  mapped to Converse's `format` enum and a document's `filename` sent as `name`. A
+  provider-owned location is refused: Converse can point at S3, and the canonical IR
+  has no source for one.
 - A `{:sigv4, _}` client is refused by the WebSocket connection instead of
   handshaking unsigned.
 - `Usage` carries Bedrock's prompt-cache token counters.

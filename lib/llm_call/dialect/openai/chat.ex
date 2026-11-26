@@ -486,8 +486,8 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
       tool_choice: true,
       structured_output: :json_schema,
       modalities: [:text],
-      image_input: true,
-      file_input: false,
+      image_input: %LlmCall.Capabilities.Input{inline: true, url: true},
+      file_input: %LlmCall.Capabilities.Input{},
       reasoning: %ReasoningCapabilities{
         supported: true,
         efforts: @efforts,
