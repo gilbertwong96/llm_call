@@ -74,6 +74,10 @@ binary framing it streams in, and observability for every call.
   (`s3Location`), with the media type mapped to Converse's `format` enum and a
   document's `filename` sent as `name`. An `https://` source is refused locally,
   because the service would answer `400`.
+- Gemini's media source follows the same rule: `{:uri, _}` reaches `fileData.fileUri`
+  for a `gs://` object or a Files API URI, and a URL or bare string is refused. Its
+  `fileUri` was never a fetchable URL, so the old acceptance only moved the failure
+  to the provider.
 - A `{:sigv4, _}` client is refused by the WebSocket connection instead of
   handshaking unsigned.
 - `Usage` carries Bedrock's prompt-cache token counters.

@@ -444,7 +444,7 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
         content: [
           %Content.Image{source: {:base64, "AAA"}, media_type: "image/png"},
           %Content.File{
-            source: {:url, "https://example.com/a.pdf"},
+            source: {:uri, "gs://bucket/a.pdf"},
             media_type: "application/pdf"
           }
         ]
@@ -455,13 +455,27 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
            |> hd()
            |> Map.fetch!("parts") == [
              %{"inlineData" => %{"mimeType" => "image/png", "data" => "AAA"}},
-             %{
-               "fileData" => %{
-                 "mimeType" => "application/pdf",
-                 "fileUri" => "https://example.com/a.pdf"
-               }
-             }
+             %{"fileData" => %{"mimeType" => "application/pdf", "fileUri" => "gs://bucket/a.pdf"}}
            ]
+  end
+
+  # `fileData.fileUri` is not a URL Gemini fetches, so a URL is refused rather than
+  # sent to a 400. The bare-string form was the same claim in a shorter spelling.
+  test "a URL or bare-string source is refused with the shape that works" do
+    for {part, expected} <- [
+          {%Content.Image{source: {:url, "https://example.com/a.png"}}, "cannot fetch"},
+          {%Content.File{source: "https://example.com/a.pdf"}, "cannot fetch"},
+          {%Content.File{source: {:uri, "https://example.com/a.pdf"}}, "cannot fetch"},
+          {%Content.Image{source: {:file_id, "files/abc"}}, "not supported"}
+        ] do
+      assert {:error, %Error{kind: :validation, message: message}} =
+               GenerateContent.validate_request(
+                 text_request(messages: [%Message{role: :user, content: [part]}]),
+                 %Config{}
+               )
+
+      assert message =~ expected
+    end
   end
 
   test "known native provider options are type-checked" do
@@ -936,8 +950,8 @@ defmodule LlmCall.Dialect.GeminiGenerateContentTest do
                parallel_tool_calls: true,
                tool_choice: true,
                structured_output: :json_schema,
-               image_input: %LlmCall.Capabilities.Input{inline: true, url: true},
-               file_input: %LlmCall.Capabilities.Input{inline: true, url: true},
+               image_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
+               file_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
                streaming_tool_calls: true,
                prompt_cache: true,
                stateful: false,

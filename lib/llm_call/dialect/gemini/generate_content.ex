@@ -10,6 +10,12 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   `LlmCall.ToolResult.call_id` is not represented on this protocol. A request
   without a function `name` on the result is rejected.
 
+  A media part is either inline (`inlineData`) or a reference Gemini resolves
+  itself (`fileData.fileUri`), and that reference is a `gs://` object or a Files API
+  URI — not a URL anyone can fetch. So `{:uri, uri}` is the source that reaches it,
+  an `https://` URL is refused with the shape that works, and `capabilities/2` declares
+  `:inline` and `:uri` for both images and files.
+
   Streaming changes the method in the path (`:streamGenerateContent`) and adds
   `alt=sse` to the query; the transport still owns SSE framing.
 
@@ -178,24 +184,16 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
     %{"inlineData" => %{"mimeType" => media_type, "data" => data}}
   end
 
-  defp encode_part(%Content.Image{source: {:url, url}, media_type: media_type}, _json) do
-    %{"fileData" => %{"fileUri" => url} |> Helpers.maybe_put("mimeType", media_type)}
-  end
-
-  defp encode_part(%Content.Image{source: url}, _json) when is_binary(url) do
-    %{"fileData" => %{"fileUri" => url}}
+  defp encode_part(%Content.Image{source: {:uri, uri}, media_type: media_type}, _json) do
+    %{"fileData" => %{"fileUri" => uri} |> Helpers.maybe_put("mimeType", media_type)}
   end
 
   defp encode_part(%Content.File{source: {:base64, data}, media_type: media_type}, _json) do
     %{"inlineData" => %{"mimeType" => media_type, "data" => data}}
   end
 
-  defp encode_part(%Content.File{source: {:url, url}, media_type: media_type}, _json) do
-    %{"fileData" => %{"fileUri" => url} |> Helpers.maybe_put("mimeType", media_type)}
-  end
-
-  defp encode_part(%Content.File{source: url}, _json) when is_binary(url) do
-    %{"fileData" => %{"fileUri" => url}}
+  defp encode_part(%Content.File{source: {:uri, uri}, media_type: media_type}, _json) do
+    %{"fileData" => %{"fileUri" => uri} |> Helpers.maybe_put("mimeType", media_type)}
   end
 
   defp encode_part(%ToolCall{} = call, json) do
@@ -530,11 +528,15 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
        do: Helpers.error(@codec, "base64 image requires media_type")
 
   defp validate_part_shape(_role, %Content.Image{source: {:base64, _data}}, _json), do: :ok
-  defp validate_part_shape(_role, %Content.Image{source: {:url, _url}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.Image{source: source}, _json)
-       when is_binary(source),
-       do: :ok
+  defp validate_part_shape(_role, %Content.Image{source: {:uri, uri} = source}, _json),
+    do: validate_file_uri(source, uri)
+
+  defp validate_part_shape(_role, %Content.Image{source: {:url, url}}, _json),
+    do: Helpers.error(@codec, unfetchable(url))
+
+  defp validate_part_shape(_role, %Content.Image{source: source}, _json) when is_binary(source),
+    do: Helpers.error(@codec, unfetchable(source))
 
   defp validate_part_shape(_role, %Content.Image{}, _json),
     do: Helpers.error(@codec, "image source is not supported")
@@ -547,11 +549,15 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
        do: Helpers.error(@codec, "base64 file requires media_type")
 
   defp validate_part_shape(_role, %Content.File{source: {:base64, _data}}, _json), do: :ok
-  defp validate_part_shape(_role, %Content.File{source: {:url, _url}}, _json), do: :ok
 
-  defp validate_part_shape(_role, %Content.File{source: source}, _json)
-       when is_binary(source),
-       do: :ok
+  defp validate_part_shape(_role, %Content.File{source: {:uri, uri} = source}, _json),
+    do: validate_file_uri(source, uri)
+
+  defp validate_part_shape(_role, %Content.File{source: {:url, url}}, _json),
+    do: Helpers.error(@codec, unfetchable(url))
+
+  defp validate_part_shape(_role, %Content.File{source: source}, _json) when is_binary(source),
+    do: Helpers.error(@codec, unfetchable(source))
 
   defp validate_part_shape(_role, %Content.File{}, _json),
     do: Helpers.error(@codec, "file source is not supported")
@@ -575,6 +581,22 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
 
   defp validate_part_shape(_role, _part, _json),
     do: Helpers.error(@codec, "unsupported content part")
+
+  # `fileData.fileUri` is not a URL Gemini fetches: it takes a `gs://` object or a
+  # Files API URI, and nothing else. Accepting an `https://` URL was a claim the
+  # service answers with a 400, so a URL is refused with the shape that works.
+  defp validate_file_uri(_source, "gs://" <> rest) when rest != "", do: :ok
+
+  defp validate_file_uri(_source, "https://generativelanguage.googleapis.com/" <> rest)
+       when rest != "",
+       do: :ok
+
+  defp validate_file_uri(_source, uri), do: Helpers.error(@codec, unfetchable(uri))
+
+  defp unfetchable(uri) do
+    "Gemini cannot fetch #{inspect(uri)}; {:uri, uri} takes a gs:// object or a " <>
+      "Files API URI, and {:base64, data} sends the bytes"
+  end
 
   defp validate_tool_result_content(content),
     do: Helpers.validate_tool_result_content(content, @codec)
@@ -693,8 +715,8 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
       tool_choice: true,
       structured_output: :json_schema,
       modalities: [:text, :image],
-      image_input: %LlmCall.Capabilities.Input{inline: true, url: true},
-      file_input: %LlmCall.Capabilities.Input{inline: true, url: true},
+      image_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
+      file_input: %LlmCall.Capabilities.Input{inline: true, uri: true},
       reasoning: %ReasoningCapabilities{
         supported: true,
         efforts: [:none, :low, :high],

@@ -13,6 +13,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   what Converse, Anthropic and Gemini actually accept, so the declaration was wrong
   for one of them whichever value it held. `%Input{}` accepts nothing, which is what
   `false` meant; `Input.accepts?/2` answers the question for a concrete part.
+- Gemini no longer accepts a URL or a bare-string media source. `fileData.fileUri`
+  takes a `gs://` object or a Files API URI, so an `https://` URL was a request the
+  service answers with a 400. Use `{:uri, "gs://…"}`, or `{:base64, data}` to send the
+  bytes.
 
 ### Added
 
@@ -47,6 +51,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Anthropic's document validation accepts exactly the sources it can encode. Its
   catch-all accepted any source, including one `encode_source/2` has no clause for;
   the per-source conformance check found it.
+- Gemini's media source is now `{:uri, _}` for `gs://` and Files API URIs, and a URL
+  or bare string is refused. `fileData.fileUri` was never a fetchable URL, so the old
+  acceptance only moved the failure to the provider.
 - The conformance suite derives its sample part from the declared sources instead of
   always sending a URL image, so `capabilities/2` and `validate_request/2` cannot
   disagree about a source kind nobody checks.

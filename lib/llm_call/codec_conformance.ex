@@ -815,11 +815,12 @@ defmodule LlmCall.Codec.Conformance do
     for source_kind <- Input.kinds(%Input{inline: true, url: true, uri: true, file: true}) do
       declared? = source_kind in Input.kinds(declaration)
 
-      check_part_support(
+      check_source(
         codec,
         request,
         config,
         declared?,
+        source_kind,
         @input_samples[kind][source_kind],
         "#{label}.#{source_kind}"
       )
@@ -830,6 +831,16 @@ defmodule LlmCall.Codec.Conformance do
 
   defp check_input_sources(_codec, _request, _config, other, _kind, label) do
     flunk("Capabilities.#{label} must be an LlmCall.Capabilities.Input, got: #{inspect(other)}")
+  end
+
+  # A URI is protocol-specific — `s3://` for Converse, `gs://` or a Files API URI for
+  # Gemini — so there is no neutral sample that proves the positive direction. The
+  # codec's own tests cover the shape it accepts; a `false` declaration is still
+  # checked, because no codec here accepts another provider's scheme.
+  defp check_source(_codec, _request, _config, true, :uri, _sample, _label), do: :ok
+
+  defp check_source(codec, request, config, declared?, _source_kind, sample, label) do
+    check_part_support(codec, request, config, declared?, sample, label)
   end
 
   defp check_part_support(codec, request, config, true, part, label) do
