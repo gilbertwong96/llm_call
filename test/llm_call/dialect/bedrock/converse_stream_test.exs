@@ -215,6 +215,35 @@ defmodule LlmCall.Dialect.Bedrock.ConverseStreamTest do
              )
   end
 
+  # `:message-type: error` is the framing's own failure channel, and its payload is the
+  # message text rather than JSON. Treating it as an event would surface a connection
+  # failure as a data frame.
+  test "a framing error message is a provider error, not a raw event" do
+    message = %Frame{
+      headers: %{
+        ":message-type" => "error",
+        ":error-code" => "InternalFailure",
+        ":error-message" => "the connection failed"
+      },
+      payload: "the connection failed"
+    }
+
+    assert {:error, %Error{kind: :provider, code: "InternalFailure", message: message_text}} =
+             Converse.decode_stream_event(message, %Config{}, start_state())
+
+    assert message_text == "the connection failed"
+  end
+
+  test "an error message without a message header falls back to its payload" do
+    message = %Frame{
+      headers: %{":message-type" => "error"},
+      payload: "boom"
+    }
+
+    assert {:error, %Error{kind: :provider, message: "boom"}} =
+             Converse.decode_stream_event(message, %Config{}, start_state())
+  end
+
   test "an unknown event is kept raw rather than dropped" do
     assert {[%StreamEvent{type: :message_delta, delta: %StreamDelta.Raw{data: data}}], _state} =
              decode!(frame("futureEvent", %{"future" => true}), start_state())

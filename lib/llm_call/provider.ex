@@ -117,6 +117,11 @@ defmodule LlmCall.Provider do
   function form is called once per request and nothing is cached, so a lookup
   that reaches out to STS belongs behind the caller's own memoisation and
   timeout.
+
+  `region:` changes the **signing scope only**; it does not rewrite `base_url`, so a
+  per-client region override needs a matching `base_url:` too. Signing for
+  `us-west-2` and sending to a `us-east-1` endpoint is a request the service accepts
+  the signature of and then routes to the wrong region.
   """
   @spec build(module(), keyword()) :: Client.t()
   def build(provider, opts \\ []) do

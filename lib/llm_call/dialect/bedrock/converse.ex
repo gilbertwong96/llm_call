@@ -218,7 +218,20 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
 
   # The framing hands over the whole message, headers included: `:message-type` decides
   # between an event and an exception, and `:event-type` names the event.
+  # A `:message-type` of `error` is a connection-level failure, not an event: its
+  # payload is the message text, not JSON, so it is handled before the JSON decode.
   @impl true
+  def decode_stream_event(
+        %LlmCall.EventStream.Message{
+          headers: %{":message-type" => "error"} = headers,
+          payload: payload
+        },
+        %Config{},
+        %StreamState{}
+      ) do
+    {:error, stream_error(headers, payload)}
+  end
+
   def decode_stream_event(
         %LlmCall.EventStream.Message{headers: headers, payload: payload},
         %Config{} = config,
@@ -249,6 +262,20 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       {:error, invalid_response("stream ended without messageStop")}
     end
   end
+
+  defp stream_error(headers, payload) do
+    %Error{
+      kind: :provider,
+      code: headers[":error-code"] || headers[":exception-type"],
+      message: headers[":error-message"] || error_payload(payload)
+    }
+  end
+
+  defp error_payload(payload) when is_binary(payload) and payload != "" do
+    if String.valid?(payload), do: payload, else: "the stream reported an error with no message"
+  end
+
+  defp error_payload(_payload), do: "the stream reported an error with no message"
 
   defp decode_stream_payload(payload, %Config{} = config) do
     case LlmCall.JSON.decode(config.json, payload) do
