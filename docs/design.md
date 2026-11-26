@@ -520,6 +520,12 @@ codec that fetches arbitrary URLs is not the same as one that resolves a locatio
 in its own account, and Converse is the latter. Collapsing them would have made
 the declaration wrong again, one layer down.
 
+The shared validator (`LlmCall.Dialect.Helpers`) accepts every form, because it can
+only see the value; **a codec must reject in its own shape check the forms it cannot
+encode**, or its encoder will crash on a source it has no clause for. Declaring the
+kinds in `Capabilities.Input` is how a caller learns which are accepted, and the
+conformance suite holds the declaration to `validate_request/2`.
+
 `Raw` is an escape hatch for provider-specific blocks that the codec does not
 understand. It must be preserved in canonical responses and rendered back when
 possible.
