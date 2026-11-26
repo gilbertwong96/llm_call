@@ -316,6 +316,42 @@ override them without touching the compiled default. An explicit
 not the whole call, so a large response on a slow link can outlive it. Add
 `http_opts: [request_timeout: ...]` when you want a wall-clock cap.
 
+## Telemetry
+
+Calls emit `:telemetry` events and attach no handler, so there is no cost until
+you subscribe. `LlmCall.Telemetry` documents the full shape.
+
+| Event | Measurements |
+| --- | --- |
+| `[:llm_call, :request, :start]` | `system_time` |
+| `[:llm_call, :request, :stop]` | `duration`, the reported token counts |
+| `[:llm_call, :request, :exception]` | `duration` |
+| `[:llm_call, :stream, :start]` | `system_time` |
+| `[:llm_call, :stream, :first_event]` | `duration` |
+| `[:llm_call, :stream, :stop]` | `duration` |
+| `[:llm_call, :stream, :exception]` | `duration` |
+
+Every event carries `operation`, `provider`, `codec` and `model`; `:stop` adds the
+outcome (`:ok` / `:error`, or `:done` / `:halted` for a stream). The token counts
+are measurements, so they can be summed; a count the provider did not report is
+omitted rather than zeroed. Metadata never carries a header, a body or a message.
+
+```elixir
+import Telemetry.Metrics
+
+def llm_metrics do
+  [
+    summary("llm_call.request.stop.duration", unit: {:native, :millisecond}),
+    sum("llm_call.request.stop.input_tokens"),
+    sum("llm_call.request.stop.output_tokens"),
+    counter("llm_call.request.stop.outcome", tags: [:outcome, :provider, :model])
+  ]
+end
+```
+
+`execute/2` and `fetch/2` emit nothing here: they are Finch requests, already
+covered by `[:finch, :request, ...]`.
+
 ## Tools
 
 `Request.tools` takes a [`tool_call`](https://hex.pm/packages/tool_call) module, a

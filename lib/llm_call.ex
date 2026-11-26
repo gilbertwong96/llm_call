@@ -18,6 +18,9 @@ defmodule LlmCall do
   JSON encoding with the modules configured in `LlmCall.Config` and
   `LlmCall.Client`.
 
+  Calls emit `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` telemetry
+  events and attach no handler; see `LlmCall.Telemetry`.
+
   See `docs/design.md` for the canonical IR contract and the list of protocol
   adapters.
   """
@@ -45,7 +48,7 @@ defmodule LlmCall do
           | :error
           | :unknown
 
-  alias LlmCall.{Client, Config, EncodedRequest, Error, Operation, StreamState, Tools}
+  alias LlmCall.{Client, Config, EncodedRequest, Error, Operation, StreamState, Telemetry, Tools}
   alias LlmCall.HTTP
 
   @default_codec :chat
@@ -76,14 +79,16 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :decode_error, 2),
          {:ok, request} <- Tools.normalize_request(request, codec),
          {:ok, encoded} <- call_encode(codec, :encode_request, request, client.config) do
-      client
-      |> call_and_decode(
-        encoded,
-        codec,
-        &codec.decode_response(&1, client.config),
-        opts[:headers]
-      )
-      |> check_decoded(LlmCall.Response, "decode_response/2")
+      traced(client, :complete, codec, request.model, fn ->
+        client
+        |> call_and_decode(
+          encoded,
+          codec,
+          &codec.decode_response(&1, client.config),
+          opts[:headers]
+        )
+        |> check_decoded(LlmCall.Response, "decode_response/2")
+      end)
     end
   end
 
@@ -136,6 +141,7 @@ defmodule LlmCall do
        %LlmCall.Stream{
          client: client,
          codec: codec,
+         model: request.model,
          http_request: http_request,
          state: state,
          on_event: opts[:on_event]
@@ -168,14 +174,16 @@ defmodule LlmCall do
          :ok <- require_callback(codec, :decode_submit, 2),
          :ok <- require_callback(codec, :decode_error, 2),
          {:ok, encoded} <- call_encode(codec, :encode_submit, request, client.config) do
-      client
-      |> call_and_decode(
-        encoded,
-        codec,
-        &codec.decode_submit(&1, client.config),
-        opts[:headers]
-      )
-      |> check_decoded(LlmCall.Media.Response, "decode_submit/2")
+      traced(client, :generate, codec, request.model, fn ->
+        client
+        |> call_and_decode(
+          encoded,
+          codec,
+          &codec.decode_submit(&1, client.config),
+          opts[:headers]
+        )
+        |> check_decoded(LlmCall.Media.Response, "decode_submit/2")
+      end)
     end
   end
 
@@ -223,14 +231,16 @@ defmodule LlmCall do
          {:ok, codec} <- fetch_media_codec(client, opts),
          :ok <- require_callback(codec, :decode_operation, 2),
          :ok <- require_callback(codec, :decode_error, 2) do
-      client
-      |> call_and_decode(
-        encoded,
-        codec,
-        &codec.decode_operation(&1, client.config),
-        opts[:headers]
-      )
-      |> check_decoded(LlmCall.Operation, "decode_operation/2")
+      traced(client, :poll, codec, nil, fn ->
+        client
+        |> call_and_decode(
+          encoded,
+          codec,
+          &codec.decode_operation(&1, client.config),
+          opts[:headers]
+        )
+        |> check_decoded(LlmCall.Operation, "decode_operation/2")
+      end)
     end
   end
 
@@ -420,6 +430,14 @@ defmodule LlmCall do
 
   defp normalize(_client, {:error, reason}) do
     {:error, Error.from_transport(reason)}
+  end
+
+  # The emitting wrapper for the four calls that decode a provider response. It is
+  # here, not in `call_and_decode/5`, because the metadata needs the operation name
+  # and the model, and because `execute/2` and `fetch/2` go through `perform/3` and
+  # must not emit.
+  defp traced(%Client{} = client, operation, codec, model, fun) do
+    Telemetry.span(Telemetry.metadata(operation, client.provider, codec, model), fun)
   end
 
   defp call_and_decode(%Client{} = client, encoded, codec, decode_fun, call_headers) do

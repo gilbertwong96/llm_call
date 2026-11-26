@@ -1958,7 +1958,9 @@ the wire boundary; this section records the split so the core does not drift.
   family with its own endpoint and response shape, not a field on `Request`.
 - Subscription OAuth, Claude Code version management and other product-specific
   auth flows; the key/header is supplied by the caller.
-- Telemetry, tracing, budgets and approval policies.
+- Consuming telemetry: metric backends, dashboards, span processors, OTel wiring.
+  The core emits events (§26) and attaches no handler; it also owns no budgets or
+  approval policies.
 
 ### 25.3 Rules that follow
 
@@ -1989,3 +1991,69 @@ the wire boundary; this section records the split so the core does not drift.
    structured-output request that disables thought summaries), the codec must
    either validate the conflict or document the winning rule; it must not drop
    the loser silently.
+
+## 26. Telemetry
+
+The core **emits** events and attaches no handler: no reporter, no metrics
+backend, no span processor, no default `Logger` output. Consuming them is the
+host's job, which is what makes the cost zero when nobody is listening.
+
+Emitting belongs here because the values do not exist anywhere else. `Usage` is
+decoded inside the codec, `status` and `Retry-After` are consumed by the error
+path, and a stream's time to first event exists only inside the reducer. A caller
+cannot recover them without decoding the response a second time.
+
+The transport layer is already instrumented: Finch emits `[:finch, :request, :*]`
+with its own timing. `execute/2` and `fetch/2` therefore emit nothing here — they
+are Finch requests with a JSON body, not provider decodes. The events below cover
+the calls that decode a provider response.
+
+### 26.1 Events
+
+| Event | Measurements | Metadata added by `:stop` |
+| --- | --- | --- |
+| `[:llm_call, :request, :start]` | `system_time` | — |
+| `[:llm_call, :request, :stop]` | `duration`, token counts | `outcome`, then `stop_reason` or `error_kind` / `status` / `retryable` / `retry_after_ms` |
+| `[:llm_call, :request, :exception]` | `duration` | `kind`, `reason`, `stacktrace` |
+| `[:llm_call, :stream, :start]` | `system_time` | — |
+| `[:llm_call, :stream, :first_event]` | `duration` | — |
+| `[:llm_call, :stream, :stop]` | `duration` | `outcome`, `status`, `events` |
+| `[:llm_call, :stream, :exception]` | `duration` | `kind`, `reason`, `stacktrace` |
+
+Every event carries `operation` (`:complete`, `:stream`, `:generate`, `:poll`),
+`provider`, `codec` and `model` (`nil` for `poll/3`, which has no request).
+
+Times are native units (`System.monotonic_time/0`); convert with
+`System.convert_time_unit/2`. The token counts are measurements, not metadata, so
+`telemetry_metrics` can sum them. A count the provider did not report is
+**omitted**, never zero: `Usage` distinguishes "not reported" (`nil`) from
+"reported zero", and a `0` in `cache_read_tokens` is a different fact from no
+cache field at all.
+
+A call that fails before the request is built — a `:validation` error from
+`validate_request/2` or `encode_request/2` — emits nothing: no request was made,
+and the caller already holds the error synchronously. `duration` therefore always
+means wire time, not the time a broken request spent being rejected.
+
+`:first_event` fires on the first event yielded, so a stream that yields none — an
+empty body, or an error status — never emits it.
+
+### 26.2 Three rules
+
+1. **No credential, no body, no content.** Metadata never carries a header, a
+   request or response body, a message, or a stream delta. This is the rule the
+   code already applies to `Inspect` — `Client` hides `headers`, `query` and
+   `credentials`; `HTTP.Request` hides `headers` — applied with more force,
+   because an `Inspect` exception stays in a log while metadata ends up in a
+   third-party tracing backend. A host that wants content logging wraps the call.
+2. **Raw values, no cardinality policy.** `model` is emitted verbatim, including a
+   dated snapshot or a Bedrock ARN. Whether that becomes a metric tag, a span
+   attribute or is dropped is the handler's decision; normalising it in the core
+   would be guessing at the host's catalog.
+3. **`:stop` and `:exception` are exclusive, and a dead consumer has neither.** A
+   stream is a lazy `Enumerable`: `:start` is emitted when it is reduced, and
+   `:stop` when the reduce returns, whether it finished or the reducer halted
+   (`outcome: :done | :halted`). A raise emits `:exception` instead of `:stop`. A
+   stream that is built and never reduced emits nothing, and one whose consumer
+   process dies mid-read emits `:start` with no terminal event — counting streams
+   must tolerate that asymmetry.

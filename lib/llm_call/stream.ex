@@ -29,6 +29,11 @@ defmodule LlmCall.Stream do
   `finish_stream/2` is not called for a halted consumer. Suspension
   (`{:suspend, acc}`) is not supported and raises.
 
+  ## Telemetry
+
+  Reducing the stream emits `[:llm_call, :stream, :start]`, one `:first_event`, and
+  then `:stop` (`outcome: :done | :halted`) or `:exception`; see `LlmCall.Telemetry`.
+
   ## `on_event`
 
   `LlmCall.stream/3` accepts `on_event: fun` with `fun :: (StreamEvent.t() -> any())`.
@@ -40,18 +45,19 @@ defmodule LlmCall.Stream do
   transport's own protection; any other exception propagates.
   """
 
-  alias LlmCall.{Error, HTTP, SSE}
+  alias LlmCall.{Error, HTTP, SSE, Telemetry}
 
   # The client and its resolved request both carry the credential, so `inspect` shows
   # neither: a stream in a log line or a crash report must not print the key.
   @derive {Inspect, except: [:client, :http_request]}
-  defstruct [:client, :codec, :http_request, :state, :on_event]
+  defstruct [:client, :codec, :model, :http_request, :state, :on_event]
 
   @type on_event :: (LlmCall.StreamEvent.t() -> any()) | nil
 
   @type t :: %__MODULE__{
           client: LlmCall.Client.t(),
           codec: module(),
+          model: String.t() | nil,
           http_request: HTTP.Request.t(),
           state: LlmCall.StreamState.t(),
           on_event: on_event()
@@ -61,6 +67,9 @@ defmodule LlmCall.Stream do
   @spec reduce(t(), term(), (term(), term() -> {:cont, term()} | {:halt, term()})) ::
           {:done, term()} | {:halted, term()}
   def reduce(%__MODULE__{} = stream, acc, fun) when is_function(fun, 2) do
+    metadata = Telemetry.metadata(:stream, stream.client.provider, stream.codec, stream.model)
+    started = Telemetry.stream_start(metadata)
+
     state = %{
       client: stream.client,
       codec: stream.codec,
@@ -69,6 +78,10 @@ defmodule LlmCall.Stream do
       sse: SSE.new(),
       stream_state: stream.state,
       on_event: stream.on_event,
+      telemetry: metadata,
+      started: started,
+      first_event?: false,
+      events: 0,
       status: nil,
       headers: [],
       error_body: "",
@@ -77,27 +90,33 @@ defmodule LlmCall.Stream do
       halted?: false
     }
 
-    case HTTP.stream(
-           stream.http_request,
-           state,
-           &handle_event/2,
-           stream.client.http_opts
-         ) do
-      {:ok, state} ->
-        finish(state)
+    try do
+      case HTTP.stream(
+             stream.http_request,
+             state,
+             &handle_event/2,
+             stream.client.http_opts
+           ) do
+        {:ok, state} ->
+          finish(state)
 
-      # The reducer's accumulator survived the failure, so a status and the headers of
-      # an error response are still there: report them instead of losing a `429` and its
-      # `Retry-After` to a connection that died while the error body was being read.
-      {:error, _reason, %{status: status} = state}
-      when is_integer(status) and status not in 200..299 ->
-        raise_http_error(state)
+        # The reducer's accumulator survived the failure, so a status and the headers of
+        # an error response are still there: report them instead of losing a `429` and its
+        # `Retry-After` to a connection that died while the error body was being read.
+        {:error, _reason, %{status: status} = state}
+        when is_integer(status) and status not in 200..299 ->
+          raise_http_error(state)
 
-      {:error, reason, _state} ->
-        raise HTTP.Error, error: Error.from_transport(reason)
+        {:error, reason, _state} ->
+          raise HTTP.Error, error: Error.from_transport(reason)
 
-      {:error, reason} ->
-        raise HTTP.Error, error: Error.from_transport(reason)
+        {:error, reason} ->
+          raise HTTP.Error, error: Error.from_transport(reason)
+      end
+    catch
+      kind, reason ->
+        Telemetry.stream_exception(metadata, started, kind, reason, __STACKTRACE__)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     end
   end
 
@@ -238,7 +257,7 @@ defmodule LlmCall.Stream do
 
   defp yield_all(events, state) do
     Enum.reduce_while(events, state, fn event, state ->
-      observe(state, event)
+      state = track(state, event)
 
       case apply_downstream(state.fun, event, state.downstream) do
         {:cont, downstream} -> {:cont, %{state | downstream: downstream}}
@@ -246,6 +265,19 @@ defmodule LlmCall.Stream do
       end
     end)
   end
+
+  defp track(state, event) do
+    state = announce_first(%{state | events: state.events + 1})
+    observe(state, event)
+    state
+  end
+
+  defp announce_first(%{first_event?: false} = state) do
+    Telemetry.stream_first_event(state.telemetry, state.started)
+    %{state | first_event?: true}
+  end
+
+  defp announce_first(state), do: state
 
   defp observe(%{on_event: nil}, _event), do: :ok
   defp observe(%{on_event: fun}, event), do: fun.(event)
@@ -280,19 +312,29 @@ defmodule LlmCall.Stream do
 
   defp error_body_message(status, _body), do: "HTTP #{status}: body is not a JSON object"
 
+  # `:stop` is emitted around the terminal decision, so a raise — an error status, a codec
+  # that breaks the contract — leaves no `:stop` behind: the catch in `reduce/3` reports
+  # it as `:exception` instead.
+  defp finish(state) do
+    {outcome, acc} = finish_result(state)
+    Telemetry.stream_stop(state.telemetry, state.started, outcome, state.status, state.events)
+    {outcome, acc}
+  end
+
   # The cap halted the read, but the response is still a non-2xx whose error the
   # caller needs, so it is built before the caller-halt case.
-  defp finish(%{error_body_full?: true} = state), do: raise_http_error(state)
+  defp finish_result(%{error_body_full?: true} = state), do: raise_http_error(state)
 
-  defp finish(%{halted?: true} = state), do: {:halted, untag(state.downstream)}
+  defp finish_result(%{halted?: true} = state), do: {:halted, untag(state.downstream)}
 
-  defp finish(%{status: status} = state) when is_integer(status) and status not in 200..299 do
+  defp finish_result(%{status: status} = state)
+       when is_integer(status) and status not in 200..299 do
     raise_http_error(state)
   end
 
-  defp finish(%{done?: true} = state), do: {:done, untag(state.downstream)}
+  defp finish_result(%{done?: true} = state), do: {:done, untag(state.downstream)}
 
-  defp finish(state) do
+  defp finish_result(state) do
     {payloads, sse} = SSE.flush(state.sse)
     state = %{state | sse: sse}
 

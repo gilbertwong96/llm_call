@@ -16,6 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   text, tool use and tool results. Images and documents are refused until the
   capability model can say "inline only"; streaming waits for the event-stream
   framing it needs.
+- Telemetry: `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` events
+  carry the operation, provider, codec and model; `:stop` adds the outcome, the
+  status, and the token counts as measurements. No handler is attached, so the
+  cost is zero until a host subscribes. See `LlmCall.Telemetry`.
 
 ## 0.2.0 - 2026-11-24
 
