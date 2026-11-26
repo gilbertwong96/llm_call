@@ -13,9 +13,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   map or a 0-arity function that returns one — and `region:` overrides the
   declared region per client.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
-  text, tool use and tool results. Images and documents are refused until the
-  capability model can say "inline only"; streaming waits for its stream callbacks,
-  which now have their framing (`LlmCall.EventStream`).
+  text, tool use and tool results, on `/converse` and on `/converse-stream` alike.
+  Images and documents are refused until the capability model can say "inline only".
+  A streamed call maps `contentBlock*` and `messageStop` onto the IR stream events;
+  because Bedrock sends usage *after* `messageStop`, the `:message_stop` terminator is
+  flushed when the body ends, and a stream that never reaches `messageStop` is an
+  `:invalid_response` rather than a quietly truncated one.
 - `provider_options.bedrock` is merged into the top level of the Converse request,
   the rule the other codecs follow, so `guardrailConfig` and Bedrock's other
   top-level fields are reachable. The canonical envelope keys are reserved and a

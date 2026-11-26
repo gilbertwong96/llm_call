@@ -28,6 +28,19 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   The canonical envelope keys — `messages`, `system`, `inferenceConfig`,
   `toolConfig` — are reserved: an option that would replace one is a
   `:validation` error, never a silent override.
+
+  ## Streaming
+
+  `ConverseStream` is a second endpoint, not a flag in the body, so
+  `encode_request/2` picks `/converse-stream` from `Request.stream`. Its body is a
+  single binary frame stream rather than SSE, declared through `stream_framing/0`.
+
+  Bedrock sends usage **after** `messageStop`, so this codec cannot emit the IR
+  terminator there: `:message_stop` would be followed by another event. The stop
+  reason arrives at `messageStop`, the usage at `metadata`, and `finish_stream/2`
+  emits `:message_stop` when the body ends — the same shape Gemini uses, and the same
+  rule: a stream that ends without `messageStop` is an `:invalid_response`, not a
+  quietly truncated one.
   """
 
   alias LlmCall.Dialect.Helpers
@@ -42,6 +55,9 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
     Message,
     Request,
     Response,
+    StreamDelta,
+    StreamEvent,
+    StreamState,
     ToolCall,
     ToolResult,
     ToolSpec,
@@ -100,12 +116,23 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       {:ok,
        %EncodedRequest{
          method: :post,
-         path: "/model/" <> encode_model(request.model) <> "/converse",
+         path: converse_path(request),
          headers: [{"content-type", "application/json"}],
          body: body(request, config)
        }}
     end
   end
+
+  # `ConverseStream` is its own endpoint, so the flag is in the path and never in the
+  # body: a body `stream: true` would be rejected by the sync endpoint.
+  defp converse_path(%Request{model: model, stream: true}),
+    do: "/model/" <> encode_model(model) <> "/converse-stream"
+
+  defp converse_path(%Request{model: model}),
+    do: "/model/" <> encode_model(model) <> "/converse"
+
+  @impl true
+  def stream_framing, do: LlmCall.EventStream
 
   @impl true
   def capabilities(%Request{}, _config) do
@@ -116,7 +143,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       modalities: [:text],
       image_input: false,
       file_input: false,
-      streaming: false,
+      streaming: true,
       stateful: false
     }
   end
@@ -153,6 +180,159 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   def decode_error(payload, %Config{} = config) do
     Helpers.decode_provider_error(payload, config, @codec, [], [])
   end
+
+  @impl true
+  def init_stream(%Request{} = request, %Config{} = config) do
+    with :ok <- validate_request(request, config) do
+      {:ok,
+       StreamState.new(__MODULE__, %{
+         blocks: %{},
+         usage: nil,
+         stop_reason: nil,
+         finished?: false
+       })}
+    end
+  end
+
+  # The framing hands over the whole message, headers included: `:message-type` decides
+  # between an event and an exception, and `:event-type` names the event.
+  @impl true
+  def decode_stream_event(
+        %LlmCall.EventStream.Message{headers: headers, payload: payload},
+        %Config{} = config,
+        %StreamState{} = state
+      ) do
+    with {:ok, term} <- decode_stream_payload(payload, config) do
+      if headers[":message-type"] == "exception" do
+        {:error, decode_error(term, config)}
+      else
+        data = StreamState.data(state)
+        {events, data} = stream_events(headers[":event-type"], term, config, data)
+        {:ok, events, StreamState.new(__MODULE__, data)}
+      end
+    end
+  end
+
+  def decode_stream_event(_other, _config, %StreamState{}),
+    do: {:error, invalid_response("a stream event must be a framed message")}
+
+  # `messageStop` is the terminator in Bedrock's own vocabulary, but usage arrives after
+  # it, so the IR's `:message_stop` is flushed when the body ends. A stream that never
+  # reaches `messageStop` was cut short and says so, rather than looking complete.
+  @impl true
+  def finish_stream(%StreamState{} = state, _config) do
+    if StreamState.data(state).finished? do
+      {:ok, [%StreamEvent{type: :message_stop}], state}
+    else
+      {:error, invalid_response("stream ended without messageStop")}
+    end
+  end
+
+  defp decode_stream_payload(payload, %Config{} = config) do
+    case LlmCall.JSON.decode(config.json, payload) do
+      {:ok, %{} = term} -> {:ok, term}
+      {:ok, _other} -> {:error, invalid_response("a stream event payload is not an object")}
+      {:error, _reason} -> {:error, invalid_response("a stream event payload is not JSON")}
+    end
+  end
+
+  defp stream_events("messageStart", term, config, data) do
+    {[Helpers.event(:message_start, nil, nil, term, config)], data}
+  end
+
+  defp stream_events("contentBlockStart", term, config, data) do
+    index = Helpers.index(term["contentBlockIndex"])
+
+    case term["start"] do
+      %{"toolUse" => %{"toolUseId" => id, "name" => name}} ->
+        delta = %StreamDelta.ToolCall{id: id, name: name, index: index}
+
+        {[Helpers.event(:tool_call_start, index, delta, term, config)],
+         put_block(data, index, :tool_use)}
+
+      _text_or_unknown ->
+        {[Helpers.event(:content_start, index, nil, term, config)], put_block(data, index, :text)}
+    end
+  end
+
+  defp stream_events("contentBlockDelta", term, config, data) do
+    block_delta(term["delta"], Helpers.index(term["contentBlockIndex"]), term, config, data)
+  end
+
+  defp stream_events("contentBlockStop", term, config, data) do
+    index = Helpers.index(term["contentBlockIndex"])
+
+    case Map.get(data.blocks, index) do
+      :tool_use ->
+        {[
+           Helpers.event(
+             :tool_call_stop,
+             index,
+             %StreamDelta.ToolCall{index: index},
+             term,
+             config
+           )
+         ], data}
+
+      _other ->
+        {[Helpers.event(:content_stop, index, nil, term, config)], data}
+    end
+  end
+
+  defp stream_events("messageStop", term, config, data) do
+    data = %{data | stop_reason: stop_reason(term["stopReason"]), finished?: true}
+    {[message_delta(term, config, data)], data}
+  end
+
+  defp stream_events("metadata", term, config, data) do
+    data = %{data | usage: decode_usage(term["usage"]) || data.usage}
+
+    if data.usage,
+      do: {[message_delta(term, config, data)], data},
+      else: {[], data}
+  end
+
+  # A provider field this codec does not map yet is kept, not dropped.
+  defp stream_events(_other, term, config, data) do
+    {[Helpers.event(:message_delta, nil, %StreamDelta.Raw{data: term}, term, config)], data}
+  end
+
+  defp block_delta(%{"text" => text}, index, term, config, data) when is_binary(text) do
+    {[Helpers.event(:text_delta, index, %StreamDelta.Text{text: text}, term, config)], data}
+  end
+
+  defp block_delta(%{"toolUse" => %{"input" => fragment}}, index, term, config, data)
+       when is_binary(fragment) do
+    delta = %StreamDelta.ToolCall{arguments: fragment, index: index}
+    {[Helpers.event(:tool_call_delta, index, delta, term, config)], data}
+  end
+
+  defp block_delta(%{"reasoningContent" => reasoning}, index, term, config, data)
+       when is_map(reasoning) do
+    thinking = %StreamDelta.Thinking{
+      text: reasoning["text"] || "",
+      signature: reasoning["signature"]
+    }
+
+    {[Helpers.event(:thinking_delta, index, thinking, term, config)], data}
+  end
+
+  defp block_delta(delta, _index, term, config, data) do
+    raw = %StreamDelta.Raw{data: delta || %{}}
+    {[Helpers.event(:message_delta, nil, raw, term, config)], data}
+  end
+
+  # The stop reason is known before the usage is, so a delta after `metadata` carries
+  # both: a caller that reads the last delta has the whole picture.
+  defp message_delta(term, config, data) do
+    delta = %StreamDelta.MessageDelta{stop_reason: data.stop_reason, usage: data.usage}
+    Helpers.event(:message_delta, nil, delta, term, config)
+  end
+
+  defp put_block(data, index, type), do: %{data | blocks: Map.put(data.blocks, index, type)}
+
+  defp invalid_response(message),
+    do: %Error{kind: :invalid_response, message: "#{@codec}: " <> message}
 
   defp decode_part(%{"text" => text}) when is_binary(text), do: [%Content.Text{text: text}]
 

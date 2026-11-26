@@ -40,14 +40,27 @@ const cases = {
     ],
     Buffer.from('{"delta":{"text":"Hello"},"contentBlockIndex":0}', "utf8"),
   ],
-  // The last event of a Converse stream; its payload is an empty object.
+  // The last event of a Converse stream; it carries the stop reason.
   message_stop: [
     [
       [":message-type", str("event")],
       [":event-type", str("messageStop")],
       [":content-type", str("application/json")],
     ],
-    Buffer.from("{}", "utf8"),
+    Buffer.from('{"stopReason":"end_turn"}', "utf8"),
+  ],
+  // Usage arrives after messageStop, which is why the terminator cannot be emitted
+  // there: the IR would get a message_stop followed by more events.
+  metadata: [
+    [
+      [":message-type", str("event")],
+      [":event-type", str("metadata")],
+      [":content-type", str("application/json")],
+    ],
+    Buffer.from(
+      '{"usage":{"inputTokens":3,"outputTokens":5,"totalTokens":8},"metrics":{"latencyMs":120}}',
+      "utf8",
+    ),
   ],
   // Bedrock reports a throttled stream as a frame, not as an HTTP status.
   exception: [

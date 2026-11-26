@@ -11,7 +11,7 @@ Module namespace: `LlmCall`
 codecs, and a one-call client on Finch whose JSON layer is replaceable.
 
 The library ships the canonical IR, the codec behaviours, the conformance
-suites, four **reference adapters** — the dialect families the IR is written
+suites, five **reference adapters** — the dialect families the IR is written
 against — and a set of **vendored media adapters**. Provider coverage is still
 not a goal: the IR's value comes from the breadth of knowledge behind it, not
 from the breadth of shipped code. A vendored adapter tracks its provider's API;
@@ -1362,7 +1362,18 @@ is therefore produced by `@smithy/eventstream-codec` — the encoder the AWS SDK
 JavaScript uses against Bedrock — and committed with the generator and its version
 (`test/support/fixtures/eventstream/`). Agreement with an independent
 implementation is the only evidence available without an AWS endpoint, and it is
-the reason this parser was written before, not after, the stream codec.
+the reason this parser was written before the stream codec rather than alongside
+it: a codec built on an unverified framer would have hidden its own failures.
+
+#### Where a stream ends
+
+The mapping into the IR is a codec's decision, and Converse forces one. Bedrock
+sends the stop reason at `messageStop` and the usage **after** it, at `metadata`.
+Emitting `:message_stop` at `messageStop` would put the IR's terminator before the
+usage, so `LlmCall.Dialect.Bedrock.Converse` emits `:message_delta` at both points
+— the second one carrying the stop reason *and* the usage — and flushes
+`:message_stop` from `finish_stream/2`. A stream that never sees `messageStop` is a
+`:invalid_response`, which is the same rule §12 applies to Anthropic and OpenAI.
 
 ## 13. Tool framework integration
 
@@ -1401,6 +1412,8 @@ catalog can be converted into `LlmCall.ToolSpec` values outside the core.
 - `LlmCall.Dialect.OpenAI.Responses`
 - `LlmCall.Dialect.Anthropic.Messages`
 - `LlmCall.Dialect.Gemini.GenerateContent`
+- `LlmCall.Dialect.Bedrock.Converse` — including `ConverseStream`, which is not
+  SSE: see §12.2.
 
 These cover the most common request/response shapes and validate the canonical
 IR.

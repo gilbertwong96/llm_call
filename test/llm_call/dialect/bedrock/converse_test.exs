@@ -375,7 +375,7 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
     assert non_map =~ "bedrock"
   end
 
-  test "capabilities describe exactly what the phase supports" do
+  test "capabilities describe exactly what the codec supports" do
     assert %Capabilities{
              tools: true,
              tool_choice: true,
@@ -383,7 +383,7 @@ defmodule LlmCall.Dialect.Bedrock.ConverseTest do
              modalities: [:text],
              image_input: false,
              file_input: false,
-             streaming: false,
+             streaming: true,
              stateful: false
            } = Converse.capabilities(request("m"), %Config{})
   end
