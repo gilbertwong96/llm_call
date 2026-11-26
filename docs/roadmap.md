@@ -51,8 +51,9 @@ depend on each other:
 
 ## 3. Delivered since 0.2 (unreleased)
 
-This one is an *authentication* family rather than an operation family: a provider
-can now sign what it sends.
+Three kinds of change, none of them a new operation family: an authentication family
+(a provider can sign what it sends), a fifth reference adapter together with the
+binary framing it streams in, and observability for every call.
 
 - `auth: {:sigv4, service: ..., region: ...}` with `credentials:` (a map or a 0-arity
   function) and `region:` client options. The signer runs in the transport, after the
