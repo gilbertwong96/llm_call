@@ -14,10 +14,16 @@ defmodule LlmCall.Auth.SigV4 do
   request body has been serialized, which is why signing sits beside the transport
   and not inside a codec.
 
-  `LlmCall.EncodedRequest.path` is signed verbatim, because a codec has already
-  percent-encoded it. The query string is encoded here instead: `URI.encode_query/1`
-  writes a space as `+` where SigV4 requires `%20`, and the canonical form is
-  sorted after encoding.
+  `LlmCall.EncodedRequest.path` is signed **re-encoded**, not verbatim. SigV4's
+  canonical URI is the URI-encoded path, and for every service except S3 that means
+  encoding the bytes a request would carry — so a path segment a codec wrote as
+  `%3A` (a Bedrock model id's colon) is canonicalised to `%253A`. Signing it verbatim
+  is the mistake that only a real endpoint reports, as a signature mismatch, and it
+  was found by comparing against botocore rather than by reasoning. A codec still
+  percent-encodes its path, so the URL is what the provider expected.
+
+  The query string is encoded here instead: `URI.encode_query/1` writes a space as
+  `+` where SigV4 requires `%20`, and the canonical form is sorted after encoding.
   """
 
   alias LlmCall.Error
@@ -105,7 +111,7 @@ defmodule LlmCall.Auth.SigV4 do
       Enum.join(
         [
           request.method |> to_string() |> String.upcase(),
-          uri.path || "/",
+          canonical_uri(uri.path || "/"),
           canonical_query,
           canonical_headers,
           signed_names,
@@ -244,6 +250,18 @@ defmodule LlmCall.Auth.SigV4 do
     |> to_string()
     |> :binary.bin_to_list()
     |> Enum.map_join(&encode_byte/1)
+  end
+
+  # Every service but S3 canonicalises the path this way: encode each byte of the
+  # path as it appears, `/` excepted. A `%` that is already there becomes `%25`, which
+  # is what makes a pre-encoded segment sign correctly.
+  defp canonical_uri(path) do
+    path
+    |> :binary.bin_to_list()
+    |> Enum.map_join(fn
+      ?/ -> "/"
+      byte -> encode_byte(byte)
+    end)
   end
 
   defp encode_byte(byte) when byte in ?A..?Z or byte in ?a..?z or byte in ?0..?9, do: <<byte>>

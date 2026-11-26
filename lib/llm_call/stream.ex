@@ -206,7 +206,9 @@ defmodule LlmCall.Stream do
     {:ok, fun.(framing)}
   rescue
     error ->
-      if error.__struct__ == framing.error(),
+      # `function_exported?` first: a framing that does not implement the behaviour must
+      # not turn the exception being handled into an UndefinedFunctionError.
+      if function_exported?(framing, :error, 0) and error.__struct__ == framing.error(),
         do: {:error, Exception.message(error)},
         else: reraise(error, __STACKTRACE__)
   end

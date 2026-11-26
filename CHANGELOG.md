@@ -18,12 +18,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   service answers with a 400. Use `{:uri, "gs://…"}`, or `{:base64, data}` to send the
   bytes.
 
+### Fixes
+
+- SigV4 canonicalised a percent-encoded path verbatim, so a Bedrock model id — whose
+  `:` a codec writes as `%3A` — signed as `%3A` where every AWS SDK signs `%253A`.
+  The published `ListUsers` vector has a `/` path and could not catch it. Found by
+  comparing against botocore, which is the reference client that works against
+  Bedrock; a Converse call would have been a 403 without it.
+
 ### Added
 
 - `auth: {:sigv4, service: ..., region: ...}` signs every request with AWS
   Signature Version 4. Credentials are a client option — `credentials:` takes a
   map or a 0-arity function that returns one — and `region:` overrides the
-  declared region per client.
+  declared region per client. The canonical request follows an AWS SDK for the
+  path, the query and the header set, and the suite pins a botocore-derived
+  signature for a Converse model id, not only the published `ListUsers` vector.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
   text, tool use, images and documents inline or from S3, on `/converse` and on
   `/converse-stream` alike. A streamed call maps `contentBlock*` and `messageStop` onto the IR stream
