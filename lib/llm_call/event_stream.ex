@@ -42,11 +42,11 @@ defmodule LlmCall.EventStream do
   frame *claims*, before the bytes arrive, so a peer cannot make this process buffer
   gigabytes by announcing them.
 
-  `finish/1` refuses a buffer that still holds bytes: a body that ends mid-frame is a
+  `flush/1` refuses a buffer that still holds bytes: a body that ends mid-frame is a
   truncated stream, not a complete one. That is the same rule §12 applies to SSE.
 
       {messages, state} = EventStream.parse(EventStream.new(), chunk)
-      :ok = EventStream.finish(state)
+      {[], state} = EventStream.flush(state)
   """
 
   alias LlmCall.EventStream.{Error, Message}
@@ -63,10 +63,26 @@ defmodule LlmCall.EventStream do
 
   @type t :: %__MODULE__{buffer: binary()}
 
+  @behaviour LlmCall.Framing
+
   defstruct buffer: ""
+
+  @doc "The exception raised for a body that cannot be framed."
+  @impl LlmCall.Framing
+  def error, do: LlmCall.EventStream.Error
+
+  @doc """
+  The framed message is the codec's input, payload bytes included.
+
+  Unlike SSE there is no bare JSON to decode: the payload sits inside an envelope
+  whose headers say what it is, so decoding it is the codec's decision.
+  """
+  @impl LlmCall.Framing
+  def codec_input(%Message{} = message, _json), do: {:ok, message}
 
   @doc "A decoder with an empty buffer."
   @spec new() :: t()
+  @impl LlmCall.Framing
   def new, do: %__MODULE__{}
 
   @doc """
@@ -78,6 +94,7 @@ defmodule LlmCall.EventStream do
   a later chunk.
   """
   @spec parse(t(), binary()) :: {[Message.t()], t()}
+  @impl LlmCall.Framing
   def parse(%__MODULE__{} = state, chunk) when is_binary(chunk) do
     frames(%__MODULE__{state | buffer: state.buffer <> chunk}, [])
   end
@@ -85,13 +102,15 @@ defmodule LlmCall.EventStream do
   @doc """
   Asserts that the body ended on a frame boundary.
 
-  A body that stops mid-frame lost the rest of a message, which is a truncated
-  stream rather than a shorter one.
+  There is no trailing message to return, unlike SSE: event stream has no way to
+  carry a fragment of one. A body that stops mid-frame lost the rest of a message,
+  which is a truncated stream rather than a shorter one.
   """
-  @spec finish(t()) :: :ok
-  def finish(%__MODULE__{buffer: ""}), do: :ok
+  @spec flush(t()) :: {[], t()}
+  @impl LlmCall.Framing
+  def flush(%__MODULE__{buffer: ""} = state), do: {[], state}
 
-  def finish(%__MODULE__{buffer: buffer}) do
+  def flush(%__MODULE__{buffer: buffer}) do
     raise Error,
       message: "the body ended after #{byte_size(buffer)} bytes of a truncated frame"
   end

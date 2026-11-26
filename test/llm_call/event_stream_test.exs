@@ -7,7 +7,7 @@ defmodule LlmCall.EventStreamTest do
 
   defp parse!(bytes) do
     {messages, state} = EventStream.parse(EventStream.new(), bytes)
-    assert EventStream.finish(state) == :ok
+    assert {[], _} = EventStream.flush(state)
     messages
   end
 
@@ -48,7 +48,7 @@ defmodule LlmCall.EventStreamTest do
       rest = binary_part(frame, split, size - split)
       {[message], state} = EventStream.parse(state, rest)
       assert message.payload == ~s({"delta":{"text":"Hello"},"contentBlockIndex":0})
-      assert EventStream.finish(state) == :ok
+      assert {[], _} = EventStream.flush(state)
     end
   end
 
@@ -59,7 +59,7 @@ defmodule LlmCall.EventStreamTest do
              EventStream.parse(state, Frames.frame(:split_second_half))
 
     assert message.payload == ~s({"delta":{"text":"split"}})
-    assert EventStream.finish(state) == :ok
+    assert {[], _} = EventStream.flush(state)
   end
 
   # Bedrock reports a throttled or failed stream as a frame, so this is not an error
@@ -102,7 +102,7 @@ defmodule LlmCall.EventStreamTest do
 
   test "an empty chunk completes nothing" do
     assert {[], state} = EventStream.parse(EventStream.new(), "")
-    assert EventStream.finish(state) == :ok
+    assert {[], _} = EventStream.flush(state)
   end
 
   # The checksums exist because a corrupted length would otherwise be used as an
@@ -165,7 +165,7 @@ defmodule LlmCall.EventStreamTest do
     frame = Frames.frame(:message_start)
     {[], state} = EventStream.parse(EventStream.new(), binary_part(frame, 0, 20))
 
-    assert_raise Error, ~r/truncated/, fn -> EventStream.finish(state) end
+    assert_raise Error, ~r/truncated/, fn -> EventStream.flush(state) end
   end
 
   # A frame this test builds itself, so a malformed prelude or header block can be
@@ -180,5 +180,162 @@ defmodule LlmCall.EventStreamTest do
     prelude = <<total::32, headers_length::32>>
     prefixed = <<prelude::binary, :erlang.crc32(prelude)::32, headers::binary, payload::binary>>
     <<prefixed::binary, :erlang.crc32(prefixed)::32>>
+  end
+end
+
+defmodule LlmCall.EventStream.FramedStreamTest do
+  use ExUnit.Case, async: true
+
+  alias LlmCall.{Content, Error, Request, StreamEvent}
+  alias LlmCall.Fixtures.EventStream, as: Frames
+  alias LlmCall.TestHTTPServer, as: TestHTTP
+
+  defmodule FramedCodec do
+    @moduledoc "A codec whose protocol frames its stream as AWS event stream."
+
+    @behaviour LlmCall.Codec
+
+    alias LlmCall.{Capabilities, Codec, EncodedRequest, Error, EventStream, StreamState}
+
+    @impl true
+    def info, do: %Codec.Info{name: :framed, protocol: :framed, ir_version: 1}
+
+    @impl true
+    def validate_request(_request, _config), do: :ok
+
+    @impl true
+    def encode_request(_request, _config), do: {:ok, %EncodedRequest{path: "/framed", body: %{}}}
+
+    @impl true
+    def decode_response(_term, _config),
+      do: {:error, %Error{kind: :invalid_response, message: "framed"}}
+
+    @impl true
+    def decode_error(_term, _config), do: %Error{kind: :invalid_response, message: "framed"}
+
+    @impl true
+    def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+    @impl true
+    def stream_framing, do: EventStream
+
+    @impl true
+    def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+    @impl true
+    def decode_stream_event(
+          %EventStream.Message{headers: headers, payload: payload},
+          config,
+          state
+        ) do
+      case headers[":event-type"] do
+        "messageStart" ->
+          {:ok, [%StreamEvent{type: :message_start}], state}
+
+        "messageStop" ->
+          {:done, state}
+
+        "contentBlockDelta" ->
+          {:ok, %{"delta" => %{"text" => text}}} = LlmCall.JSON.decode(config.json, payload)
+
+          {:ok, [%StreamEvent{type: :text_delta, delta: %LlmCall.StreamDelta.Text{text: text}}],
+           state}
+
+        other ->
+          {:error, %Error{kind: :invalid_response, message: "unknown event #{inspect(other)}"}}
+      end
+    end
+
+    @impl true
+    def finish_stream(state, _config), do: {:ok, [], state}
+  end
+
+  defmodule FramedProvider do
+    @moduledoc false
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1:1",
+      auth: :bearer,
+      codecs: [chat: FramedCodec]
+  end
+
+  setup do
+    TestHTTP.start()
+    on_exit(&TestHTTP.stop/0)
+    :ok
+  end
+
+  defp request do
+    %Request{
+      model: "framed-1",
+      messages: [%LlmCall.Message{role: :user, content: [%Content.Text{text: "hi"}]}]
+    }
+  end
+
+  defp client, do: FramedProvider.client(api_key: "k", base_url: TestHTTP.url())
+
+  test "a codec that declares a binary framing streams through LlmCall.stream/3" do
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, Frames.frame(:message_start)},
+      {:data, Frames.frame(:content_block_delta)},
+      {:data, Frames.frame(:message_stop)}
+    ])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+    assert stream.framing == LlmCall.EventStream
+
+    assert [%StreamEvent{type: :message_start}, %StreamEvent{type: :text_delta}] =
+             Enum.to_list(stream)
+  end
+
+  # A frame split across two body chunks is the case a byte-blind decoder gets wrong.
+  test "a frame split across chunks still decodes" do
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, Frames.frame(:split_first_half)},
+      {:data, Frames.frame(:split_second_half)},
+      {:data, Frames.frame(:message_stop)}
+    ])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    assert [%StreamEvent{delta: %LlmCall.StreamDelta.Text{text: "split"}}] =
+             Enum.to_list(stream)
+  end
+
+  test "a corrupted frame is an :invalid_response naming the checksum" do
+    frame = Frames.frame(:content_block_delta)
+    size = byte_size(frame)
+    corrupted = binary_part(frame, 0, size - 5) <> "X" <> binary_part(frame, size - 4, 4)
+
+    TestHTTP.put_events([{:status, 200}, {:data, corrupted}])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise LlmCall.HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{kind: :invalid_response, message: message} = LlmCall.HTTP.Error.error(exception)
+    assert message =~ "checksum"
+  end
+
+  test "a body that ends mid-frame is an :invalid_response naming the truncation" do
+    frame = Frames.frame(:content_block_delta)
+    TestHTTP.put_events([{:status, 200}, {:data, binary_part(frame, 0, 20)}])
+
+    assert {:ok, stream} = LlmCall.stream(client(), request())
+
+    exception = assert_raise LlmCall.HTTP.Error, fn -> Enum.to_list(stream) end
+    assert %Error{kind: :invalid_response, message: message} = LlmCall.HTTP.Error.error(exception)
+    assert message =~ "truncated"
+  end
+
+  test "a codec that declares no framing streams SSE" do
+    client = LlmCall.TestProvider.client(api_key: "k", base_url: TestHTTP.url())
+
+    assert {:ok, %LlmCall.Stream{framing: LlmCall.SSE} = stream} =
+             LlmCall.stream(client, request())
+
+    # Nothing is sent until the stream is reduced, so this asserts the seam, not the body.
+    assert stream.http_request.method == :post
   end
 end

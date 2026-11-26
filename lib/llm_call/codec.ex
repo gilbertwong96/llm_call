@@ -68,5 +68,18 @@ defmodule LlmCall.Codec do
               LlmCall.Config.t()
             ) :: LlmCall.Capabilities.t()
 
-  @optional_callbacks init_stream: 2, decode_stream_event: 3, finish_stream: 2
+  @doc """
+  The framing this protocol streams in, or `LlmCall.SSE` when not declared.
+
+  A wire format decides how its stream is cut into messages, not the caller: SSE for
+  the HTTP dialects, `LlmCall.EventStream` for Bedrock's `ConverseStream`. Declaring
+  it here keeps `LlmCall.Stream` free of protocol knowledge and the codec free of
+  byte-level framing.
+  """
+  @callback stream_framing() :: module()
+
+  @optional_callbacks init_stream: 2,
+                      decode_stream_event: 3,
+                      finish_stream: 2,
+                      stream_framing: 0
 end

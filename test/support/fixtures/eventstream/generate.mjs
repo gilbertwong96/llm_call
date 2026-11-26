@@ -40,6 +40,15 @@ const cases = {
     ],
     Buffer.from('{"delta":{"text":"Hello"},"contentBlockIndex":0}', "utf8"),
   ],
+  // The last event of a Converse stream; its payload is an empty object.
+  message_stop: [
+    [
+      [":message-type", str("event")],
+      [":event-type", str("messageStop")],
+      [":content-type", str("application/json")],
+    ],
+    Buffer.from("{}", "utf8"),
+  ],
   // Bedrock reports a throttled stream as a frame, not as an HTTP status.
   exception: [
     [

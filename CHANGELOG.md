@@ -26,6 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both the prelude and the message, and a truncation check at end of body. The test
   frames come from `@smithy/eventstream-codec`, an implementation this decoder shares
   no code with.
+- Framing is a codec decision: the optional `stream_framing/0` callback on
+  `LlmCall.Codec` (`LlmCall.SSE` by default) and the `LlmCall.Framing` behaviour
+  drive `LlmCall.Stream`, which no longer knows what a body chunk is. The four SSE
+  codecs are untouched; a protocol framed as event stream declares
+  `LlmCall.EventStream`.
 - Telemetry: `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` events
   carry the operation, provider, codec and model; `:stop` adds the outcome, the
   status, and the token counts as measurements, and a stream reports `:first_event`

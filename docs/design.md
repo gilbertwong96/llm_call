@@ -1199,6 +1199,17 @@ The client parses SSE (`LlmCall.SSE`) and yields normalized events; codecs see
 provider event terms only. Bedrock answers with a binary framing instead; §12.2
 covers that and why it is a separate parser rather than an option on this one.
 
+Framing is a property of the wire format, so the codec names it: the optional
+`stream_framing/0` callback on `LlmCall.Codec` returns `LlmCall.SSE` when it is not
+declared, and `LlmCall.Stream` drives whatever comes back through the
+`LlmCall.Framing` behaviour — `new/0`, `parse/2`, `flush/1`, `codec_input/2`,
+`error/0`. The driver therefore holds no protocol knowledge: it does not know
+whether a chunk is text or
+length-prefixed frames, whether the body can end mid-message, or whether a payload
+is JSON at all. A framing raises its own exception for a body it cannot frame and
+names it through `error/0`; that exception, and only that one, becomes an
+`:invalid_response`.
+
 | Event type | Delta | Meaning |
 | --- | --- | --- |
 | `:message_start`, `:content_start`, `:content_stop`, `:message_stop` | none | structural |
@@ -1444,7 +1455,8 @@ The dialect adapter is selected independently from the provider endpoint.
 ## 15. Module layout
 
 `lib/llm_call/` holds the core: canonical structs, the two codec behaviours, the
-client, the Finch transport, the SSE parser and the pure stream assembler.
+client, the Finch transport, the SSE and event-stream framings and the pure stream
+assembler.
 `dialect/*` holds the **reference adapters** — the protocol families the IR is
 written against — and `media/dialect/*` the **vendored** media adapters, which ship
 with the library but are not part of the stable surface. `mix docs` lists every

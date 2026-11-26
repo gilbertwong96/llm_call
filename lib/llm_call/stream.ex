@@ -12,6 +12,15 @@ defmodule LlmCall.Stream do
   Refer to it as `LlmCall.Stream` rather than `alias`-ing it as `Stream`, which
   would shadow Elixir's `Stream` module for the rest of that module.
 
+  ## Framing
+
+  The body is cut into messages by the codec's framing — `LlmCall.SSE` unless it
+  declares another through the optional `stream_framing/0` callback, as Bedrock's
+  `ConverseStream` does with `LlmCall.EventStream`. This module drives the framing
+  through `LlmCall.Framing` and never sees a body byte; the codec sees the framing's
+  wire term, a decoded JSON term for SSE and a `LlmCall.EventStream.Message` for
+  event stream.
+
   ## Errors
 
   A `2xx` body's events are yielded as they decode. Everything that fails while
@@ -46,12 +55,12 @@ defmodule LlmCall.Stream do
   transport's own protection; any other exception propagates.
   """
 
-  alias LlmCall.{Error, HTTP, SSE, Telemetry}
+  alias LlmCall.{Error, HTTP, Telemetry}
 
   # The client and its resolved request both carry the credential, so `inspect` shows
   # neither: a stream in a log line or a crash report must not print the key.
   @derive {Inspect, except: [:client, :http_request]}
-  defstruct [:client, :codec, :model, :http_request, :state, :on_event]
+  defstruct [:client, :codec, :model, :framing, :http_request, :state, :on_event]
 
   @type on_event :: (LlmCall.StreamEvent.t() -> any()) | nil
 
@@ -59,6 +68,7 @@ defmodule LlmCall.Stream do
           client: LlmCall.Client.t(),
           codec: module(),
           model: String.t() | nil,
+          framing: module(),
           http_request: HTTP.Request.t(),
           state: LlmCall.StreamState.t(),
           on_event: on_event()
@@ -74,9 +84,10 @@ defmodule LlmCall.Stream do
     state = %{
       client: stream.client,
       codec: stream.codec,
+      framing: stream.framing,
       downstream: tag(acc),
       fun: fun,
-      sse: SSE.new(),
+      framing_state: stream.framing.new(),
       stream_state: stream.state,
       on_event: stream.on_event,
       telemetry: metadata,
@@ -143,8 +154,8 @@ defmodule LlmCall.Stream do
   end
 
   defp handle_event({:data, chunk}, state) do
-    {payloads, sse} = safe_parse_sse(state.sse, chunk)
-    state = %{state | sse: sse}
+    {payloads, parsed} = safe_parse(state, chunk)
+    state = %{state | framing_state: parsed}
 
     state =
       Enum.reduce_while(payloads, state, fn payload, state ->
@@ -158,31 +169,12 @@ defmodule LlmCall.Stream do
     if state.halted? or state.done?, do: {:halt, state}, else: {:cont, state}
   end
 
-  defp decode_payload(state, "[DONE]"), do: decode_event(state, "[DONE]")
-
   defp decode_payload(state, payload) do
-    case LlmCall.JSON.decode(state.client.config.json, payload) do
-      {:ok, term} ->
-        decode_event(state, term)
-
-      {:error, reason} ->
-        raise HTTP.Error,
-          error:
-            invalid_response(
-              "stream payload is not JSON" <>
-                LlmCall.Excerpt.of(payload) <> decoder_reason(reason)
-            )
+    case state.framing.codec_input(payload, state.client.config.json) do
+      {:ok, term} -> decode_event(state, term)
+      {:error, message} -> raise HTTP.Error, error: invalid_response(message)
     end
   end
-
-  # The decoder's own message says why (a truncated fragment, a trailing comma,
-  # an unexpected byte), which is what tells a caller whether the stream was cut
-  # or the peer answered with something that is not the protocol at all.
-  defp decoder_reason({:missing_json_decoder, module}),
-    do: " (#{inspect(module)} cannot decode; set config :llm_call, json_library: Mod)"
-
-  defp decoder_reason(%{__exception__: true} = reason), do: " (#{Exception.message(reason)})"
-  defp decoder_reason(reason), do: " (#{inspect(reason)})"
 
   # A framing failure is reported as the stream's own canonical error: a caller of
   # `stream/3` handles `LlmCall.HTTP.Error`, not the parser's internal exception.
@@ -193,17 +185,30 @@ defmodule LlmCall.Stream do
     body <> binary_part(chunk, 0, min(byte_size(chunk), room))
   end
 
-  defp safe_parse_sse(sse, chunk) do
-    case parse_sse(sse, chunk) do
+  # A framing raises its own exception for a body that cannot be framed, and names it
+  # through `error/0`. Anything else raised in there is a bug and propagates: reporting
+  # it as an invalid response would hide a broken framing behind the provider's name.
+  defp safe_parse(state, chunk) do
+    case framing(state, fn framing -> framing.parse(state.framing_state, chunk) end) do
       {:ok, result} -> result
       {:error, message} -> raise HTTP.Error, error: invalid_response(message)
     end
   end
 
-  defp parse_sse(sse, chunk) do
-    {:ok, SSE.parse(sse, chunk)}
+  defp safe_flush(state) do
+    case framing(state, fn framing -> framing.flush(state.framing_state) end) do
+      {:ok, result} -> result
+      {:error, message} -> raise HTTP.Error, error: invalid_response(message)
+    end
+  end
+
+  defp framing(%{framing: framing}, fun) do
+    {:ok, fun.(framing)}
   rescue
-    error in LlmCall.SSE.Error -> {:error, Exception.message(error)}
+    error ->
+      if error.__struct__ == framing.error(),
+        do: {:error, Exception.message(error)},
+        else: reraise(error, __STACKTRACE__)
   end
 
   defp decode_event(state, term) do
@@ -352,8 +357,8 @@ defmodule LlmCall.Stream do
   defp finish_result(%{done?: true} = state), do: {:done, untag(state.downstream)}
 
   defp finish_result(state) do
-    {payloads, sse} = SSE.flush(state.sse)
-    state = %{state | sse: sse}
+    {payloads, parsed} = safe_flush(state)
+    state = %{state | framing_state: parsed}
 
     state =
       Enum.reduce_while(payloads, state, fn payload, state ->

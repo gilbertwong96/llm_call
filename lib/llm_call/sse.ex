@@ -30,17 +30,54 @@ defmodule LlmCall.SSE do
           retry_ms: non_neg_integer() | nil
         }
 
+  @behaviour LlmCall.Framing
+
   defstruct buffer: "", cr_pending?: false, retry_ms: nil
+
+  @doc "The exception raised for a stream that cannot be framed."
+  @impl LlmCall.Framing
+  def error, do: LlmCall.SSE.Error
+
+  @doc """
+  Turns a `data:` payload into the term a codec decodes.
+
+  It is JSON text, decoded here rather than in `LlmCall.Stream` so that the stream
+  driver carries no knowledge of any one format. `[DONE]` is the OpenAI-compatible
+  terminator and is passed through as the string the codecs already match on.
+  """
+  @impl LlmCall.Framing
+  def codec_input("[DONE]", _json), do: {:ok, "[DONE]"}
+
+  def codec_input(payload, json) do
+    case LlmCall.JSON.decode(json, payload) do
+      {:ok, term} ->
+        {:ok, term}
+
+      {:error, reason} ->
+        {:error, "stream payload is not JSON" <> LlmCall.Excerpt.of(payload) <> why(reason)}
+    end
+  end
+
+  # The decoder's own message says why (a truncated fragment, a trailing comma, an
+  # unexpected byte), which is what tells a caller whether the stream was cut or the
+  # peer answered with something that is not the protocol at all.
+  defp why({:missing_json_decoder, module}),
+    do: " (#{inspect(module)} cannot decode; set config :llm_call, json_library: Mod)"
+
+  defp why(%{__exception__: true} = reason), do: " (#{Exception.message(reason)})"
+  defp why(reason), do: " (#{inspect(reason)})"
 
   # Generous next to a real payload: the largest single event a provider sends is
   # a tool call or a reasoning block, far below this.
   @max_buffer 1_048_576
 
   @spec new() :: t()
+  @impl LlmCall.Framing
   def new, do: %__MODULE__{}
 
   @doc "Parses one body chunk into the events it completes."
   @spec parse(t(), binary()) :: {[String.t()], t()}
+  @impl LlmCall.Framing
   def parse(%__MODULE__{buffer: buffer, cr_pending?: cr_pending?} = state, chunk)
       when is_binary(chunk) do
     raw = buffer <> join_split_crlf(chunk, cr_pending?)
@@ -70,6 +107,7 @@ defmodule LlmCall.SSE do
   exists so a truncated stream does not lose its last event.
   """
   @spec flush(t()) :: {[String.t()], t()}
+  @impl LlmCall.Framing
   def flush(%__MODULE__{buffer: "", retry_ms: retry_ms}),
     do: {[], %__MODULE__{retry_ms: retry_ms}}
 

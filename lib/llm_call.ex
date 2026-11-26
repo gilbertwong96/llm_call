@@ -142,6 +142,7 @@ defmodule LlmCall do
          client: client,
          codec: codec,
          model: request.model,
+         framing: stream_framing(codec),
          http_request: http_request,
          state: state,
          on_event: opts[:on_event]
@@ -884,6 +885,14 @@ defmodule LlmCall do
     if is_struct(client, Client),
       do: not_a_request(request, request_type),
       else: not_a_request(client, client_type)
+  end
+
+  # A codec that does not declare a framing streams SSE, which every HTTP dialect
+  # here does. Only a format whose body is not text needs to name one.
+  defp stream_framing(codec) do
+    if Code.ensure_loaded?(codec) and function_exported?(codec, :stream_framing, 0),
+      do: codec.stream_framing(),
+      else: LlmCall.SSE
   end
 
   defp require_callback(codec, function, arity) do
