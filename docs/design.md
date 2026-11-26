@@ -1196,7 +1196,8 @@ with an IAM role, asserting that `403` does not appear and that `x-amz-date` and
 ## 12. Streaming
 
 The client parses SSE (`LlmCall.SSE`) and yields normalized events; codecs see
-provider event terms only.
+provider event terms only. Bedrock answers with a binary framing instead; §12.2
+covers that and why it is a separate parser rather than an option on this one.
 
 | Event type | Delta | Meaning |
 | --- | --- | --- |
@@ -1324,6 +1325,33 @@ LlmCall.StreamAssembler
 
 It may combine tool call deltas into complete `ToolCall` values, but it must not
 execute them.
+
+### 12.2 Binary framing (AWS event stream)
+
+`ConverseStream` does not use SSE. Its body is `application/vnd.amazon.eventstream`:
+frames of a length prefix, typed headers, a payload and two CRC-32 checksums
+(`LlmCall.EventStream`). The two framings share nothing beyond "a chunk may split a
+message", so this is a second parser, not a mode on the first.
+
+The checksums are load-bearing, not defensive decoration. A corrupted length would
+otherwise be used as an offset into the next frame, and a corrupted payload would
+decode as a shorter message that still looks valid. The prelude checksum is
+therefore verified **before** its lengths are used, and the frame cap is applied to
+the length a frame *claims* — so a peer cannot make the process buffer gigabytes by
+announcing them. A body that ends mid-frame is a truncated stream, the same rule
+§12 already applies to an SSE body without its terminator.
+
+The payload stays bytes: the codec decodes it, the framer does not.
+
+#### The oracle
+
+A binary parser written against one's own understanding is unfalsifiable: fixtures
+built by the same author confirm the same misreading. Every frame in the test suite
+is therefore produced by `@smithy/eventstream-codec` — the encoder the AWS SDK for
+JavaScript uses against Bedrock — and committed with the generator and its version
+(`test/support/fixtures/eventstream/`). Agreement with an independent
+implementation is the only evidence available without an AWS endpoint, and it is
+the reason this parser was written before, not after, the stream codec.
 
 ## 13. Tool framework integration
 

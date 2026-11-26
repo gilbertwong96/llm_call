@@ -14,13 +14,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   declared region per client.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
   text, tool use and tool results. Images and documents are refused until the
-  capability model can say "inline only"; streaming waits for the event-stream
-  framing it needs.
+  capability model can say "inline only"; streaming waits for its stream callbacks,
+  which now have their framing (`LlmCall.EventStream`).
 - `provider_options.bedrock` is merged into the top level of the Converse request,
   the rule the other codecs follow, so `guardrailConfig` and Bedrock's other
   top-level fields are reachable. The canonical envelope keys are reserved and a
   collision is a `:validation` error. `additionalModelRequestFields` is written
   nested, as it appears on the wire.
+- `LlmCall.EventStream` decodes `application/vnd.amazon.eventstream`, the framing
+  `ConverseStream` answers with: length-prefixed frames, typed headers, CRC-32 over
+  both the prelude and the message, and a truncation check at end of body. The test
+  frames come from `@smithy/eventstream-codec`, an implementation this decoder shares
+  no code with.
 - Telemetry: `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` events
   carry the operation, provider, codec and model; `:stop` adds the outcome, the
   status, and the token counts as measurements, and a stream reports `:first_event`
