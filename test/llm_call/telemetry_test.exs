@@ -16,6 +16,7 @@ defmodule LlmCall.TelemetryTest do
   @stream_events [
     [:llm_call, :stream, :start],
     [:llm_call, :stream, :first_event],
+    [:llm_call, :stream, :first_text],
     [:llm_call, :stream, :stop],
     [:llm_call, :stream, :exception]
   ]
@@ -103,6 +104,70 @@ defmodule LlmCall.TelemetryTest do
       base_url: "http://127.0.0.1:1",
       auth: :bearer,
       codecs: [chat: RaisingCodec]
+  end
+
+  defmodule SkeletonCodec do
+    @moduledoc "Emits a skeleton event before any text, as real providers do."
+
+    @behaviour LlmCall.Codec
+
+    alias LlmCall.{
+      Capabilities,
+      Codec,
+      EncodedRequest,
+      Error,
+      StreamDelta,
+      StreamEvent,
+      StreamState
+    }
+
+    @impl true
+    def info, do: %Codec.Info{name: :skeleton, protocol: :skeleton, ir_version: 1}
+
+    @impl true
+    def validate_request(_request, _config), do: :ok
+
+    @impl true
+    def encode_request(_request, _config),
+      do: {:ok, %EncodedRequest{path: "/skeleton", body: %{}}}
+
+    @impl true
+    def decode_response(_term, _config),
+      do: {:error, %Error{kind: :invalid_response, message: "skeleton"}}
+
+    @impl true
+    def decode_error(_term, _config),
+      do: %Error{kind: :invalid_response, message: "skeleton"}
+
+    @impl true
+    def capabilities(_request, _config), do: %Capabilities{streaming: true}
+
+    @impl true
+    def init_stream(_request, _config), do: {:ok, StreamState.new(__MODULE__, %{})}
+
+    @impl true
+    def decode_stream_event(%{"start" => true}, _config, state),
+      do: {:ok, [%StreamEvent{type: :message_start}], state}
+
+    def decode_stream_event(%{"text" => text}, _config, state) do
+      event = %StreamEvent{type: :text_delta, delta: %StreamDelta.Text{text: text}}
+      {:ok, [event], state}
+    end
+
+    def decode_stream_event("[DONE]", _config, state), do: {:done, state}
+    def decode_stream_event(_term, _config, state), do: {:ok, [], state}
+
+    @impl true
+    def finish_stream(state, _config), do: {:ok, [], state}
+  end
+
+  defmodule SkeletonProvider do
+    @moduledoc "Emits a skeleton event before the first text, as Anthropic and OpenAI do."
+
+    use LlmCall.Provider,
+      base_url: "http://127.0.0.1:1",
+      auth: :bearer,
+      codecs: [chat: SkeletonCodec]
   end
 
   setup do
@@ -277,14 +342,63 @@ defmodule LlmCall.TelemetryTest do
     assert [
              {[:llm_call, :stream, :start], start_measurements, start_metadata},
              {[:llm_call, :stream, :first_event], first_measurements, _first_metadata},
+             {[:llm_call, :stream, :first_text], text_measurements, _text_metadata},
              {[:llm_call, :stream, :stop], stop_measurements, stop_metadata}
            ] = emitted()
 
     assert is_integer(start_measurements.system_time)
     assert %{operation: :stream, provider: LlmCall.TestProvider, model: ^model} = start_metadata
     assert is_integer(first_measurements.duration) and first_measurements.duration >= 0
+    assert text_measurements.duration >= first_measurements.duration
     assert is_integer(stop_measurements.duration) and stop_measurements.duration >= 0
     assert %{outcome: :done, status: 200, events: 3} = stop_metadata
+  end
+
+  # The gap between the two is the provider's skeleton frames: a slow first text on a
+  # fast first event is the provider, not the network.
+  test "a stream separates the first event from the first text" do
+    model = "telemetry-first-text"
+    attach(model)
+
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"start":true}))},
+      {:data, sse(~s({"text":"hi"}))},
+      {:data, sse("[DONE]")}
+    ])
+
+    client = SkeletonProvider.client(api_key: "k", base_url: TestHTTP.url())
+    assert {:ok, stream} = LlmCall.stream(client, request(model))
+    assert [_, _] = Enum.to_list(stream)
+
+    assert [
+             {[:llm_call, :stream, :start], _start_measurements, _start_metadata},
+             {[:llm_call, :stream, :first_event], first_measurements, _first_metadata},
+             {[:llm_call, :stream, :first_text], text_measurements, _text_metadata},
+             {[:llm_call, :stream, :stop], _stop_measurements, stop_metadata}
+           ] = emitted()
+
+    assert text_measurements.duration >= first_measurements.duration
+    assert %{outcome: :done, events: 2} = stop_metadata
+  end
+
+  test "a stream with no text delta emits no :first_text" do
+    model = "telemetry-no-text"
+    attach(model)
+
+    TestHTTP.put_events([
+      {:status, 200},
+      {:data, sse(~s({"start":true}))},
+      {:data, sse("[DONE]")}
+    ])
+
+    client = SkeletonProvider.client(api_key: "k", base_url: TestHTTP.url())
+    assert {:ok, stream} = LlmCall.stream(client, request(model))
+    assert [_] = Enum.to_list(stream)
+
+    names = emitted() |> Enum.map(&elem(&1, 0))
+    assert [:llm_call, :stream, :first_event] in names
+    refute [:llm_call, :stream, :first_text] in names
   end
 
   test "a reducer that halts stops the stream with outcome :halted" do
@@ -305,6 +419,7 @@ defmodule LlmCall.TelemetryTest do
     assert [
              {[:llm_call, :stream, :start], _start_measurements, _start_metadata},
              {[:llm_call, :stream, :first_event], _first_measurements, _first_metadata},
+             {[:llm_call, :stream, :first_text], _text_measurements, _text_metadata},
              {[:llm_call, :stream, :stop], _stop_measurements, stop_metadata}
            ] = emitted()
 

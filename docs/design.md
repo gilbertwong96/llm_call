@@ -2017,6 +2017,7 @@ the calls that decode a provider response.
 | `[:llm_call, :request, :exception]` | `duration` | `kind`, `reason`, `stacktrace` |
 | `[:llm_call, :stream, :start]` | `system_time` | — |
 | `[:llm_call, :stream, :first_event]` | `duration` | — |
+| `[:llm_call, :stream, :first_text]` | `duration` | — |
 | `[:llm_call, :stream, :stop]` | `duration` | `outcome`, `status`, `events` |
 | `[:llm_call, :stream, :exception]` | `duration` | `kind`, `reason`, `stacktrace` |
 
@@ -2024,7 +2025,8 @@ Every event carries `operation` (`:complete`, `:stream`, `:generate`, `:poll`),
 `provider`, `codec` and `model` (`nil` for `poll/3`, which has no request).
 
 Times are native units (`System.monotonic_time/0`); convert with
-`System.convert_time_unit/2`. The token counts are measurements, not metadata, so
+`System.convert_time_unit/3`, `:native` to `:millisecond`. The token counts are
+measurements, not metadata, so
 `telemetry_metrics` can sum them. A count the provider did not report is
 **omitted**, never zero: `Usage` distinguishes "not reported" (`nil`) from
 "reported zero", and a `0` in `cache_read_tokens` is a different fact from no
@@ -2036,7 +2038,9 @@ and the caller already holds the error synchronously. `duration` therefore alway
 means wire time, not the time a broken request spent being rejected.
 
 `:first_event` fires on the first event yielded, so a stream that yields none — an
-empty body, or an error status — never emits it.
+empty body, or an error status — never emits it. `:first_text` fires on the first
+`:text_delta` instead: the time to the first token a caller can see, which a
+`:message_start` or a `:thinking_delta` does not satisfy.
 
 ### 26.2 Three rules
 
@@ -2057,3 +2061,22 @@ empty body, or an error status — never emits it.
    stream that is built and never reduced emits nothing, and one whose consumer
    process dies mid-read emits `:start` with no terminal event — counting streams
    must tolerate that asymmetry.
+
+### 26.3 Mapping
+
+The events are shaped for the two consumers that exist, and neither is implemented
+here.
+
+**Metrics.** `:request/:stop` carries what a counter needs — `outcome`, `provider`,
+`model` — and the token counts as measurements. A duration summary on
+`llm_call.request.stop.duration`, a sum on the token counts, and a counter on
+`outcome` answer "how slow" and "how much". `LlmCall.Telemetry` documents the
+shape; `telemetry_metrics` stays a host dependency.
+
+**Traces.** One span per call: `:start` opens it, `:stop` closes it with the status
+and the counts, `:exception` records the failure with `kind`, `reason` and
+`stacktrace`. A stream is a span with two annotations, and the two differences are
+the ones worth putting on a dashboard: `first_event` is where the connection and
+the provider's headers landed, `first_text - first_event` is the skeleton frames the
+provider owns, and `duration - first_text` is generation time. `opentelemetry_telemetry`
+can bridge these events to spans; it is not a dependency of this library.

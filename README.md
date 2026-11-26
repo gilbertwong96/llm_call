@@ -328,6 +328,7 @@ you subscribe. `LlmCall.Telemetry` documents the full shape.
 | `[:llm_call, :request, :exception]` | `duration` |
 | `[:llm_call, :stream, :start]` | `system_time` |
 | `[:llm_call, :stream, :first_event]` | `duration` |
+| `[:llm_call, :stream, :first_text]` | `duration` |
 | `[:llm_call, :stream, :stop]` | `duration` |
 | `[:llm_call, :stream, :exception]` | `duration` |
 
@@ -335,6 +336,9 @@ Every event carries `operation`, `provider`, `codec` and `model`; `:stop` adds t
 outcome (`:ok` / `:error`, or `:done` / `:halted` for a stream). The token counts
 are measurements, so they can be summed; a count the provider did not report is
 omitted rather than zeroed. Metadata never carries a header, a body or a message.
+
+`:first_event` is time to the first event, `:first_text` time to the first visible
+token, so their difference is the provider's skeleton-frame overhead.
 
 ```elixir
 import Telemetry.Metrics

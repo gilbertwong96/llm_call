@@ -31,8 +31,9 @@ defmodule LlmCall.Stream do
 
   ## Telemetry
 
-  Reducing the stream emits `[:llm_call, :stream, :start]`, one `:first_event`, and
-  then `:stop` (`outcome: :done | :halted`) or `:exception`; see `LlmCall.Telemetry`.
+  Reducing the stream emits `[:llm_call, :stream, :start]`, `:first_event`,
+  `:first_text`, and then `:stop` (`outcome: :done | :halted`) or `:exception`;
+  see `LlmCall.Telemetry`.
 
   ## `on_event`
 
@@ -81,6 +82,7 @@ defmodule LlmCall.Stream do
       telemetry: metadata,
       started: started,
       first_event?: false,
+      first_text?: false,
       events: 0,
       status: nil,
       headers: [],
@@ -267,7 +269,12 @@ defmodule LlmCall.Stream do
   end
 
   defp track(state, event) do
-    state = announce_first(%{state | events: state.events + 1})
+    state =
+      state
+      |> Map.update!(:events, &(&1 + 1))
+      |> announce_first()
+      |> announce_first_text(event)
+
     observe(state, event)
     state
   end
@@ -278,6 +285,16 @@ defmodule LlmCall.Stream do
   end
 
   defp announce_first(state), do: state
+
+  # Text only. A `:message_start` or a `:thinking_delta` is not the answer a caller
+  # waited for, and a stream that yields no text — a tool call, an empty body — has no
+  # first text to report.
+  defp announce_first_text(%{first_text?: false} = state, %{type: :text_delta}) do
+    Telemetry.stream_first_text(state.telemetry, state.started)
+    %{state | first_text?: true}
+  end
+
+  defp announce_first_text(state, _event), do: state
 
   defp observe(%{on_event: nil}, _event), do: :ok
   defp observe(%{on_event: fun}, event), do: fun.(event)

@@ -37,6 +37,12 @@ defmodule LlmCall.Telemetry do
     * `:first_event` — measurements `%{duration: :native}`, the time to the first
       event. Emitted once, on the first event yielded; a stream that yields none
       does not emit it.
+    * `:first_text` — the same measurements, on the first `:text_delta` instead.
+      This is the time to the first token a caller can see: a `:message_start` or
+      a `:thinking_delta` does not count, so a stream that only emits those has no
+      `:first_text`. `first_text - first_event` is the provider's skeleton-frame
+      overhead, which is what separates "the provider is slow" from "the network
+      is slow".
     * `:stop` — measurements `%{duration: :native}`; metadata adds
       `outcome: :done | :halted`, `status` and `events` (the count yielded).
     * `:exception` — as for a request.
@@ -120,6 +126,12 @@ defmodule LlmCall.Telemetry do
   @spec stream_first_event(metadata(), integer()) :: :ok
   def stream_first_event(%{} = metadata, started) do
     :telemetry.execute(@stream ++ [:first_event], %{duration: elapsed(started)}, metadata)
+  end
+
+  @doc false
+  @spec stream_first_text(metadata(), integer()) :: :ok
+  def stream_first_text(%{} = metadata, started) do
+    :telemetry.execute(@stream ++ [:first_text], %{duration: elapsed(started)}, metadata)
   end
 
   @doc false
