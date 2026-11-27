@@ -1209,11 +1209,18 @@ is `{:sigv4, _}` must go through `LlmCall.complete/3` or `LlmCall.stream/3`, or 
 caller signs the assembled request with `LlmCall.Auth.SigV4.sign/2` before sending
 it.
 
-A signed request cannot be exercised in CI: no AWS credentials are there, and the
-published test vector proves the algorithm rather than the endpoint. The manual
-check is a `Converse` call against LocalStack, or a real Bedrock runtime endpoint
-with an IAM role, asserting that `403` does not appear and that `x-amz-date` and
-`authorization` reach the server.
+A signed request cannot be exercised in CI: there are no AWS credentials there. What
+is verified is the signature itself, against two independent oracles — AWS's published
+`ListUsers` vector (the algorithm, on a `/` path) and botocore's own output for eight
+request shapes (the canonicalisation: a percent-encoded model id, an ARN with slashes,
+query encoding and ordering, a session token, header-value normalisation, a non-ASCII
+body, an empty body). The first oracle cannot reach path encoding, which is how a
+verbatim path signature survived until the second one existed: it is the one part of
+the request that has something to encode, and the vector's path was `/`.
+
+What remains manual is the endpoint: a `Converse` call against LocalStack, or a real
+Bedrock runtime endpoint with an IAM role, asserting that `403` does not appear and
+that `x-amz-date` and `authorization` reach the server.
 
 ## 12. Streaming
 

@@ -42,35 +42,6 @@ defmodule LlmCall.Auth.SigV4Test do
     assert signed.url == "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
   end
 
-  # botocore 1.44.12, `SigV4Auth("bedrock", "us-east-1").add_auth(...)` for the same
-  # request at the same timestamp. The published ListUsers vector has a `/` path, so it
-  # cannot catch path canonicalisation; this one is a Bedrock model id whose `:` a codec
-  # has already written as `%3A`, which SigV4 canonicalises to `%253A`. Signing the path
-  # verbatim produced a different signature and would have been a 403 on every call.
-  test "canonicalises a percent-encoded path the way an AWS SDK does" do
-    request = %Request{
-      method: :post,
-      url:
-        "https://bedrock-runtime.us-east-1.amazonaws.com/model/" <>
-          "anthropic.claude-3-5-sonnet-20241022-v2%3A0/converse",
-      headers: [{"content-type", "application/json"}],
-      body: ~s({"messages":[]})
-    }
-
-    assert {:ok, signed} =
-             SigV4.sign(request,
-               service: "bedrock",
-               region: "us-east-1",
-               credentials: %{access_key_id: "AKIDEXAMPLE", secret_access_key: "secret"},
-               now: ~U[2026-11-26 10:20:59Z]
-             )
-
-    assert header(signed, "authorization") ==
-             "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261126/us-east-1/bedrock/aws4_request, " <>
-               "SignedHeaders=content-type;host;x-amz-date, " <>
-               "Signature=58b000b59f0de3ed2ad54f22c6f19311584bff48f39b6ae80555b2573d5c631c"
-  end
-
   defp sign!(url, request_overrides \\ [], sign_opts \\ []) do
     request =
       struct(

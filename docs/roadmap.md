@@ -58,7 +58,9 @@ binary framing it streams in, and observability for every call.
 - `auth: {:sigv4, service: ..., region: ...}` with `credentials:` (a map or a 0-arity
   function) and `region:` client options. The signer runs in the transport, after the
   body is serialized, because the signature covers the bytes that go on the wire. It
-  reproduces AWS's published `ListUsers` vector and adds no runtime dependency.
+  reproduces AWS's published `ListUsers` vector and replays eight request shapes
+  signed by botocore — the canonicalisation the published vector cannot reach — and
+  adds no runtime dependency.
 - `LlmCall.Dialect.Bedrock.Converse`, the fifth reference adapter: text, tool use and
   tool results, with consecutive tool results merged into one user turn because
   Bedrock requires alternating roles.

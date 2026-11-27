@@ -32,8 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Signature Version 4. Credentials are a client option — `credentials:` takes a
   map or a 0-arity function that returns one — and `region:` overrides the
   declared region per client. The canonical request follows an AWS SDK for the
-  path, the query and the header set, and the suite pins a botocore-derived
-  signature for a Converse model id, not only the published `ListUsers` vector.
+  path, the query and the header set, and the suite replays eight request shapes
+  botocore signed — a percent-encoded model id, an ARN, query ordering, a session
+  token, header normalisation, a non-ASCII body — as well as the published `ListUsers`
+  vector.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
   text, tool use, images and documents inline or from S3, on `/converse` and on
   `/converse-stream` alike. A streamed call maps `contentBlock*` and `messageStop` onto the IR stream
