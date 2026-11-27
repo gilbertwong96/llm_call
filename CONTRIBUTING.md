@@ -128,7 +128,10 @@ mix ci
 
 It compiles with warnings as errors, checks formatting, runs the suite,
 `credo --strict`, Dialyzer, SpecLint (with warnings as errors), ExDNA at a zero
-clone budget, and the Reach architecture policy. The suite also checks the published
+clone budget, and the Reach architecture policy. `format --check-formatted` is a
+property of one toolchain, because the formatter reflows between Elixir releases: the
+workflow runs `mix ci` on the newest supported Elixir and `mix ci.compat` — every gate
+except that one — on the older, so format with the newest. The suite also checks the published
 Markdown: every `elixir` fence in `README.md`, `examples/README.md`, `docs/design.md`
 and this file is parsed, and each expression block is compiled inside a function body
 so an unused binding or a name bound nowhere fails the build. Nothing in a fence is
@@ -152,8 +155,8 @@ Before the first `mix hex.publish`:
 
 1. Confirm `@source_url` in `mix.exs`. It is an assumption until the repository
    exists, and Hex freezes the links and source URL for a published version.
-2. `mix ci` is green on both CI toolchains — Elixir 1.18.6 on OTP 27.3 and Elixir
-   1.20.5 on OTP 29.1. The library compiles down to OTP 27.1 (`tool_call` needs
+2. `mix ci` is green on Elixir 1.20.5 / OTP 29.1, and `mix ci.compat` on Elixir 1.18.6
+   / OTP 27.3. The library compiles down to OTP 27.1 (`tool_call` needs
    `json:format/1`), but 27.1 through 27.2.1 cannot install dependencies in CI (27.2.2 fixed
    that), so the floor is stated in `README.md` and exercised from 27.3.
 3. `mix hex.build` shows the expected package name, license, and file list.

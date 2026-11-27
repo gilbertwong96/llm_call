@@ -11,9 +11,9 @@
     "service": "bedrock",
     "region": "us-east-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "POST\n/model/anthropic.claude-3-5-sonnet-20241022-v2%253A0/converse\n\ncontent-type:application/json\nhost:bedrock-runtime.us-east-1.amazonaws.com\n\ncontent-type;host\n5e4ce7b36ba37b78a5d5f9fd08e6b7b54ba6879d651aa46ec9e1d6fa24ebe30a",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=9f5051d49c0d196c6dfd7b36f0fc72270fda2ffa4eff33364e4f67febc6332af"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=b9702d9a2221dd46321aa6b7735a8d4a8591018c0c3817e285d86bbb4286a072"
   },
   {
     "name": "converse_arn_model",
@@ -27,9 +27,9 @@
     "service": "bedrock",
     "region": "us-east-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "POST\n/model/arn%253Aaws%253Abedrock%253Aus-east-1%253A123456789012%253Ainference-profile%252Fus.anthropic.claude-3-5-sonnet-20241022-v2%253A0/converse\n\ncontent-type:application/json\nhost:bedrock-runtime.us-east-1.amazonaws.com\n\ncontent-type;host\n5e4ce7b36ba37b78a5d5f9fd08e6b7b54ba6879d651aa46ec9e1d6fa24ebe30a",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=19ad0f433dc57e267346b54d975d21ed2846be0803224228bcf8f7ab3a86ee96"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=9fbc5bdb2093cbedc1f0dfdf011c0f47e7f0eaeb072dac9571ac44b95971ed14"
   },
   {
     "name": "path_unreserved",
@@ -43,9 +43,9 @@
     "service": "bedrock",
     "region": "us-east-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "POST\n/model/a-b_c.d~e/converse\n\ncontent-type:application/json\nhost:bedrock-runtime.us-east-1.amazonaws.com\n\ncontent-type;host\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=d2be2a9941bf9c79c8dcb567d3aadb991db26e73e4ab13355e54552b99845b8f"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=65644f86ea53bf91f7e90f456f94ba361921663c7badb07595882d3dbbf34374"
   },
   {
     "name": "get_empty_body",
@@ -57,9 +57,9 @@
     "service": "iam",
     "region": "us-east-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "GET\n/\n\nhost:iam.amazonaws.com\n\nhost\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/iam/aws4_request, SignedHeaders=host;x-amz-date, Signature=b740343e795b9bb2241bcac160579fd0b2582a33b260faba74061f8d973e7947"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/iam/aws4_request, SignedHeaders=host;x-amz-date, Signature=f8c3e1f8bac4a9e1639e921368debf67d6a6fcc661ec762bb733d77e9884dabe"
   },
   {
     "name": "query_encoding_and_order",
@@ -77,9 +77,9 @@
     "service": "iam",
     "region": "us-east-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "GET\n/\nAction=ListUsers&PathPrefix=%2Fa%20b~%2Fc&Version=2010-05-08&Zed=1&a=2\nhost:iam.amazonaws.com\n\nhost\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/iam/aws4_request, SignedHeaders=host;x-amz-date, Signature=18e05b6e122f2e4def45d3174aa93e6402bdc73028303e064c81c44629a376e9"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/iam/aws4_request, SignedHeaders=host;x-amz-date, Signature=a0acceb63c88ec732c227d763b9346faccb68a508df13f4d68a630d0b198fc40"
   },
   {
     "name": "session_token",
@@ -93,9 +93,9 @@
     "service": "bedrock",
     "region": "us-east-1",
     "credentials": "session",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "POST\n/model/anthropic.claude-3-5-sonnet-20241022-v2%253A0/converse\n\ncontent-type:application/json\nhost:bedrock-runtime.us-east-1.amazonaws.com\n\ncontent-type;host\n5e4ce7b36ba37b78a5d5f9fd08e6b7b54ba6879d651aa46ec9e1d6fa24ebe30a",
-    "authorization": "AWS4-HMAC-SHA256 Credential=TESTIOSFODNN7EXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, Signature=71e5ce2109ad4376c9fc3bdaba56e21770975ca9a28d8000138dcca132b73af9"
+    "authorization": "AWS4-HMAC-SHA256 Credential=TESTIOSFODNN7EXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, Signature=ae58688797af39b6dbc3e841ccf8faa87b5271d83d306073a2daff9f9aed00a1"
   },
   {
     "name": "header_value_normalised",
@@ -110,9 +110,9 @@
     "service": "bedrock",
     "region": "us-east-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "POST\n/model/m/converse\n\ncontent-type:application/json\nhost:bedrock-runtime.us-east-1.amazonaws.com\nx-amz-custom:a b\n\ncontent-type;host;x-amz-custom\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-custom;x-amz-date, Signature=97bd7558f64218e618d35a7cd331609cc96bfb247d5bea83369544ce316d0027"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-custom;x-amz-date, Signature=317f19d395269cce327c74ce1b7942f21b8a631b2277cad117e09c81c63b0bd1"
   },
   {
     "name": "utf8_body",
@@ -126,8 +126,8 @@
     "service": "bedrock",
     "region": "eu-west-1",
     "credentials": "static",
-    "amz_date": "20261127T025621Z",
+    "amz_date": "20261127T060709Z",
     "canonical_request": "POST\n/model/m/converse\n\ncontent-type:application/json\nhost:bedrock-runtime.us-east-1.amazonaws.com\n\ncontent-type;host\n87d1eca41f1807df7fdf4b049962a50bb34e9c0ebd12a66ad07b357502c6b34c",
-    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/eu-west-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=01ce90b7d3887e3ad0cf593e8e2cbb13bb6be4dfbae2fc671d4852af2161f633"
+    "authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261127/eu-west-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=22e80a3d61a398f3bd57cef815e414017df19fd3ac2309398fcb501bc7213869"
   }
 ]

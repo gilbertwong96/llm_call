@@ -21,6 +21,8 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
 STATIC = Credentials("AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
+# Not an `ASIA…` id: GitHub's secret scanning matches that shape, and a test fixture is
+# not worth an alert a maintainer has to dismiss. Botocore accepts any string.
 SESSION = Credentials(
     "TESTIOSFODNN7EXAMPLE",
     "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",

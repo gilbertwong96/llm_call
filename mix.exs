@@ -38,7 +38,7 @@ defmodule LlmCall.MixProject do
 
   def cli do
     [
-      preferred_envs: [ci: :test]
+      preferred_envs: [ci: :test, "ci.compat": :test]
     ]
   end
 
@@ -98,6 +98,20 @@ defmodule LlmCall.MixProject do
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
+        "test --cover",
+        "credo --strict",
+        "dialyzer",
+        "spec_lint --warnings-as-errors",
+        "ex_dna --max-clones #{@max_clones}",
+        "reach.check --arch"
+      ],
+      # The formatter reflows differently between Elixir releases — a bitstring match or
+      # an assertion that 1.20 keeps on one line, 1.18 breaks — so `format
+      # --check-formatted` is a property of one toolchain, not of the project. The
+      # workflow runs the full gate on the newest supported Elixir and this variant on
+      # the older one; format with the newest.
+      "ci.compat": [
+        "compile --warnings-as-errors",
         "test --cover",
         "credo --strict",
         "dialyzer",
