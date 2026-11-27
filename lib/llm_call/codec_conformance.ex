@@ -859,10 +859,6 @@ defmodule LlmCall.Codec.Conformance do
     )
   end
 
-  defp check_part_support(_codec, _request, _config, other, _part, label) do
-    flunk("Capabilities.#{label} must be a boolean, got: #{inspect(other)}")
-  end
-
   defp check_reasoning(codec, request, config, nil) do
     expect_rejection(
       codec,
