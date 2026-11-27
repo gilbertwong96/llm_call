@@ -256,7 +256,15 @@ defmodule LlmCall.HTTP do
   defp join_path(base_path, path) when base_path in [nil, ""], do: path
   defp join_path(base_path, path), do: String.trim_trailing(base_path, "/") <> path
 
-  @doc "Performs one request and returns the whole response."
+  @doc """
+  Performs one request and returns the whole response.
+
+  The body is buffered in full and is **not** size-capped: a provider that answers
+  with a very large body is held in this process's memory. `LlmCall.complete/3` and
+  every decoded call sit on top of this, so a caller fronting untrusted or
+  misbehaving providers — a gateway, for instance — should prefer `stream/4`, where
+  the library holds one chunk and not the whole body.
+  """
   @spec request(Request.t(), keyword()) :: {:ok, response()} | {:error, term()}
   def request(%Request{} = request, opts \\ []) do
     pool = Keyword.get(opts, :name, @default_pool)

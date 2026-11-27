@@ -24,6 +24,16 @@ defmodule LlmCall.Error do
   `retry_after_ms` is the parsed `Retry-After` header, when the transport saw
   one; it is a hint, not a retry policy.
 
+  ## `retryable?` on a stream
+
+  The hint answers "can a new attempt fix the connection". For a stream it says
+  nothing about what the caller has already consumed: reducing a stream again issues
+  the request again and yields every event from the first one, so a retry after any
+  event reached the caller duplicates output, and a `:message_stop` the caller already
+  assembled cannot be un-assembled. A retry policy for a stream therefore has to be
+  gated on "nothing was yielded yet", which only the caller knows. The library never
+  retries, and `retryable?: true` is not permission to.
+
   `raw` is the provider payload the error was decoded from, and it follows
   `LlmCall.Config.capture_raw` like every other `raw`: it is `nil` unless the
   policy is `:response` or `:all`.

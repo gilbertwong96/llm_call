@@ -117,6 +117,11 @@ defmodule LlmCall do
   sees it, including events flushed by `finish_stream/2`. It observes only: the
   return value is ignored, it cannot filter or replace events, and it is not
   called after the reducer halts.
+
+  A stream is not retryable once anything has been yielded: reducing it again issues
+  the request again and yields every event from the first one, so a retry after a
+  mid-stream `:transport` failure duplicates what the caller already has. See
+  `LlmCall.Error` for the full statement.
   """
   @spec stream(Client.t(), LlmCall.Request.t(), keyword()) ::
           {:ok, LlmCall.Stream.t()} | {:error, Error.t()}

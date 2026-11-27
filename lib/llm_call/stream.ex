@@ -21,6 +21,13 @@ defmodule LlmCall.Stream do
   wire term, a decoded JSON term for SSE and a `LlmCall.EventStream.Message` for
   event stream.
 
+  ## `capture_raw`
+
+  With `capture_raw: :all`, every event a caller assembles keeps the provider term it
+  came from (`raw`), so a long stream held in memory holds the whole response twice.
+  `:response` does not apply to streams — there is no single response to keep — so the
+  choice for a stream is `:none` or pay for `:all`.
+
   ## Errors
 
   A `2xx` body's events are yielded as they decode. Everything that fails while
