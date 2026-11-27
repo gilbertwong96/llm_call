@@ -430,9 +430,9 @@ defmodule LlmCall do
       "set config :llm_call, json_library: Mod or a client json_library: Mod"
   end
 
-  defp normalize(_client, {:ok, %{status: status, headers: headers, body: body}}) do
-    {:ok, %{status: status, headers: headers, body: body}}
-  end
+  # Pass-through: `LlmCall.HTTP.request/2` built the response, and its `@type response`
+  # is the contract for the three keys.
+  defp normalize(_client, {:ok, %{status: _status} = response}), do: {:ok, response}
 
   defp normalize(_client, {:error, reason}) do
     {:error, Error.from_transport(reason)}
@@ -589,6 +589,7 @@ defmodule LlmCall do
   defp encode_query(query) when is_map(query) do
     {:ok, URI.encode_query(query)}
   rescue
+    # reach:disable-next-line bare_rescue -- URI raises on caller-supplied values
     _error ->
       {:error, invalid("request query must be string-encodable", :validation)}
   end

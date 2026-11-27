@@ -225,22 +225,28 @@ defmodule LlmCall.WS.Mint do
   end
 
   defp collect_responses(responses, state) do
-    Enum.reduce_while(responses, {:ok, [], state}, fn
-      {:data, _ref, data}, {:ok, frames, state} ->
-        case collect_data(data, state) do
-          {:ok, new_frames, state} -> {:cont, {:ok, frames ++ new_frames, state}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
+    result =
+      Enum.reduce_while(responses, {:ok, [], state}, fn
+        {:data, _ref, data}, {:ok, chunks, state} ->
+          case collect_data(data, state) do
+            {:ok, new_frames, state} -> {:cont, {:ok, [new_frames | chunks], state}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
 
-      {:error, _ref, reason}, _acc ->
-        {:halt, {:error, reason}}
+        {:error, _ref, reason}, _acc ->
+          {:halt, {:error, reason}}
 
-      {:done, _ref}, _acc ->
-        {:halt, {:error, :closed}}
+        {:done, _ref}, _acc ->
+          {:halt, {:error, :closed}}
 
-      _other, acc ->
-        {:cont, acc}
-    end)
+        _other, acc ->
+          {:cont, acc}
+      end)
+
+    case result do
+      {:ok, chunks, state} -> {:ok, chunks |> Enum.reverse() |> Enum.concat(), state}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp collect_data(data, state) do
@@ -331,7 +337,8 @@ defmodule LlmCall.WS.Mint do
   defp parse_url(url) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: scheme, host: host} = uri when scheme in ["ws", "wss"] and is_binary(host) ->
-        {:ok, %{uri | port: uri.port || default_port(scheme)}, String.to_atom(scheme)}
+        {scheme, default_port} = websocket_scheme(scheme)
+        {:ok, %{uri | port: uri.port || default_port}, scheme}
 
       _other ->
         {:error, {:invalid_url, url}}
@@ -341,6 +348,11 @@ defmodule LlmCall.WS.Mint do
   end
 
   defp parse_url(url), do: {:error, {:invalid_url, url}}
+
+  # The scheme is restricted to these two by the guard above, so this is a mapping
+  # rather than an atom leak; `String.to_atom/1` on wire input would be one.
+  defp websocket_scheme("ws"), do: {:ws, 80}
+  defp websocket_scheme("wss"), do: {:wss, 443}
 
   defp default_port("ws"), do: 80
   defp default_port("wss"), do: 443

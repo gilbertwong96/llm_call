@@ -675,7 +675,7 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
     raw = function["arguments"]
     name = function["name"]
     id = entry["id"]
-    {arguments, arguments_error} = decode_arguments(raw, config.json)
+    {arguments, arguments_error} = Helpers.decode_arguments(raw, config.json)
 
     if (is_nil(id) or (is_binary(id) and id != "")) and is_binary(name) and name != "" do
       {:ok,
@@ -690,8 +690,6 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
       {:error, invalid_response("tool call requires a non-empty id when present and a name")}
     end
   end
-
-  defp decode_arguments(raw, json), do: Helpers.decode_arguments(raw, json)
 
   defp extra_choices(term) do
     term
@@ -809,14 +807,17 @@ defmodule LlmCall.Dialect.OpenAI.Chat do
   defp unmapped_delta_events(_delta, _term, _config), do: []
 
   defp tool_events(%{"tool_calls" => calls}, index, term, config, data) when is_list(calls) do
-    Enum.reduce(calls, {[], data}, fn call, {events, data} ->
-      tool_index = Helpers.index(call["index"]) || index || 0
-      function = call["function"] || %{}
-      seen? = tool_index in data.tool_indexes
-      data = %{data | tool_indexes: Enum.uniq([tool_index | data.tool_indexes])}
+    {chunks, data} =
+      Enum.reduce(calls, {[], data}, fn call, {chunks, data} ->
+        tool_index = Helpers.index(call["index"]) || index || 0
+        function = call["function"] || %{}
+        seen? = tool_index in data.tool_indexes
+        data = %{data | tool_indexes: Enum.uniq([tool_index | data.tool_indexes])}
 
-      {events ++ tool_call_events(call, function, tool_index, seen?, term, config), data}
-    end)
+        {[tool_call_events(call, function, tool_index, seen?, term, config) | chunks], data}
+      end)
+
+    {chunks |> Enum.reverse() |> Enum.concat(), data}
   end
 
   defp tool_events(_delta, _index, _term, _config, data), do: {[], data}

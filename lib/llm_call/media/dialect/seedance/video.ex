@@ -197,6 +197,7 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
   defp failed_operation(payload, terminal, config) do
     error = if is_map(payload["error"]), do: payload["error"], else: %{}
     code = Helpers.code(error["code"]) || terminal
+    raw = Helpers.capture_response(config, payload)
 
     %Operation{
       id: Helpers.id(payload["id"]),
@@ -206,9 +207,9 @@ defmodule LlmCall.Media.Dialect.Seedance.Video do
         message: error["message"] || "task #{terminal}",
         code: code,
         retryable?: Helpers.retryable?(code, @retryable_codes),
-        raw: Helpers.capture_response(config, payload)
+        raw: raw
       },
-      raw: Helpers.capture_response(config, payload)
+      raw: raw
     }
   end
 

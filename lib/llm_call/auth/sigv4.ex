@@ -225,7 +225,9 @@ defmodule LlmCall.Auth.SigV4 do
       |> Enum.sort_by(&elem(&1, 0))
 
     {Enum.map_join(selected, ";", &elem(&1, 0)),
-     Enum.map_join(selected, "", fn {name, value} -> name <> ":" <> value <> "\n" end)}
+     selected
+     |> Enum.flat_map(fn {name, value} -> [name, ":", value, "\n"] end)
+     |> IO.iodata_to_binary()}
   end
 
   defp signed_header?({"host", _value}), do: true
@@ -242,7 +244,9 @@ defmodule LlmCall.Auth.SigV4 do
     query
     |> Enum.map(fn {name, value} -> {uri_encode(name), uri_encode(value)} end)
     |> Enum.sort()
-    |> Enum.map_join("&", fn {name, value} -> name <> "=" <> value end)
+    |> Enum.map(fn {name, value} -> [name, "=", value] end)
+    |> Enum.intersperse("&")
+    |> IO.iodata_to_binary()
   end
 
   defp uri_encode(value) do

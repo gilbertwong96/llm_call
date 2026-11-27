@@ -218,7 +218,9 @@ defmodule LlmCall.HTTP do
 
   defp printable_ascii?(<<>>), do: true
 
-  defp printable_ascii?(<<byte, rest::binary>>) when byte in 0x20..0x7E or byte == 0x09,
+  defp printable_ascii?(<<0x09, rest::binary>>), do: printable_ascii?(rest)
+
+  defp printable_ascii?(<<byte, rest::binary>>) when byte in 0x20..0x7E,
     do: printable_ascii?(rest)
 
   defp printable_ascii?(_value), do: false
@@ -338,6 +340,7 @@ defmodule LlmCall.HTTP do
   defp validate_pool(pool) do
     if pool_alive?(pool), do: :ok, else: {:error, {:unknown_pool, pool}}
   rescue
+    # reach:disable-next-line bare_rescue -- Finch's registry raises its own kinds
     _error -> {:error, {:unknown_pool, pool}}
   end
 

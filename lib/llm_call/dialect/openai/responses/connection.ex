@@ -429,8 +429,8 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   def terminate(_reason, state) do
     state = cancel_max_age(state)
     state = cancel_retry(state)
+    # `safe_close` returns `:ok`, which is also what `terminate/2` returns.
     safe_close(state.ws, state.conn)
-    :ok
   end
 
   defp connect(client, ws, ws_opts, headers) do
@@ -556,6 +556,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   defp safe_decode_event(event, config, stream_state) do
     Responses.decode_stream_event(event, config, stream_state)
   rescue
+    # reach:disable-next-line bare_rescue -- a codec is caller-supplied code
     error ->
       {:error,
        %Error{
@@ -789,6 +790,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   defp safe_close(ws, conn) do
     ws.close(conn, 1000, "connection closing")
   rescue
+    # reach:disable-next-line bare_rescue -- `LlmCall.WS` is a replaceable behaviour
     _error -> :ok
   end
 
@@ -803,12 +805,14 @@ defmodule LlmCall.Dialect.OpenAI.Responses.Connection do
   defp safe_feed(ws, conn, message) do
     ws.feed(conn, message)
   rescue
+    # reach:disable-next-line bare_rescue -- `LlmCall.WS` is a replaceable behaviour
     error -> {:error, {:feed_failed, error}}
   end
 
   defp safe_send(ws, conn, frame) do
     ws.send_frame(conn, frame)
   rescue
+    # reach:disable-next-line bare_rescue -- `LlmCall.WS` is a replaceable behaviour
     error -> {:error, Exception.message(error)}
   end
 end

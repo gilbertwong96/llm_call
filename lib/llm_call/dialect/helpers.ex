@@ -1256,17 +1256,22 @@ defmodule LlmCall.Dialect.Helpers do
   defp validate_param_shape(key, _value, :integer, codec),
     do: error(codec, "params #{key} must be an integer")
 
-  defp validate_param_shape(_key, value, {:number, min, max}, _codec)
-       when is_number(value) and value >= min and (max == :infinity or value <= max),
-       do: :ok
+  # `:infinity` is not a number, so the bound is matched in a head of its own rather
+  # than compared to a literal inside a guard.
+  defp validate_param_shape(key, value, {:number, min, max}, codec) when is_number(value) do
+    if at_least?(value, min) and at_most?(value, max),
+      do: :ok,
+      else: error(codec, "params #{key} must be a number #{range(min, max)}")
+  end
 
   defp validate_param_shape(key, _value, {:number, min, max}, codec),
     do: error(codec, "params #{key} must be a number #{range(min, max)}")
 
-  defp validate_param_shape(_key, value, {:integer, min, max}, _codec)
-       when is_integer(value) and (min == :neg_infinity or value >= min) and
-              (max == :infinity or value <= max),
-       do: :ok
+  defp validate_param_shape(key, value, {:integer, min, max}, codec) when is_integer(value) do
+    if at_least?(value, min) and at_most?(value, max),
+      do: :ok,
+      else: error(codec, "params #{key} must be an integer #{range(min, max)}")
+  end
 
   defp validate_param_shape(key, _value, {:integer, min, max}, codec),
     do: error(codec, "params #{key} must be an integer #{range(min, max)}")
@@ -1280,6 +1285,14 @@ defmodule LlmCall.Dialect.Helpers do
   end
 
   defp validate_param_shape(_key, _value, :any, _codec), do: :ok
+
+  # `:neg_infinity` and `:infinity` are not numbers, so each bound is matched in a
+  # head of its own instead of being compared to a literal inside a guard.
+  defp at_least?(_value, :neg_infinity), do: true
+  defp at_least?(value, min), do: value >= min
+
+  defp at_most?(_value, :infinity), do: true
+  defp at_most?(value, max), do: value <= max
 
   defp stop?(stop, _limit) when is_binary(stop), do: stop != ""
 

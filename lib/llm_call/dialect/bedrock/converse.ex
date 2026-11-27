@@ -449,10 +449,19 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
   defp validate_part(_role, %ToolCall{id: id}) when is_binary(id) and id != "", do: :ok
   defp validate_part(_role, %ToolCall{}), do: Helpers.error(@codec, "tool calls require an id")
 
-  defp validate_part(_role, %ToolResult{call_id: id}) when not is_binary(id) or id == "",
+  defp validate_part(_role, %ToolResult{call_id: ""}),
     do: Helpers.error(@codec, "tool results require a call_id")
 
-  defp validate_part(_role, %ToolResult{content: content}) when content in [nil, "", []],
+  defp validate_part(_role, %ToolResult{call_id: id}) when not is_binary(id),
+    do: Helpers.error(@codec, "tool results require a call_id")
+
+  defp validate_part(_role, %ToolResult{content: nil}),
+    do: Helpers.error(@codec, "tool results require content")
+
+  defp validate_part(_role, %ToolResult{content: ""}),
+    do: Helpers.error(@codec, "tool results require content")
+
+  defp validate_part(_role, %ToolResult{content: []}),
     do: Helpers.error(@codec, "tool results require content")
 
   defp validate_part(_role, %ToolResult{}), do: :ok
@@ -642,7 +651,7 @@ defmodule LlmCall.Dialect.Bedrock.Converse do
       %{"role" => "user", "content" => current} = message,
       [%{"role" => "user", "content" => previous} = merged | rest] ->
         if tool_results?(previous) and tool_results?(current),
-          do: [%{merged | "content" => previous ++ current} | rest],
+          do: [%{merged | "content" => Enum.concat(previous, current)} | rest],
           else: [message, merged | rest]
 
       message, acc ->

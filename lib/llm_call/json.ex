@@ -21,6 +21,12 @@ defmodule LlmCall.JSON do
   encoder, a wrapped implementation with metrics).
   """
 
+  # Every call in this module enters a replaceable JSON implementation (Elixir's
+  # `JSON`, Jason, Poison, Torque, or a wrapper). Whatever that module raises has to
+  # become the tagged error this facade promises, so the exception type is unknown by
+  # design and cannot be narrowed to a list.
+  # reach:disable-for-this-file bare_rescue -- the JSON module is pluggable
+
   @doc "Encodes a term with the configured module."
   @spec encode(module(), term()) :: {:ok, String.t()} | {:error, term()}
   def encode(module, term) do

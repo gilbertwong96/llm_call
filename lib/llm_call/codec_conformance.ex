@@ -36,6 +36,10 @@ defmodule LlmCall.Codec.Conformance do
   alias LlmCall.Conformance, as: Shared
   alias LlmCall.Reasoning.Capabilities, as: ReasoningCapabilities
 
+  # Interpolated once per failure rather than concatenated inside the reduce that walks
+  # a stream's chunks.
+  @stream_contract "must return {:ok, events, state}, {:done, state}, or {:error, %LlmCall.Error{}}"
+
   # One representative per source kind. A base64 part needs its media_type, and
   # Converse needs a document name, so the samples carry both.
   @input_samples %{
@@ -553,12 +557,17 @@ defmodule LlmCall.Codec.Conformance do
 
       raw = Enum.map(events, & &1.raw)
 
-      assert Enum.all?(raw, &(is_nil(&1) or is_map(&1))),
+      {all_well_formed?, any_payload?} =
+        Enum.reduce(raw, {true, false}, fn value, {all_well_formed?, any_payload?} ->
+          {all_well_formed? and (is_nil(value) or is_map(value)), any_payload? or is_map(value)}
+        end)
+
+      assert all_well_formed?,
              "#{label} StreamEvent.raw must be a map or nil with " <>
                "capture_raw: #{inspect(capture)}, got: #{inspect(raw)}"
 
       if expect_payloads? do
-        assert Enum.any?(raw, &is_map/1),
+        assert any_payload?,
                "#{label} capture_raw: :all must retain at least one provider event on " <>
                  "StreamEvent.raw"
       else
@@ -598,15 +607,15 @@ defmodule LlmCall.Codec.Conformance do
     assembler =
       StreamAssembler.new([json_decoder: decoder] ++ Keyword.take(opts, [:max_argument_bytes]))
 
-    {assembler, calls} =
-      Enum.reduce(events, {assembler, []}, fn event, {assembler, calls} ->
+    {assembler, chunks} =
+      Enum.reduce(events, {assembler, []}, fn event, {assembler, chunks} ->
         {:ok, assembler, completed} = StreamAssembler.feed(assembler, event)
-        {assembler, calls ++ completed}
+        {assembler, [completed | chunks]}
       end)
 
     {:ok, _assembler, final} = StreamAssembler.finish(assembler)
 
-    calls = calls ++ final
+    calls = chunks |> Enum.reverse() |> Enum.concat() |> Kernel.++(final)
 
     assert length(calls) == expected_calls,
            "#{label} must assemble #{expected_calls} tool call(s), got: #{inspect(calls)}"
@@ -1142,43 +1151,39 @@ defmodule LlmCall.Codec.Conformance do
     assert {:ok, %StreamState{} = state} = codec.init_stream(request, config),
            "#{label}.init_stream/2 must return {:ok, %LlmCall.StreamState{}}"
 
-    {events, state, done?, halted?} =
+    {chunks, state, done?, halted?} =
       chunks
       |> Enum.with_index()
       |> Enum.reduce_while({[], state, false, false}, fn {chunk, position},
-                                                         {events, state, _done, _halted} ->
+                                                         {chunks, state, _done, _halted} ->
         case codec.decode_stream_event(chunk, config, state) do
           {:ok, new_events, %StreamState{} = next} when is_list(new_events) ->
-            {:cont, {events ++ new_events, next, false, false}}
+            {:cont, {[new_events | chunks], next, false, false}}
 
           {:done, %StreamState{} = next} ->
-            {:halt, {events, next, true, false}}
+            {:halt, {chunks, next, true, false}}
 
           {:error, %Error{} = error} ->
             Shared.assert_error(error, label)
-            {:halt, {events, state, true, true}}
+            {:halt, {chunks, state, true, true}}
 
           other ->
-            flunk(
-              "#{label}.decode_stream_event/3 must return {:ok, events, state}, " <>
-                "{:done, state}, or {:error, %LlmCall.Error{}} for chunk #{position}, " <>
-                "got: #{inspect(other)}"
-            )
+            flunk(stream_contract_message(label, position, other))
         end
       end)
 
     if halted? do
-      {events, [], done?}
+      {collect(chunks), [], done?}
     else
       # A protocol with a terminator may reject a body that never carried it, so an
       # error here is a legal answer; anything else is a contract violation.
       case codec.finish_stream(state, config) do
         {:ok, tail, %StreamState{}} when is_list(tail) ->
-          {events ++ tail, tail, done?}
+          {collect([tail | chunks]), tail, done?}
 
         {:error, %Error{} = error} ->
           Shared.assert_error(error, label)
-          {events, [], done?}
+          {collect(chunks), [], done?}
 
         other ->
           flunk(
@@ -1187,6 +1192,14 @@ defmodule LlmCall.Codec.Conformance do
           )
       end
     end
+  end
+
+  # The chunks arrive newest-first, so one reverse restores the decoder's order.
+  defp collect(chunks), do: chunks |> Enum.reverse() |> Enum.concat()
+
+  defp stream_contract_message(label, position, other) do
+    "#{label}.decode_stream_event/3 #{@stream_contract} for chunk #{position}, " <>
+      "got: #{inspect(other)}"
   end
 
   defp assert_event_order(events, label) do
@@ -1219,6 +1232,7 @@ defmodule LlmCall.Codec.Conformance do
   defp decode_without_raising(codec, payload) do
     codec.decode_response(payload, %Config{})
   rescue
+    # reach:disable-next-line bare_rescue -- a codec is caller-supplied code
     error ->
       flunk(
         "#{inspect(codec)}.decode_response/2 raised #{inspect(error.__struct__)} for a " <>
@@ -1232,6 +1246,7 @@ defmodule LlmCall.Codec.Conformance do
       _not_an_object -> {:error, raw}
     end
   rescue
+    # reach:disable-next-line bare_rescue -- `:json` raises on arbitrary bytes
     _decode_error -> {:error, raw}
   end
 

@@ -212,9 +212,11 @@ defmodule LlmCall.Stream do
   defp framing(%{framing: framing}, fun) do
     {:ok, fun.(framing)}
   rescue
+    # `function_exported?` first: a framing that does not implement the behaviour must
+    # not turn the exception being handled into an UndefinedFunctionError. Every other
+    # exception is re-raised, so this clause has to catch all of them.
+    # reach:disable-next-line bare_rescue -- the type is unknown because it is re-raised
     error ->
-      # `function_exported?` first: a framing that does not implement the behaviour must
-      # not turn the exception being handled into an UndefinedFunctionError.
       if function_exported?(framing, :error, 0) and error.__struct__ == framing.error(),
         do: {:error, Exception.message(error)},
         else: reraise(error, __STACKTRACE__)
@@ -243,6 +245,7 @@ defmodule LlmCall.Stream do
   defp safe_decode_event(state, term) do
     state.codec.decode_stream_event(term, state.client.config, state.stream_state)
   rescue
+    # reach:disable-next-line bare_rescue -- a codec is caller-supplied code
     error ->
       {:error, invalid_response("stream codec raised: #{Exception.message(error)}")}
   end
@@ -265,6 +268,7 @@ defmodule LlmCall.Stream do
   defp safe_finish_stream(state) do
     state.codec.finish_stream(state.stream_state, state.client.config)
   rescue
+    # reach:disable-next-line bare_rescue -- a codec is caller-supplied code
     error ->
       {:error, invalid_response("stream finish raised: #{Exception.message(error)}")}
   end

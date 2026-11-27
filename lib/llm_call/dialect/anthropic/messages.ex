@@ -416,26 +416,30 @@ defmodule LlmCall.Dialect.Anthropic.Messages do
 
   defp check_tool_result_first(%Message{role: :user, content: content}, index)
        when is_list(content) do
-    results = Enum.count(content, &is_struct(&1, LlmCall.ToolResult))
-
-    if results == 0 do
+    if tool_results_lead?(content) do
       :ok
     else
-      leading = content |> Enum.take_while(&is_struct(&1, LlmCall.ToolResult)) |> length()
-
-      if leading == results do
-        :ok
-      else
-        Helpers.error(
-          @codec,
-          "messages[#{index}] puts a non-tool_result part before a tool_result; " <>
-            "Anthropic requires every tool_result first in the message"
-        )
-      end
+      Helpers.error(
+        @codec,
+        "messages[#{index}] puts a non-tool_result part before a tool_result; " <>
+          "Anthropic requires every tool_result first in the message"
+      )
     end
   end
 
   defp check_tool_result_first(_message, _index), do: :ok
+
+  # `:lead` while every part is a `tool_result`, `:tail` after the first part that is
+  # not one; a `tool_result` in the tail is the failure Anthropic reports. One pass, no
+  # prefix materialised.
+  defp tool_results_lead?(content) do
+    Enum.reduce_while(content, :lead, fn
+      %LlmCall.ToolResult{}, :lead -> {:cont, :lead}
+      _part, :lead -> {:cont, :tail}
+      %LlmCall.ToolResult{}, :tail -> {:halt, :bad}
+      _part, :tail -> {:cont, :tail}
+    end) != :bad
+  end
 
   defp validate_part_shape(_role, %Content.Text{text: text}, _json),
     do: validate_text_block(text, "messages")

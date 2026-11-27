@@ -872,7 +872,7 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
 
   defp decode_function_call(%{"call_id" => call_id} = item, config) do
     raw = item["arguments"]
-    {arguments, arguments_error} = decode_arguments(raw, config.json)
+    {arguments, arguments_error} = Helpers.decode_arguments(raw, config.json)
 
     {:ok,
      [
@@ -918,8 +918,6 @@ defmodule LlmCall.Dialect.OpenAI.Responses do
   end
 
   defp reasoning_text(_item), do: nil
-
-  defp decode_arguments(raw, json), do: Helpers.decode_arguments(raw, json)
 
   defp response_stop_reason(term, content, default) do
     cond do

@@ -825,10 +825,10 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   end
 
   defp blocked?(term) do
-    case term["promptFeedback"] do
-      %{"blockReason" => reason} when is_binary(reason) -> true
-      _other -> false
-    end
+    match?(
+      %{"blockReason" => reason} when is_binary(reason),
+      term["promptFeedback"]
+    )
   end
 
   defp invalid_response(message) do
@@ -1010,10 +1010,13 @@ defmodule LlmCall.Dialect.Gemini.GenerateContent do
   end
 
   defp parts_events(parts, term, config, data) do
-    Enum.reduce(parts, {[], data}, fn part, {events, data} ->
-      {new_events, data} = part_events(part, term, config, data)
-      {events ++ new_events, data}
-    end)
+    {chunks, data} =
+      Enum.reduce(parts, {[], data}, fn part, {chunks, data} ->
+        {new_events, data} = part_events(part, term, config, data)
+        {[new_events | chunks], data}
+      end)
+
+    {chunks |> Enum.reverse() |> Enum.concat(), data}
   end
 
   defp part_events(%{"functionCall" => call}, term, config, data) when is_map(call) do

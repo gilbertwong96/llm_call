@@ -103,6 +103,7 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
     base_resp = if is_map(payload["base_resp"]), do: payload["base_resp"], else: %{}
 
     code = Helpers.code(base_resp["status_code"] || "Fail")
+    raw = Helpers.capture_response(config, payload)
 
     {:ok,
      %Operation{
@@ -113,9 +114,9 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
          message: base_resp["status_msg"] || "task failed",
          code: code,
          retryable?: Helpers.retryable?(code, @retryable_codes),
-         raw: Helpers.capture_response(config, payload)
+         raw: raw
        },
-       raw: Helpers.capture_response(config, payload)
+       raw: raw
      }}
   end
 
@@ -201,12 +202,14 @@ defmodule LlmCall.Media.Dialect.MiniMax.Video do
   defp check_base_resp(payload, %Config{} = config) do
     case payload["base_resp"] do
       %{"status_code" => code} = base_resp when is_integer(code) and code != 0 ->
+        error_code = Helpers.code(code)
+
         {:error,
          %Error{
            kind: :provider,
            message: base_resp["status_msg"] || "provider error",
-           code: Helpers.code(code),
-           retryable?: Helpers.retryable?(Helpers.code(code), @retryable_codes),
+           code: error_code,
+           retryable?: Helpers.retryable?(error_code, @retryable_codes),
            raw: Helpers.capture_response(config, payload)
          }}
 

@@ -162,17 +162,17 @@ defmodule LlmCall.SSE do
   defp retry_hint(block, previous) do
     block
     |> String.split("\n")
-    |> Enum.reduce(previous, fn
-      "retry:" <> rest, _acc ->
-        case rest |> String.trim() |> Integer.parse() do
-          {ms, ""} when ms >= 0 -> ms
-          _other -> previous
-        end
-
-      _line, acc ->
-        acc
-    end)
+    |> Enum.reduce(previous, &retry_from/2)
   end
+
+  defp retry_from("retry:" <> rest, previous) do
+    case rest |> String.trim() |> Integer.parse() do
+      {ms, ""} when ms >= 0 -> ms
+      _other -> previous
+    end
+  end
+
+  defp retry_from(_line, previous), do: previous
 
   defp data_line("data:" <> rest), do: String.replace_prefix(rest, " ", "")
   defp data_line(_line), do: nil
