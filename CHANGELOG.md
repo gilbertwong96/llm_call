@@ -6,74 +6,62 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-27
+
 ### Breaking changes
 
 - `Capabilities.image_input` and `file_input` are `%LlmCall.Capabilities.Input{}`
-  records instead of booleans. A boolean could not say "bytes yes, URL no", which is
-  what Converse, Anthropic and Gemini actually accept, so the declaration was wrong
-  for one of them whichever value it held. `%Input{}` accepts nothing, which is what
-  `false` meant; `Input.accepts?/2` answers the question for a concrete part.
+  records instead of booleans, one flag per source kind (`inline`, `url`, `uri`,
+  `file`). A boolean could not say "bytes yes, URL no", which is what Anthropic and
+  Gemini accept for some parts. `%Input{}` accepts nothing, which is what `false`
+  meant, and `Input.accepts?/2` answers the question for a concrete part.
 - Gemini no longer accepts a URL or a bare-string media source. `fileData.fileUri`
   takes a `gs://` object or a Files API URI, so an `https://` URL was a request the
   service answers with a 400. Use `{:uri, "gs://…"}`, or `{:base64, data}` to send the
   bytes.
 
-### Fixes
-
-- SigV4 canonicalised a percent-encoded path verbatim, so a Bedrock model id — whose
-  `:` a codec writes as `%3A` — signed as `%3A` where every AWS SDK signs `%253A`.
-  The published `ListUsers` vector has a `/` path and could not catch it. Found by
-  comparing against botocore, which is the reference client that works against
-  Bedrock; a Converse call would have been a 403 without it.
-
 ### Added
 
-- `auth: {:sigv4, service: ..., region: ...}` signs every request with AWS
-  Signature Version 4. Credentials are a client option — `credentials:` takes a
-  map or a 0-arity function that returns one — and `region:` overrides the
-  declared region per client. The canonical request follows an AWS SDK for the
-  path, the query and the header set, and the suite replays eight request shapes
-  botocore signed — a percent-encoded model id, an ARN, query ordering, a session
-  token, header normalisation, a non-ASCII body — as well as the published `ListUsers`
-  vector.
+- `auth: {:sigv4, service: ..., region: ...}` signs every request with AWS Signature
+  Version 4. `credentials:` takes a map or a 0-arity function — read once per request,
+  nothing cached — and `region:` overrides the declared region per client. The
+  canonical request follows what an AWS SDK produces for the path, the query and the
+  header set, and no runtime dependency is added.
 - `LlmCall.Dialect.Bedrock.Converse` encodes and decodes Bedrock's `Converse` API:
   text, tool use, images and documents inline or from S3, on `/converse` and on
-  `/converse-stream` alike. A streamed call maps `contentBlock*` and `messageStop` onto the IR stream
-  events; because Bedrock sends usage *after* `messageStop`, the `:message_stop`
-  terminator is flushed when the body ends, and a stream that never reaches
-  `messageStop` is an `:invalid_response` rather than a quietly truncated one.
-- `provider_options.bedrock` is merged into the top level of the Converse request,
-  the rule the other codecs follow, so `guardrailConfig` and Bedrock's other
-  top-level fields are reachable. The canonical envelope keys are reserved and a
-  collision is a `:validation` error. `additionalModelRequestFields` is written
-  nested, as it appears on the wire.
-- `LlmCall.EventStream` decodes `application/vnd.amazon.eventstream`, the framing
-  `ConverseStream` answers with: length-prefixed frames, typed headers, CRC-32 over
-  both the prelude and the message, and a truncation check at end of body. The test
-  frames come from `@smithy/eventstream-codec`, an implementation this decoder shares
-  no code with.
+  `/converse-stream` alike. A streamed call maps `contentBlock*` and `messageStop` onto
+  the IR stream events; because Bedrock sends usage *after* `messageStop`, the
+  `:message_stop` terminator is flushed when the body ends, and a stream that never
+  reaches `messageStop` is an `:invalid_response` rather than a quietly truncated one.
+  A frame that reports a stream failure is a provider error, not an event.
+- `provider_options.bedrock` is merged into the top level of the Converse request, the
+  rule the other codecs follow, so `guardrailConfig` and Bedrock's other top-level
+  fields are reachable. The canonical envelope keys are reserved and a collision is a
+  `:validation` error. `additionalModelRequestFields` is written nested, as it appears
+  on the wire.
+- `LlmCall.EventStream` decodes `application/vnd.amazon.eventstream`: length-prefixed
+  frames, typed headers, CRC-32 over both the prelude and the message, and a truncation
+  check at end of body.
 - Framing is a codec decision: the optional `stream_framing/0` callback on
-  `LlmCall.Codec` (`LlmCall.SSE` by default) and the `LlmCall.Framing` behaviour
-  drive `LlmCall.Stream`, which no longer knows what a body chunk is. The four SSE
-  codecs are untouched; a protocol framed as event stream declares
-  `LlmCall.EventStream`.
+  `LlmCall.Codec` (`LlmCall.SSE` by default) and the `LlmCall.Framing` behaviour drive
+  `LlmCall.Stream`, which no longer knows what a body chunk is. The four SSE codecs are
+  untouched; a protocol framed as event stream declares `LlmCall.EventStream`.
 - `{:uri, uri}` is a canonical content source for a location only the provider can
   resolve (`s3://` for Converse), as distinct from `{:url, _}`, which the provider
-  fetches over HTTP. `LlmCall.Capabilities.Input` gained the matching `uri` kind.
-- Anthropic's document validation accepts exactly the sources it can encode. Its
-  catch-all accepted any source, including one `encode_source/2` has no clause for;
-  the per-source conformance check found it.
-- Gemini's media source is now `{:uri, _}` for `gs://` and Files API URIs, and a URL
-  or bare string is refused. `fileData.fileUri` was never a fetchable URL, so the old
-  acceptance only moved the failure to the provider.
-- The conformance suite derives its sample part from the declared sources instead of
-  always sending a URL image, so `capabilities/2` and `validate_request/2` cannot
-  disagree about a source kind nobody checks.
-- Telemetry: `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` events
-  carry the operation, provider, codec and model; `:stop` adds the outcome, the
-  status, and the token counts as measurements, and a stream reports `:first_event`
-  (first event) and `:first_text` (first visible token) separately. No handler is
-  attached, so the cost is zero until a host subscribes. See `LlmCall.Telemetry`.
+  fetches over HTTP. `LlmCall.Capabilities.Input` has the matching `uri` kind.
+- `LlmCall.Codec.Conformance` derives its sample part from the declared sources instead
+  of always sending a URL image, so an adapter that declares a kind it rejects now
+  fails the suite.
+- Telemetry: `[:llm_call, :request, ...]` and `[:llm_call, :stream, ...]` events carry
+  the operation, provider, codec and model; `:stop` adds the outcome, the status, and
+  the token counts as measurements, and a stream reports `:first_event` (first event)
+  and `:first_text` (first visible token) separately. No handler is attached, so the
+  cost is zero until a host subscribes. See `LlmCall.Telemetry`.
+
+### Fixed
+
+- Anthropic's document validation accepts exactly the sources it can encode. It used to
+  accept any source and then raise on the way out for one it had no encoder for.
 
 ## 0.2.0 - 2026-11-24
 

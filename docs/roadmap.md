@@ -49,7 +49,7 @@ depend on each other:
 - `Request.tools` accepts a `tool_call` module, and `LlmCall.StreamAssembler` bounds
   streamed tool-call arguments with `max_argument_bytes`.
 
-## 3. Delivered since 0.2 (unreleased)
+## 3. Delivered in 0.3
 
 Three kinds of change, none of them a new operation family: an authentication family
 (a provider can sign what it sends), a fifth reference adapter together with the

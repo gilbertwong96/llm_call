@@ -37,7 +37,7 @@ image and video endpoints, including long-running jobs.
 ```elixir
 def deps do
   [
-    {:llm_call, "~> 0.2.0"}
+    {:llm_call, "~> 0.3.0"}
   ]
 end
 ```
